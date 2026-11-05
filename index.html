@@ -101,6 +101,7 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 .f input:focus,.f select:focus{outline:2px solid var(--primary-line);border-color:transparent}
 .f input.empty,.f select.empty{background:var(--warn-soft)}
 .f .hint{font-size:12px;color:var(--warn);margin-top:4px}
+.f input:not(.empty)~.hint,.f select:not(.empty)~.hint{display:none}
 .f.wide{grid-column:1/-1}
 .sub{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:20px 0 10px}
 .note{background:var(--primary-soft);border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:14px}
@@ -162,6 +163,13 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 .rv-actions{display:flex;gap:10px;margin-top:22px}
 .rv-actions .big{flex:1;justify-content:center;padding:15px;font-size:16px;background:var(--p2)}
 @media(max-width:560px){.g4{grid-template-columns:repeat(3,1fr)}.rv{padding:18px}.plan b{font-size:22px}}
+.seg{display:flex;background:var(--bg);border-radius:12px;padding:4px;gap:4px;margin-bottom:14px}
+.seg button{flex:1;border:none;background:none;padding:10px 8px;border-radius:9px;font:600 14.5px Outfit,sans-serif;color:var(--muted);cursor:pointer}
+.seg button.on{background:var(--card);color:var(--primary);box-shadow:0 1px 4px rgba(30,11,79,.12)}
+.comp-fat{border:1.5px dashed var(--primary-line);background:var(--primary-soft)}
+.comp-fat.ok{border-style:solid;border-color:var(--ok);background:var(--ok-soft)}
+.comp-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.comp-row p{font-size:14px;color:var(--muted);margin-top:4px;max-width:470px}
 .hidden{display:none!important}
 
 .modal{position:fixed;inset:0;background:rgba(15,10,30,.5);display:grid;place-items:center;padding:16px;z-index:10}
@@ -344,34 +352,48 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 <section id="tab-termo" class="hidden">
   <div class="title">
     <h2>Gerador de Termo de Adesão</h2>
-    <p>Faça o upload da proposta aprovada e gere o Termo de Adesão preenchido em Word (.docx)</p>
+    <p>Envie a proposta aprovada ou a fatura e gere o Termo de Adesão preenchido em Word (.docx)</p>
   </div>
 
   <div class="steps">
-    <div class="step active" id="st1"><div class="n">1</div><span>Upload da Proposta</span></div><div class="bar"></div>
+    <div class="step active" id="st1"><div class="n">1</div><span>Enviar documento</span></div><div class="bar"></div>
     <div class="step" id="st2"><div class="n">2</div><span>Revisar Dados</span></div><div class="bar"></div>
     <div class="step" id="st3"><div class="n">3</div><span>Gerar Termo</span></div>
   </div>
 
   <div id="p1">
     <div class="card">
-      <h3>📎 Proposta Aprovada</h3>
+      <h3>📎 O que você vai enviar?</h3>
+      <div class="seg" id="srcSeg">
+        <button type="button" class="on" data-src="proposta">📋 Proposta aprovada</button>
+        <button type="button" data-src="fatura">🧾 Fatura de energia</button>
+      </div>
       <div class="drop" id="drop">
         <div class="ic">☁️</div>
-        <strong>Arraste a proposta aqui ou clique para selecionar</strong>
-        <small>Aceita PDF, Word (.docx) ou imagem (JPG, PNG)</small>
+        <strong id="dropT">Arraste a proposta aqui ou clique para selecionar</strong>
+        <small id="dropS">Aceita PDF, Word (.docx) ou imagem (JPG, PNG) · a fatura pode ser adicionada depois</small>
         <input type="file" id="file" accept=".pdf,.docx,.jpg,.jpeg,.png" hidden>
       </div>
       <div class="file-ok" id="fileOk">✅ <span id="fileName"></span></div>
-      <div class="loading" id="load1"><div class="spin"></div><strong>Analisando a proposta...</strong><p>Extraindo dados do cliente e da unidade consumidora</p></div>
+      <div class="loading" id="load1"><div class="spin"></div><strong id="loadT">Analisando a proposta...</strong><p>Extraindo dados do cliente e da unidade consumidora</p></div>
       <div class="alert" id="err1"></div>
     </div>
+    <div class="actions" style="justify-content:center"><button class="linkbtn" id="termoManual">ou preencher manualmente</button></div>
   </div>
 
   <div id="p2" class="hidden">
     <div class="alert warn" id="warn1"></div>
+    <div class="card comp-fat" id="compFat">
+      <div class="comp-row">
+        <div><h3 style="margin:0">🧾 Complementar com a fatura</h3>
+          <p id="compTxt">A proposta não traz tudo. Adicione a fatura para preencher UC, classe, distribuidora, dia da leitura e vencimento.</p></div>
+        <button class="btn sec" id="compBtn">Adicionar fatura (PDF)</button>
+        <input type="file" id="compFile" accept=".pdf" hidden>
+      </div>
+      <div class="loading" id="compLoad" style="padding:16px 0 0"><div class="spin" style="width:28px;height:28px;margin-bottom:8px"></div><p>Lendo a fatura...</p></div>
+    </div>
     <div class="card">
-      <h3>🔍 Dados extraídos da proposta</h3>
+      <h3 id="extTitle">🔍 Dados extraídos da proposta</h3>
       <div class="legend">
         <span><i style="background:var(--ok-soft);border:1px solid var(--ok)"></i><b>Preenchido automaticamente</b> da proposta</span>
         <span><i style="background:var(--warn-soft);border:1px solid var(--warn)"></i><b>Preencher manualmente</b> (ficará em amarelo no Word)</span>
@@ -702,15 +724,20 @@ function parseCPFL(t){
     }
   }
   // 2º bloco: endereço com vírgula, documento e UC
+  let end2Glob='';
   const di=L.findIndex(s=>/^(CPF|CNPJ):/i.test(s));
   if(di>=0){
     const doc=L[di].replace(/^(CPF|CNPJ):\s*/i,'');
     if(!/\*/.test(doc)){if(doc.replace(/\D/g,'').length===14)d.cnpj=doc;else d.cpf=doc}
     for(let k=di+1;k<Math.min(L.length,di+4);k++){const u=L[k].match(/^(\d{8,12})$/);if(u){d.codigo_uc=u[1];break}}
-    const end2=L.slice(Math.max(0,di-5),di).find(s=>/,\s*\d/.test(s));
+    const end2=L.slice(Math.max(0,di-5),di).find(s=>/,\s*\d/.test(s));end2Glob=end2||d._end1;
     d.endereco=[end2||d._end1,d.bairro].filter(Boolean).join(', ');
   }
-  delete d._end1;
+  d.logradouro=(end2Glob||'');delete d._end1;
+  const cls=t.match(/Classifica[çc][ãa]o:?\s*(.+?)\s{2,}|Classifica[çc][ãa]o:?\s*([^\n]+?)\s*Tipo de Fornecimento/i);
+  if(cls)d.classe_uc=(cls[1]||cls[2]).trim();
+  const pl=t.match(/Pr[óo]xima leitura\s*(\d{2})\/\d{2}\/\d{4}/i);if(pl)d.dia_leitura=String(+pl[1]);
+  const vc=t.match(new RegExp('\\b(?:'+MES3+')\\/\\d{4}\\s+(\\d{2})\\/\\d{2}\\/\\d{4}\\s+R\\$','i'));if(vc)d.dia_vencimento=String(+vc[1]);
   const tn=t.match(/Disp\.?:?\s*(\d{3})/i);if(tn)d.tensao=tn[1];
   const te=t.match(/Consumo\s*-\s*TE[^\n]*?kWh\s+([\d.]+,\d+|\d+)/i);if(te)d.consumo_te=String(Math.round(num(te[1])));
   let inj=0,hasInj=false;
@@ -947,6 +974,66 @@ const tid=id=>'t_'+id;
 })();
 function goStep(n){[1,2,3].forEach(i=>{$('p'+i).classList.toggle('hidden',i!==n);const s=$('st'+i);s.classList.toggle('active',i===n);s.classList.toggle('done',i<n)});window.scrollTo({top:0,behavior:'smooth'})}
 
+let termoSrc='proposta';
+$('srcSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;termoSrc=b.dataset.src;
+  $('srcSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  const f=termoSrc==='fatura';
+  $('dropT').textContent=f?'Arraste a fatura aqui ou clique para selecionar':'Arraste a proposta aqui ou clique para selecionar';
+  $('dropS').textContent=f?'Aceita PDF da fatura (RGE/CPFL lida automaticamente)':'Aceita PDF, Word (.docx) ou imagem (JPG, PNG) · a fatura pode ser adicionada depois';
+  $('file').accept=f?'.pdf':'.pdf,.docx,.jpg,.jpeg,.png';
+  $('loadT').textContent=f?'Lendo a fatura...':'Analisando a proposta...';
+});
+const isoHoje=()=>{const h=new Date();return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`};
+function fromProposta(text){
+  const d=extractCommon(text);
+  if(text){
+    const k=text.match(/([\d\.,]+)\s*kWh/i);if(k)d.consumo=k[1];
+    if(/dupla/i.test(text))d.modalidade='Dupla';else if(/[úu]nica/i.test(text))d.modalidade='Única';
+    const np=text.match(/PROPOSTA[^\n]{0,60}?N[º°o]\.?\s*:?\s*([A-Z0-9][\w\-\/]*\d)/i)
+      ||(cfg.prefix?text.match(new RegExp('('+cfg.prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\d+)')):null);
+    d.num_proposta=np?np[1]:'';
+    if(!d.titular){const cl=text.match(/CLIENTE:\s*([^\n]+)/i);if(cl)d.titular=cl[1].trim()}
+    if(d.endereco)d.endereco=d.endereco.replace(/[.;]\s*$/,'');
+    const cs=text.match(/Consumo M[ée]dio Mensal \(kWh\)\s*([\d.,]+)/i);if(cs)d.consumo=cs[1];
+  }
+  return d;
+}
+/* Converte a leitura da fatura para os campos do Termo */
+function fromFatura(text){
+  const f=extractFatura(text),d={};
+  d.titular=f.titular||'';
+  d.documento=f.cpf||f.cnpj||'';
+  d.endereco=f.logradouro||f.endereco||'';
+  d.bairro=f.bairro||'';d.cep=f.cep||'';
+  d.cidade=f.cidade?(f.cidade+(f.uf?'/'+f.uf:'')):'';
+  d.codigo_uc=f.codigo_uc||'';
+  if(f.distribuidora){const up=f.distribuidora.toUpperCase();d.distribuidora=(/RGE|CPFL/.test(up)&&!/^CPFL/.test(up)?'CPFL - ':'')+up+(f.uf?'/'+f.uf:'')}
+  d.classe_uc=f.classe_uc||'';d.dia_leitura=f.dia_leitura||'';d.dia_vencimento=f.dia_vencimento||'';
+  const h=(f.hist||[]).filter(v=>isFinite(v)&&v>0);
+  if(h.length)d.consumo=fmtBR(Math.round(h.reduce((a,b)=>a+b,0)/h.length));
+  else if(f.consumo_te)d.consumo=fmtBR(num(f.consumo_te));
+  return d;
+}
+function setTermo(d,onlyEmpty){
+  let n=0;
+  ALL.forEach(fl=>{const el=$(tid(fl.id));const v=d[fl.id];
+    if(onlyEmpty){if(v&&!el.value.trim()){el.value=v;n++}}else el.value=v||'';
+    el.classList.toggle('empty',!el.value.trim())});
+  return n;
+}
+function openTermo(d,src,warn){
+  d.data_assinatura=d.data_assinatura||isoHoje();
+  d.rep_local=d.rep_local||`Santa Maria, ${dataExt(d.data_assinatura)}.`;
+  setTermo(d,false);
+  $('extTitle').textContent=src==='fatura'?'🔍 Dados extraídos da fatura':src==='manual'?'✍️ Preencha os dados':'🔍 Dados extraídos da proposta';
+  // quadro de complemento: aparece quando não começou pela fatura
+  $('compFat').classList.toggle('hidden',src==='fatura');$('compFat').classList.remove('ok');
+  $('compTxt').textContent='A proposta não traz tudo. Adicione a fatura para preencher UC, classe, distribuidora, dia da leitura e vencimento.';
+  $('compBtn').textContent='Adicionar fatura (PDF)';
+  const w=$('warn1');w.style.display=warn?'block':'none';w.textContent=warn?'⚠️ '+warn:'';
+  goStep(2);
+}
 setupDrop($('drop'),$('file'),async file=>{
   const err=$('err1');err.style.display='none';
   $('fileName').textContent=file.name;$('fileOk').style.display='flex';$('load1').style.display='block';
@@ -954,25 +1041,30 @@ setupDrop($('drop'),$('file'),async file=>{
     const name=file.name.toLowerCase();let text='';
     if(name.endsWith('.pdf'))text=await readPdf(file);
     else if(name.endsWith('.docx'))text=(await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
-    const d=extractCommon(text);
-    if(text){
-      const k=text.match(/([\d\.,]+)\s*kWh/i);if(k)d.consumo=k[1];
-      if(/dupla/i.test(text))d.modalidade='Dupla';else if(/[úu]nica/i.test(text))d.modalidade='Única';
-      const np=text.match(/PROPOSTA[^\n]{0,60}?N[º°o]\.?\s*:?\s*([A-Z0-9][\w\-\/]*\d)/i)
-        ||(cfg.prefix?text.match(new RegExp('('+cfg.prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\d+)')):null);
-      d.num_proposta=np?np[1]:'';
-      if(!d.titular){const cl=text.match(/CLIENTE:\s*([^\n]+)/i);if(cl)d.titular=cl[1].trim()}
-      if(d.endereco)d.endereco=d.endereco.replace(/[.;]\s*$/,'');
-      const cs=text.match(/Consumo M[ée]dio Mensal \(kWh\)\s*([\d.,]+)/i);if(cs)d.consumo=cs[1];
-    }
-    const hj=new Date();
-    d.data_assinatura=d.data_assinatura||`${hj.getFullYear()}-${String(hj.getMonth()+1).padStart(2,'0')}-${String(hj.getDate()).padStart(2,'0')}`;
-    d.rep_local=d.rep_local||`Santa Maria, ${dataExt(d.data_assinatura)}.`;
-    ALL.forEach(f=>{const el=$(tid(f.id));el.value=d[f.id]||'';el.classList.toggle('empty',!el.value.trim())});
-    const w=$('warn1');w.style.display=text?'none':'block';w.textContent=text?'':'⚠️ Imagem recebida: os dados não puderam ser lidos automaticamente. Preencha os campos manualmente.';
-    goStep(2);
+    const fat=termoSrc==='fatura';
+    const d=fat?fromFatura(text):fromProposta(text);
+    openTermo(d,fat?'fatura':'proposta',!text.trim()?'Não foi possível ler o texto do arquivo (imagem ou PDF escaneado). Preencha os campos manualmente.':'');
   }catch(e){err.textContent='⚠️ Não foi possível ler o arquivo: '+e.message;err.style.display='block'}
   finally{$('load1').style.display='none';$('file').value=''}
+});
+$('termoManual').onclick=()=>openTermo({},'manual','');
+$('compBtn').onclick=()=>$('compFile').click();
+$('compFile').addEventListener('change',async()=>{
+  const file=$('compFile').files[0];if(!file)return;
+  $('compLoad').style.display='block';
+  try{
+    const text=await readPdf(file);
+    if(!text.trim())throw new Error('o PDF não tem texto (escaneado)');
+    const n=setTermo(fromFatura(text),true);
+    // evita bairro repetido ("Rua X, 10, Bairro" + campo Bairro)
+    const en=$(tid('endereco')),ba=tv('bairro');
+    if(ba&&en.value.trim().toUpperCase().endsWith(', '+ba.toUpperCase()))en.value=en.value.trim().slice(0,-(ba.length+2));
+    $('compFat').classList.add('ok');
+    $('compTxt').textContent=n?`✅ ${n} campo${n>1?'s':''} preenchido${n>1?'s':''} com a fatura (${file.name}). Os dados que já estavam preenchidos foram mantidos.`
+      :`A fatura (${file.name}) não trouxe dados novos — os campos já estavam preenchidos.`;
+    $('compBtn').textContent='Trocar fatura';
+  }catch(e){$('compTxt').textContent='⚠️ Não foi possível ler a fatura: '+e.message}
+  finally{$('compLoad').style.display='none';$('compFile').value=''}
 });
 
 const tv=id=>$(tid(id)).value.trim();
