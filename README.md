@@ -2,7 +2,7 @@
 
 Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
 
-**Acesse:** https://ozzenergia.github.io/portal-ozz-energia/
+**Acesse:** https://ozzenergia.github.io/GeradorOzzEnergia/
 
 ## O que tem
 
