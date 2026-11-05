@@ -17,7 +17,7 @@ Tudo roda no navegador: nenhum arquivo ou dado de cliente é enviado para servid
 |---|---|
 | `index.html` | O portal (página única) |
 | `modelos/PROPOSTA_OZZ_ENERGIA_MODELO.docx` | Template padrão da proposta (campos `{…}`) |
-| `modelos/TERMO_DE_ADESAO_MODELO.docx` | Template do Termo (também embutido no portal) |
+| `modelos/TERMO_DE_ADESAO_MODELO.docx` | Template do Termo — é o modelo padrão, já embutido no portal (não precisa carregar). Outro modelo pode ser importado pelo ícone ⇪ ao lado de "Modelo: Padrão OZZ" |
 
 ## Campos do template da proposta
 
