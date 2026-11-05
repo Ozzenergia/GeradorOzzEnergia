@@ -170,6 +170,17 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 .comp-fat.ok{border-style:solid;border-color:var(--ok);background:var(--ok-soft)}
 .comp-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
 .comp-row p{font-size:14px;color:var(--muted);margin-top:4px;max-width:470px}
+.dual{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.drop.mini{padding:24px 12px}
+.drop.mini .ic{font-size:30px}
+.drop.mini.done{border-style:solid;border-color:var(--ok);background:var(--ok-soft)}
+.drop.mini.done small{color:var(--ok);font-weight:600}
+.dual-hint{font-size:13px;color:var(--muted);text-align:center;margin:12px 0}
+.big-w{width:100%;justify-content:center;padding:14px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.tag.src-p{background:var(--primary-soft);color:var(--primary)}
+.tag.src-f{background:var(--ok-soft);color:var(--ok)}
+@media(max-width:560px){.dual{grid-template-columns:1fr}}
 .hidden{display:none!important}
 
 .modal{position:fixed;inset:0;background:rgba(15,10,30,.5);display:grid;place-items:center;padding:16px;z-index:10}
@@ -367,6 +378,18 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
       <div class="seg" id="srcSeg">
         <button type="button" class="on" data-src="proposta">📋 Proposta aprovada</button>
         <button type="button" data-src="fatura">🧾 Fatura de energia</button>
+        <button type="button" data-src="ambos">📋+🧾 Proposta + Fatura</button>
+      </div>
+      <div id="dualBox" class="hidden">
+        <div class="dual">
+          <div class="drop mini" id="dropP"><div class="ic">📋</div><strong>Proposta aprovada</strong><small id="stP">PDF, Word ou imagem</small>
+            <input type="file" id="fileP" accept=".pdf,.docx,.jpg,.jpeg,.png" hidden></div>
+          <div class="drop mini" id="dropF"><div class="ic">🧾</div><strong>Fatura de energia</strong><small id="stF">PDF da fatura</small>
+            <input type="file" id="fileF" accept=".pdf" hidden></div>
+        </div>
+        <p class="dual-hint">A fatura preenche os dados da UC; a proposta, o número, o consumo e os contatos.</p>
+        <div class="loading" id="loadD"><div class="spin"></div><strong>Lendo os documentos...</strong></div>
+        <button class="btn pri big-w" id="dualGo" disabled>Continuar →</button>
       </div>
       <div class="drop" id="drop">
         <div class="ic">☁️</div>
@@ -395,7 +418,7 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
     <div class="card">
       <h3 id="extTitle">🔍 Dados extraídos da proposta</h3>
       <div class="legend">
-        <span><i style="background:var(--ok-soft);border:1px solid var(--ok)"></i><b>Preenchido automaticamente</b> da proposta</span>
+        <span><i style="background:var(--ok-soft);border:1px solid var(--ok)"></i><b>Preenchido automaticamente</b> do documento enviado</span>
         <span><i style="background:var(--warn-soft);border:1px solid var(--warn)"></i><b>Preencher manualmente</b> (ficará em amarelo no Word)</span>
       </div>
     </div>
@@ -983,7 +1006,48 @@ $('srcSeg').addEventListener('click',e=>{
   $('dropS').textContent=f?'Aceita PDF da fatura (RGE/CPFL lida automaticamente)':'Aceita PDF, Word (.docx) ou imagem (JPG, PNG) · a fatura pode ser adicionada depois';
   $('file').accept=f?'.pdf':'.pdf,.docx,.jpg,.jpeg,.png';
   $('loadT').textContent=f?'Lendo a fatura...':'Analisando a proposta...';
+  const amb=termoSrc==='ambos';
+  $('dualBox').classList.toggle('hidden',!amb);$('drop').classList.toggle('hidden',amb);
+  $('fileOk').style.display='none';$('err1').style.display='none';
 });
+/* ---- Modo Proposta + Fatura ---- */
+let dual={p:null,f:null,pn:'',fn:''};
+async function readAny(file){
+  const name=file.name.toLowerCase();
+  if(name.endsWith('.pdf'))return readPdf(file);
+  if(name.endsWith('.docx'))return (await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
+  return '';
+}
+function dualUI(){
+  $('dropP').classList.toggle('done',!!dual.p);$('dropF').classList.toggle('done',!!dual.f);
+  $('stP').textContent=dual.p?'✅ '+dual.pn:'PDF, Word ou imagem';
+  $('stF').textContent=dual.f?'✅ '+dual.fn:'PDF da fatura';
+  $('dualGo').disabled=!(dual.p||dual.f);
+  $('dualGo').textContent=dual.p&&dual.f?'Continuar →':dual.p?'Continuar só com a proposta →':dual.f?'Continuar só com a fatura →':'Continuar →';
+}
+async function dualLoad(file,kind){
+  const err=$('err1');err.style.display='none';$('loadD').style.display='block';
+  try{
+    const text=await readAny(file);
+    if(!text.trim())throw new Error('não foi possível ler o texto (imagem ou PDF escaneado)');
+    if(kind==='p'){dual.p=fromProposta(text);dual.pn=file.name}else{dual.f=fromFatura(text);dual.fn=file.name}
+  }catch(e){err.textContent=`⚠️ ${kind==='p'?'Proposta':'Fatura'}: ${e.message}`;err.style.display='block'}
+  finally{$('loadD').style.display='none';dualUI()}
+}
+setupDrop($('dropP'),$('fileP'),f=>{dualLoad(f,'p');$('fileP').value=''});
+setupDrop($('dropF'),$('fileF'),f=>{dualLoad(f,'f');$('fileF').value=''});
+const FAT_FIRST=['distribuidora','codigo_uc','classe_uc','dia_leitura','dia_vencimento','titular','endereco','cep','bairro','cidade'];
+function mergeTermo(p,f){
+  p=p||{};f=f||{};const d={},src={};
+  ALL.forEach(fl=>{const k=fl.id;
+    const [a,b,sa,sb]=FAT_FIRST.includes(k)?[f[k],p[k],'f','p']:[p[k],f[k],'p','f'];
+    if(a){d[k]=a;src[k]=sa}else if(b){d[k]=b;src[k]=sb}});
+  return {d,src};
+}
+$('dualGo').onclick=()=>{
+  const {d,src}=mergeTermo(dual.p,dual.f);
+  openTermo(d,'ambos','',src);
+};
 const isoHoje=()=>{const h=new Date();return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`};
 function fromProposta(text){
   const d=extractCommon(text);
@@ -1022,13 +1086,21 @@ function setTermo(d,onlyEmpty){
     el.classList.toggle('empty',!el.value.trim())});
   return n;
 }
-function openTermo(d,src,warn){
+function tagSources(map){
+  ALL.forEach(fl=>{const lab=$(tid(fl.id)).closest('.f').querySelector('.tag');if(!lab)return;
+    if(!lab.dataset.orig){lab.dataset.orig=lab.textContent;lab.dataset.cls=lab.className}
+    const s=map&&map[fl.id];
+    if(s){lab.textContent=s==='f'?'FATURA':'PROPOSTA';lab.className='tag '+(s==='f'?'src-f':'src-p')}
+    else{lab.textContent=lab.dataset.orig;lab.className=lab.dataset.cls}});
+}
+function openTermo(d,src,warn,srcMap){
+  tagSources(srcMap||null);
   d.data_assinatura=d.data_assinatura||isoHoje();
   d.rep_local=d.rep_local||`Santa Maria, ${dataExt(d.data_assinatura)}.`;
   setTermo(d,false);
-  $('extTitle').textContent=src==='fatura'?'🔍 Dados extraídos da fatura':src==='manual'?'✍️ Preencha os dados':'🔍 Dados extraídos da proposta';
-  // quadro de complemento: aparece quando não começou pela fatura
-  $('compFat').classList.toggle('hidden',src==='fatura');$('compFat').classList.remove('ok');
+  $('extTitle').textContent=src==='fatura'?'🔍 Dados extraídos da fatura':src==='manual'?'✍️ Preencha os dados':src==='ambos'?'🔍 Dados extraídos da proposta e da fatura':'🔍 Dados extraídos da proposta';
+  // quadro de complemento: aparece quando ainda não há fatura
+  $('compFat').classList.toggle('hidden',src==='fatura'||(src==='ambos'&&!!dual.f));$('compFat').classList.remove('ok');
   $('compTxt').textContent='A proposta não traz tudo. Adicione a fatura para preencher UC, classe, distribuidora, dia da leitura e vencimento.';
   $('compBtn').textContent='Adicionar fatura (PDF)';
   const w=$('warn1');w.style.display=warn?'block':'none';w.textContent=warn?'⚠️ '+warn:'';
@@ -1070,7 +1142,7 @@ $('compFile').addEventListener('change',async()=>{
 const tv=id=>$(tid(id)).value.trim();
 const dataBR=s=>{if(!s)return '';const[a,m,d]=s.split('-');return `${d}/${m}/${a}`};
 $('btnBack').onclick=()=>goStep(1);
-$('btnNew').onclick=()=>{$('fileOk').style.display='none';ALL.forEach(f=>{const el=$(tid(f.id));el.value='';el.classList.add('empty')});goStep(1)};
+$('btnNew').onclick=()=>{$('fileOk').style.display='none';dual={p:null,f:null,pn:'',fn:''};dualUI();ALL.forEach(f=>{const el=$(tid(f.id));el.value='';el.classList.add('empty')});goStep(1)};
 $('btnGen').onclick=async()=>{
   goStep(3);$('load3').style.display='block';$('done').classList.add('hidden');$('err3').style.display='none';
   try{
