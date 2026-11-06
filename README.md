@@ -6,7 +6,7 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
 
 ## O que tem
 
-- **Gerador de Propostas** — carrega o template da proposta (.docx) uma vez, lê a fatura em PDF (layout RGE/CPFL), calcula média de consumo, plano de desconto, custo e economia, e gera a proposta preenchida.
+- **Gerador de Propostas** — usa o modelo padrão de Energia por Assinatura (não precisa carregar), lê a fatura em PDF (layout RGE/CPFL), calcula média de consumo, plano de desconto, custo e economia, e gera a proposta preenchida. Outro modelo pode ser importado pelo ícone ⇪ ao lado de "Modelo: Padrão OZZ".
 - **Gerador de Termo de Adesão** — lê a proposta aprovada e gera o Termo no modelo oficial. Campos não preenchidos saem destacados em amarelo no Word.
 
 Tudo roda no navegador: nenhum arquivo ou dado de cliente é enviado para servidor.
@@ -16,7 +16,8 @@ Tudo roda no navegador: nenhum arquivo ou dado de cliente é enviado para servid
 | Arquivo | O que é |
 |---|---|
 | `index.html` | O portal (página única) |
-| `modelos/PROPOSTA_OZZ_ENERGIA_MODELO.docx` | Template padrão da proposta (campos `{…}`) |
+| `modelos/PROPOSTA_OZZ_ENERGIA_MODELO.docx` | Modelo padrão da proposta — Energia por Assinatura (campos `{…}`), carregado automaticamente |
+| `modelos/PROPOSTA_SOLAR_MODELO.docx` | Modelo da proposta de sistema fotovoltaico — pode ser importado pelo ícone ⇪ |
 | `modelos/TERMO_DE_ADESAO_MODELO.docx` | Template do Termo — é o modelo padrão, já embutido no portal (não precisa carregar). Outro modelo pode ser importado pelo ícone ⇪ ao lado de "Modelo: Padrão OZZ" |
 
 ## Campos do template da proposta
