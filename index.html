@@ -65,8 +65,6 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 .linkbtn{background:none;border:none;color:var(--muted);text-decoration:underline;font:13px Outfit,sans-serif;cursor:pointer}
 .linkbtn:hover{color:var(--primary)}
 
-.tpl-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:var(--ok-soft);border-radius:12px;padding:12px 16px;font-size:14px;margin-bottom:18px}
-.tpl-bar b{font-weight:600}
 
 .steps{display:flex;gap:8px;margin:0 0 24px;align-items:center}
 .step{display:flex;align-items:center;gap:8px;min-width:0}
@@ -217,33 +215,19 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 <main>
 <!-- =================== GERADOR DE PROPOSTAS =================== -->
 <section id="tab-prop">
-  <div class="title"><h2>Gerador de Propostas</h2><p>Fatura → Proposta preenchida em segundos</p></div>
-
-  <!-- Configuração inicial -->
-  <div id="pCfg">
-    <div class="card cfg center">
-      <div class="doc-ic">
-        <svg width="50" height="62" viewBox="0 0 50 62"><path d="M3 1h32l14 14v44a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2z" fill="#e9dff7"/><path d="M35 1v12a2 2 0 0 0 2 2h12" fill="#c9b6ea"/><g stroke="#9b8bb8" stroke-width="2"><path d="M10 30h30M10 36h30M10 42h30M10 48h20"/></g></svg>
-      </div>
-      <h3>Configuração inicial</h3>
-      <p>Carregue o template da proposta uma única vez.<br>Ele ficará salvo no navegador permanentemente.</p>
-      <label class="pick" id="tplPick">
-        <strong>Selecionar template (.docx)</strong>
-        <small>PROPOSTA_OZZ_ENERGIA_MODELO.docx</small>
-        <input type="file" id="tplFile" accept=".docx" hidden>
-      </label>
-      <button class="linkbtn" id="tplDefault" style="margin-top:12px">ou usar o modelo padrão da OZZ</button>
-      <div class="alert" id="tplErr"></div>
+  <div class="title"><h2>Gerador de Propostas</h2><p>Fatura → Proposta preenchida em segundos</p>
+    <div class="tmodel">
+      <span>📄 Modelo: <b id="pmName">carregando…</b></span>
+      <button class="icon-btn" id="pmImport" title="Importar outro modelo de proposta (.docx)" aria-label="Importar outro modelo de proposta">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+      </button>
+      <button class="linkbtn hidden" id="pmReset">restaurar padrão</button>
+      <input type="file" id="pmFile" accept=".docx" hidden>
     </div>
+    <div class="alert" id="pmErr" style="max-width:560px;margin:10px auto 0;text-align:left"></div>
   </div>
 
-  <!-- Fluxo principal -->
-  <div id="pFlow" class="hidden">
-    <div class="tpl-bar">
-      <span>✅ Template: <b id="tplName"></b> · <span id="tplCount"></span></span>
-      <button class="btn sec sm" id="tplSwap">Trocar template</button>
-    </div>
-
+  <div id="pFlow">
     <div class="steps">
       <div class="step active" id="ps1"><div class="n">1</div><span>Upload da Fatura</span></div><div class="bar"></div>
       <div class="step" id="ps2"><div class="n">2</div><span>Revisar Dados</span></div><div class="bar"></div>
@@ -555,8 +539,6 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
 /* =================== GERADOR DE PROPOSTAS =================== */
 const CFG_DEF={prefix:'',next:54384,min:600,tarifa:1.06,desconto:0,gesp:1370};
 let cfg={...CFG_DEF,...store.get('ozz_cfg',{})};
-let tpl=store.get('ozz_tpl',null); // {name,b64}
-let tplMem=null;                    // fallback se o navegador não permitir salvar
 let tplTags=[];
 
 function fmtNum(n){return (cfg.prefix||'')+String(n).padStart(4,'0')}
@@ -617,7 +599,6 @@ const MESES=['janeiro','fevereiro','março','abril','maio','junho','julho','agos
 const fmtBR=(n,d=0)=>isFinite(n)?n.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}):'';
 const ALIAS={};for(const[k,v]of Object.entries(KNOWN)){ALIAS[norm(k)]=k;v.alias.forEach(a=>ALIAS[norm(a)]=k)}
 
-function loadTemplateBuf(){const t=tpl||tplMem;return t?b64ToBuf(t.b64):null}
 function readTags(buf){
   const zip=new PizZip(buf);
   const doc=new Docxtemplater(zip,{paragraphLoop:true,linebreaks:true});
@@ -627,41 +608,40 @@ function readTags(buf){
   const set=new Set();((txt+extra).match(/\{([^{}#\/^]+)\}/g)||[]).forEach(m=>set.add(m.slice(1,-1).trim()));
   return [...set];
 }
-function showFlow(){
-  const t=tpl||tplMem;
-  $('pCfg').classList.toggle('hidden',!!t);
-  $('pFlow').classList.toggle('hidden',!t);
-  if(t){
-    try{tplTags=readTags(loadTemplateBuf())}catch(e){tplTags=[]}
-    $('tplName').textContent=t.name;
-    $('tplCount').textContent=tplTags.length?`${tplTags.length} campos encontrados`:'nenhum campo {…} encontrado';
-  }
+/* ---- Modelo da proposta: padrão (arquivo do site) ou personalizado ---- */
+const PROP_DEFAULT_URL='modelos/PROPOSTA_OZZ_ENERGIA_MODELO.docx';
+let propDefault=null,propDefaultErr='',propMem=null;
+try{localStorage.removeItem('ozz_tpl')}catch(e){}   // template antigo (versão de testes)
+const propCustom=()=>store.get('ozz_prop_tpl',null)||propMem;
+function loadTemplateBuf(){const c=propCustom();if(c)return b64ToBuf(c.b64);return propDefault?propDefault.slice(0):null}
+function refreshTpl(){
+  const c=propCustom(),buf=loadTemplateBuf();
+  try{tplTags=buf?readTags(buf):[]}catch(e){tplTags=[]}
+  $('pmName').textContent=c?c.name:propDefault?'Padrão OZZ':propDefaultErr?'⚠️ padrão indisponível':'carregando…';
+  $('pmReset').classList.toggle('hidden',!c);
+  if(!c&&propDefaultErr){const e=$('pmErr');e.className='alert warn';e.textContent='⚠️ Não foi possível carregar o modelo padrão ('+propDefaultErr+'). Importe um modelo pelo ícone ao lado de "Modelo".';e.style.display='block'}
 }
-$('tplDefault').onclick=async()=>{
-  const e=$('tplErr');e.style.display='none';
-  try{
-    const r=await fetch('modelos/PROPOSTA_OZZ_ENERGIA_MODELO.docx');if(!r.ok)throw new Error('arquivo não encontrado');
-    const blob=await r.blob();
-    tplHandler(new File([blob],'PROPOSTA_OZZ_ENERGIA_MODELO.docx'));
-  }catch(err){e.className='alert';e.textContent='⚠️ Não foi possível carregar o modelo padrão ('+err.message+'). Selecione o arquivo manualmente.';e.style.display='block'}
-};
-const tplHandler=async file=>{
-  const e=$('tplErr');e.style.display='none';
+async function fetchDefault(){
+  try{const r=await fetch(PROP_DEFAULT_URL);if(!r.ok)throw new Error('arquivo não encontrado');propDefault=await r.arrayBuffer();propDefaultErr=''}
+  catch(err){propDefaultErr=location.protocol==='file:'?'abra o portal pelo site, não pelo arquivo local':err.message}
+  refreshTpl();
+}
+$('pmImport').onclick=()=>$('pmFile').click();
+$('pmFile').addEventListener('change',async()=>{
+  const file=$('pmFile').files[0];if(!file)return;
+  const e=$('pmErr');e.style.display='none';e.className='alert';
   try{
     if(!file.name.toLowerCase().endsWith('.docx'))throw new Error('selecione um arquivo .docx');
-    const buf=await file.arrayBuffer();
-    const tags=readTags(buf);
+    const buf=await file.arrayBuffer();const tags=readTags(buf);
+    if(!tags.length)throw new Error('o modelo não tem campos {…}. Marque os pontos a preencher com chaves, ex.: {titular}, {consumo}, {economia_mensal}.');
     const obj={name:file.name,b64:bufToB64(buf)};
-    if(!store.set('ozz_tpl',obj)){tplMem=obj;tpl=null;e.className='alert warn';e.textContent='⚠️ O navegador não permitiu salvar o template; ele vale só para esta sessão.';e.style.display='block'}
-    else tpl=obj;
-    if(!tags.length){e.className='alert warn';e.innerHTML='⚠️ Nenhum campo encontrado. No Word, marque os pontos a preencher com chaves, ex.: <b>{nome}</b>, <b>{consumo}</b>, <b>{valor_mensal}</b>.';e.style.display='block'}
-    showFlow();
-  }catch(err){e.className='alert';e.textContent='⚠️ Template inválido: '+err.message;e.style.display='block'}
-  $('tplFile').value='';
-};
-setupDrop($('tplPick'),$('tplFile'),tplHandler);
-$('tplSwap').onclick=()=>{try{localStorage.removeItem('ozz_tpl')}catch(e){}tpl=null;tplMem=null;showFlow()};
-showFlow();
+    if(!store.set('ozz_prop_tpl',obj)){propMem=obj;e.className='alert warn';e.textContent='⚠️ Modelo importado, mas é grande demais para ficar salvo no navegador: vale só até fechar a página.';e.style.display='block'}
+    refreshTpl();
+  }catch(err){e.textContent='⚠️ Modelo não importado: '+err.message;e.style.display='block'}
+  finally{$('pmFile').value=''}
+});
+$('pmReset').onclick=()=>{try{localStorage.removeItem('ozz_prop_tpl')}catch(e){}propMem=null;$('pmErr').style.display='none';refreshTpl();if(!propDefault)fetchDefault()};
+refreshTpl();fetchDefault();
 
 function propStep(n){[1,2,3].forEach(i=>{$('pp'+i).classList.toggle('hidden',i!==n);const s=$('ps'+i);s.classList.toggle('active',i===n);s.classList.toggle('done',i<n)});window.scrollTo({top:0,behavior:'smooth'})}
 
@@ -708,6 +688,8 @@ Object.assign(KNOWN,{
   consumo_te:{label:'Consumo TE',alias:['consumote','te']},
   inj_te:{label:'Injeção TE',alias:['injte','injecao','injecaote','injetado']},
   plano:{label:'Plano',alias:['plano','planodesconto','nomeplano']},
+  doc_tipo:{label:'Tipo de documento',alias:['doctipo','tipodocumento']},
+  cidade_uf:{label:'Município',alias:['cidadeuf','municipiouf']},
   desconto:{label:'Desconto (%)',alias:['desconto','percentual','descontopct','percdesconto']},
   custo_mensal:{label:'Custo médio mensal',alias:['customensal','custo','customediomensal','customedio']},
   custo_anual:{label:'Custo médio anual',alias:['custoanual','customedioanual']},
@@ -721,7 +703,7 @@ for(const[k,v]of Object.entries(KNOWN)){ALIAS[norm(k)]=k;v.alias.forEach(a=>ALIA
 const FX=['titular','cpf','cnpj','endereco','cep','cidade','uf','codigo_uc','distribuidora','tensao','consumo_te','inj_te'];
 /* chaves preenchidas pela tela (não aparecem em "Outros campos") */
 const COVERED=new Set([...FX,'documento','consumo','consumo_anual','plano','desconto','custo_mensal','custo_anual','valor_mensal','valor_anual',
-  'economia_mensal','economia_anual','tarifa','numero_proposta','data','data_extenso','validade',...Array.from({length:12},(_,i)=>'mes'+(i+1))]);
+  'economia_mensal','economia_anual','tarifa','doc_tipo','cidade_uf','numero_proposta','data','data_extenso','validade',...Array.from({length:12},(_,i)=>'mes'+(i+1))]);
 
 $('histGrid').innerHTML=Array.from({length:12},(_,i)=>`<div class="f"><label>Mês ${i+1}</label><input id="h${i}" inputmode="numeric"></div>`).join('');
 
@@ -873,10 +855,17 @@ $('propGrid').addEventListener('input',e=>{if(CALC_DEPS.includes(e.target.datase
 
 function renderPlans(){
   const m=propData._media;
-  $('plans').innerHTML=cfg.planos.map((p,i)=>{
-    const low=isFinite(m)&&m<p.min;
-    return `<button type="button" class="plan${i===planSel?' sel':''}" data-i="${i}"><small>${p.nome}${low?' ⚠️':''}</small><b>${fmtBR(p.desc,p.desc%1?1:0)}%</b><i>mín. ${fmtBR(p.min)} kWh</i></button>`;
-  }).join('');
+  // atualiza os cartões sem recriá-los (recriar no meio de um clique faz o clique se perder)
+  const box=$('plans');
+  if(box.children.length!==cfg.planos.length)
+    box.innerHTML=cfg.planos.map((p,i)=>`<button type="button" class="plan" data-i="${i}"><small></small><b></b><i></i></button>`).join('');
+  cfg.planos.forEach((p,i)=>{
+    const el=box.children[i],low=isFinite(m)&&m<p.min;
+    el.classList.toggle('sel',i===planSel);
+    el.querySelector('small').textContent=p.nome+(low?' ⚠️':'');
+    el.querySelector('b').textContent=fmtBR(p.desc,p.desc%1?1:0)+'%';
+    el.querySelector('i').textContent=`mín. ${fmtBR(p.min)} kWh`;
+  });
   const p=cfg.planos[planSel];
   $('planWarn').textContent=p&&isFinite(m)&&m<p.min?'⚠️ Consumo abaixo do mínimo deste plano':'';
 }
@@ -902,8 +891,11 @@ function buildValues(){
   FX.forEach(k=>o[k]=propData[k]);
   o.tensao=propData.tensao?propData.tensao+' V':'';
   o.documento=propData.cpf||propData.cnpj||'';
+  o.doc_tipo=propData.cnpj&&!propData.cpf?'CNPJ':'CPF';
+  o.cidade_uf=[propData.cidade,propData.uf].filter(Boolean).join(' - ').toUpperCase();
   o.consumo=propData.consumo;
-  o.consumo_anual=isFinite(m)?fmtBR(Math.round(m)*12):'';
+  o.consumo_anual=isFinite(m)?fmtBR(Math.round(m*12)):'';
+  o.cidade=(propData.cidade||'').toUpperCase();
   o.plano=v.p.nome;o.desconto=fmtBR(v.p.desc,v.p.desc%1?1:0);
   o.custo_mensal=o.valor_mensal=brl(v.cm);o.custo_anual=o.valor_anual=brl(v.ca);
   o.economia_mensal=brl(v.em);o.economia_anual=brl(v.ea);
@@ -921,13 +913,17 @@ $('propGen').onclick=()=>{
   const e=$('propErr');e.style.display='none';
   try{
     const buf=loadTemplateBuf();
-    if(!buf||!tplTags.length)throw new Error('o template não tem campos {…} para preencher.');
+    if(!buf)throw new Error(propDefaultErr?'o modelo padrão não carregou ('+propDefaultErr+'). Importe um modelo pelo ícone ao lado de "Modelo".':'o modelo ainda está carregando, tente de novo em alguns segundos.');
+    if(!tplTags.length)throw new Error('o modelo não tem campos {…} para preencher.');
     const V=buildValues(),data={};
     tplTags.forEach(tag=>{const k=ALIAS[norm(tag)]||tag;const x=V[k];data[tag]=(x==null||x==='')?'______':String(x)});
     const zip=new PizZip(buf);
     const doc=new Docxtemplater(zip,{paragraphLoop:true,linebreaks:true,nullGetter:()=> '______'});
     doc.render(data);
     fillChart(doc.getZip(),V);
+    {const z=doc.getZip();let xml=z.file('word/document.xml').asText();
+     xml=xml.replace(/<w:r>(?:(?!<\/w:r>).)*?<\/w:r>/gs,r=>r.includes('<w:highlight w:val="yellow"/>')&&!/<w:t[^>]*>[^<]*__/.test(r)?r.replace('<w:highlight w:val="yellow"/>',''):r);
+     z.file('word/document.xml',xml);}
     const blob=doc.getZip().generate({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
     const n=V.numero_proposta;
     $('propDl').href=URL.createObjectURL(blob);
