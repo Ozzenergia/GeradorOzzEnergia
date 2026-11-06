@@ -217,7 +217,7 @@ body.locked{overflow:hidden}
 .hidden{display:none!important}
 
 .modal{position:fixed;inset:0;background:rgba(15,10,30,.5);display:grid;place-items:center;padding:16px;z-index:10}
-.modal .card{width:100%;max-width:420px;margin:0}
+.modal .card{width:100%;max-width:420px;margin:0;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow-y:auto}
 
 @media(max-width:700px){
   .hwrap{padding:14px 16px}.nwrap{padding:0 6px}.sub-h{display:none}
@@ -396,7 +396,9 @@ body.locked{overflow:hidden}
       <div class="f"><label>Geração (kWh/kWp/ano)</label><input id="cfgGesp" type="number"></div>
     </div>
     <div class="sub" style="margin-top:16px">Planilha do Google (registro e numeração)</div>
-    <div class="f"><input id="cfgSheet" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <div class="f"><label>Endereço do App da Web</label><input id="cfgSheet" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <div class="f" style="margin-top:8px"><label>Código de sincronização</label><input id="cfgCode" placeholder="OZZ-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" style="text-transform:uppercase;font-family:ui-monospace,Menlo,monospace"></div>
+    <p style="font-size:12px;color:var(--muted);margin-top:4px">O código aparece na planilha, no menu <b>OZZ Gerador → Mostrar código de sincronização</b>. Fica salvo só neste computador.</p>
     <div style="display:flex;gap:10px;align-items:center;margin-top:6px;font-size:13px"><button class="btn sec sm" id="cfgSheetTest" type="button">Testar conexão</button><span id="cfgSheetSt" style="color:var(--muted)"></span></div>
     <div class="sub" style="margin-top:16px">Planos de desconto</div>
     <div id="cfgPlans" style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:6px 8px;font-size:12px;color:var(--muted)"></div>
@@ -612,14 +614,17 @@ aplicarSessao();
 
 /* =================== Planilha do Google (Apps Script) =================== */
 const SHEET_URL_DEFAULT='https://script.google.com/macros/s/AKfycbyQiL-LOZi4JAfogS3U1g8H-SoeRCYN4cJesPjCz0WvAmBB1wHnYahd31-dQjpPlfbK/exec';           // endereço do App da Web da planilha da OZZ
-const SHEET_TOKEN='ozz-qh_LKaYLTaACOG1ZdxpQ53LQ';
 const sheetUrl=()=>((store.get('ozz_cfg',{})||{}).sheetUrl||SHEET_URL_DEFAULT||'').trim();
+// código de sincronização: gerado pela planilha (menu OZZ Gerador) e colado em cada computador; não fica no código
+const sheetCode=()=>((store.get('ozz_cfg',{})||{}).sheetCode||'').trim();
+const sheetReady=()=>!!(sheetUrl()&&sheetCode());
 async function sheetApi(acao,payload){
   const url=sheetUrl();if(!url)return {ok:false,off:true,erro:'planilha não configurada'};
+  if(!sheetCode())return {ok:false,erro:'falta o código de sincronização neste computador (configurar numeração → Código de sincronização)'};
   const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),20000);
   try{
     // text/plain evita a pré-verificação de CORS, que o Apps Script não responde
-    const r=await fetch(url,{method:'POST',body:JSON.stringify({token:SHEET_TOKEN,acao,...payload}),signal:ctl.signal});
+    const r=await fetch(url,{method:'POST',body:JSON.stringify({token:sheetCode(),acao,...payload}),signal:ctl.signal});
     const j=await r.json();return j&&typeof j==='object'?j:{ok:false,erro:'resposta inválida'};
   }catch(e){return {ok:false,erro:e.name==='AbortError'?'a planilha demorou para responder':'sem conexão com a planilha'}}
   finally{clearTimeout(t)}
@@ -905,7 +910,7 @@ function openReview(d,warn){
   propData={...d};
   propData.numero_proposta=fmtNum(cfg.next);
   for(const[k,m]of Object.entries(KNOWN))if(m.def&&!propData[k])propData[k]=m.def;
-  $('rvNum').textContent=sheetUrl()?'automático':propData.numero_proposta;
+  $('rvNum').textContent=sheetReady()?'automático':propData.numero_proposta;
   FX.forEach(k=>{const el=$('fx_'+k);el.value=propData[k]||''});
   for(let i=0;i<12;i++)$('h'+i).value=d.hist&&d.hist[i]!=null?String(d.hist[i]):'';
   propData.histMes=(d.histMes&&d.histMes.length===12)?d.histMes:null;
@@ -1060,7 +1065,7 @@ $('propGen').onclick=async()=>{
 /* Numeração */
 function cfgPreview(){$('cfgPreview').textContent=($('cfgPrefix').value||'')+String($('cfgNext').value||1).padStart(4,'0')}
 $('numCfgBtn').onclick=()=>{
-  $('cfgSheet').value=cfg.sheetUrl||SHEET_URL_DEFAULT;$('cfgSheetSt').textContent='';
+  $('cfgSheet').value=cfg.sheetUrl||SHEET_URL_DEFAULT;$('cfgCode').value=cfg.sheetCode||'';$('cfgSheetSt').textContent='';
   $('cfgPrefix').value=cfg.prefix;$('cfgNext').value=cfg.next;$('cfgTar').value=cfg.tarifa;$('cfgGesp').value=cfg.gesp;
   $('cfgPlans').innerHTML='<span>Nome</span><span>Desconto %</span><span>Mín. kWh</span>'+cfg.planos.map((p,i)=>
     `<div class="f"><input id="pn${i}" value="${p.nome.replace(/"/g,'&quot;')}"></div><div class="f"><input id="pd${i}" type="number" step="0.1" value="${p.desc}"></div><div class="f"><input id="pm${i}" type="number" value="${p.min}"></div>`).join('');
@@ -1068,16 +1073,19 @@ $('numCfgBtn').onclick=()=>{
 };
 ['cfgPrefix','cfgNext'].forEach(id=>$(id).addEventListener('input',cfgPreview));
 $('cfgSheetTest').onclick=async()=>{
-  const url=$('cfgSheet').value.trim(),st=$('cfgSheetSt');
+  const url=$('cfgSheet').value.trim(),code=$('cfgCode').value.trim().toUpperCase(),st=$('cfgSheetSt');
   if(!url){st.textContent='Informe o endereço do App da Web.';return}
+  if(!code){st.textContent='Informe o código de sincronização.';return}
   st.textContent='Testando…';
-  try{const r=await fetch(url);const j=await r.json();st.textContent=j.ok?'✅ Conectado':'⚠️ Resposta inesperada'}
-  catch(e){st.textContent='⚠️ Não conectou. Confira o endereço e se o App da Web está liberado para "Qualquer pessoa".'}
+  try{
+    const r=await fetch(url,{method:'POST',body:JSON.stringify({token:code,acao:'ping'})});const j=await r.json();
+    st.textContent=j.ok?'✅ Conectado à planilha "'+(j.planilha||'')+'"':'⚠️ '+(j.erro||'resposta inesperada');
+  }catch(e){st.textContent='⚠️ Não conectou. Confira o endereço e se o App da Web está liberado para "Qualquer pessoa".'}
 };
 $('cfgCancel').onclick=()=>$('numModal').classList.add('hidden');
 $('numModal').addEventListener('click',e=>{if(e.target.id==='numModal')$('numModal').classList.add('hidden')});
 $('cfgSave').onclick=()=>{
-  cfg={...cfg,sheetUrl:($('cfgSheet').value.trim()===SHEET_URL_DEFAULT?'':$('cfgSheet').value.trim()),prefix:$('cfgPrefix').value,next:Math.max(1,parseInt($('cfgNext').value)||1),tarifa:Number($('cfgTar').value)||0,gesp:Number($('cfgGesp').value)||CFG_DEF.gesp,
+  cfg={...cfg,sheetCode:$('cfgCode').value.trim().toUpperCase(),sheetUrl:($('cfgSheet').value.trim()===SHEET_URL_DEFAULT?'':$('cfgSheet').value.trim()),prefix:$('cfgPrefix').value,next:Math.max(1,parseInt($('cfgNext').value)||1),tarifa:Number($('cfgTar').value)||0,gesp:Number($('cfgGesp').value)||CFG_DEF.gesp,
     planos:cfg.planos.map((p,i)=>({nome:$('pn'+i).value.trim()||p.nome,desc:Number($('pd'+i).value)||0,min:Number($('pm'+i).value)||0}))};
   cfg.min=Math.min(...cfg.planos.map(p=>p.min));
   if(!$('pp2').classList.contains('hidden'))recompute();
@@ -1231,7 +1239,7 @@ function tagSources(map){
 }
 async function lookupProposta(){
   const uc=tv('codigo_uc'),el=$(tid('num_proposta'));
-  if(!uc||el.value.trim()||!sheetUrl())return;
+  if(!uc||el.value.trim()||!sheetReady())return;
   const r=await sheetApi('buscar',{uc});
   if(r.ok&&r.encontrada&&!el.value.trim()){
     el.value=r.numero;el.classList.remove('empty');
