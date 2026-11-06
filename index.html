@@ -599,7 +599,7 @@ function extractConsumo(t){
 
 /* =================== Entrada (login com Google / visitante) =================== */
 // Client ID do Google (OAuth, aplicativo da Web). Não é segredo: o Google só aceita o login vindo deste site.
-const GOOGLE_CLIENT_ID='';
+const GOOGLE_CLIENT_ID='598917859469-iou0ire3gcamogjgnbafbe64a5urnh16.apps.googleusercontent.com';
 const LOGIN_ATIVO=!!GOOGLE_CLIENT_ID;
 function getSessao(){try{return JSON.parse(localStorage.getItem('ozz_sessao')||'null')}catch(e){return null}}
 function setSessao(v){try{v?localStorage.setItem('ozz_sessao',JSON.stringify(v)):localStorage.removeItem('ozz_sessao')}catch(e){}}
@@ -632,7 +632,10 @@ async function finishLogin(pl){
   let nome=pl.name||pl.email,perfil='';
   if(sheetUrl()){
     const r=await sheetApi('eu',{},{idToken:idTok.t});
-    if(!r.ok){loginEmAndamento=false;m.className='lg-msg';m.textContent='⚠️ '+(r.erro||'não foi possível confirmar seu acesso')+'.';
+    // planilha ainda no modo antigo (sem Client ID em B3 ou script não atualizado): o login do Google vale;
+    // bloqueia só quando a planilha recusa o e-mail/login ou não responde
+    const transicao=!r.ok&&/ação desconhecida|código de sincronização/.test(r.erro||'');
+    if(!r.ok&&!transicao){loginEmAndamento=false;m.className='lg-msg';m.textContent='⚠️ '+(r.erro||'não foi possível confirmar seu acesso')+'.';
       try{google.accounts.id.disableAutoSelect()}catch(e){}idTok=null;try{sessionStorage.removeItem('ozz_idtok')}catch(e){}return}
     if(r.nome)nome=r.nome;perfil=r.perfil||'';
   }
@@ -686,6 +689,7 @@ const sheetReady=()=>!!sheetUrl()&&(LOGIN_ATIVO?isGoogle():!!sheetCode());
 async function sheetApi(acao,payload,opts){
   const url=sheetUrl();if(!url)return {ok:false,off:true,erro:'planilha não configurada'};
   const body={acao,...payload};
+  if(sheetCode())body.token=sheetCode();   // transição: vale enquanto Config!B3 da planilha estiver vazio
   if(opts&&opts.idToken)body.idToken=opts.idToken;
   else if(LOGIN_ATIVO){
     if(!isGoogle())return {ok:false,off:true,visitante:true};
@@ -694,7 +698,6 @@ async function sheetApi(acao,payload,opts){
     body.idToken=t;
   }else{
     if(!sheetCode())return {ok:false,erro:'falta o código de sincronização neste computador (configurar numeração → Código de sincronização)'};
-    body.token=sheetCode();
   }
   const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),20000);
   try{
