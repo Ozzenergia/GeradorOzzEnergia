@@ -1,16 +1,19 @@
 /**
  * OZZ Energia – registro de propostas e termos (Google Apps Script)
  *
- * Cole este código em Extensões → Apps Script da planilha, salve, rode a
- * função "configurar" uma vez e implante como App da Web
+ * Cole este código em Extensões → Apps Script da planilha, salve, recarregue a
+ * planilha e use o menu OZZ Gerador → Configurar planilha. Implante como App da Web
  * (Executar como: Eu · Quem pode acessar: Qualquer pessoa).
+ *
+ * Cada computador precisa do código de sincronização (OZZ-XXXX-XXXX-XXXX), colado em
+ * "configurar numeração" no portal. Sem ele, o script recusa tudo.
  *
  * Segurança: o script só GRAVA linhas e devolve o próximo número.
  * Ele nunca devolve CPF, endereço ou outros dados de clientes.
  */
 
-// Mesma senha que está no portal (index.html → SHEET_TOKEN)
-const TOKEN = 'ozz-qh_LKaYLTaACOG1ZdxpQ53LQ';
+// O código de sincronização NÃO fica no código: ele é gerado pela planilha
+// (menu OZZ Gerador) e guardado nas propriedades do script.
 
 const ABA_PROPOSTAS = 'Propostas';
 const ABA_TERMOS = 'Termos';
@@ -22,7 +25,15 @@ const COLS_PROPOSTAS = ['Data/hora', 'Nº proposta', 'Consultor', 'Cliente', 'CP
 const COLS_TERMOS = ['Data/hora', 'Nº proposta', 'Consultor', 'Titular', 'CPF/CNPJ', 'UC', 'Distribuidora',
   'Classe', 'Endereço', 'Cidade/UF', 'Consumo médio (kWh)', 'Modalidade', 'Data de assinatura', 'Representante'];
 
-/** Rode uma vez: cria as abas e os cabeçalhos. */
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('OZZ Gerador')
+    .addItem('Configurar planilha', 'configurar')
+    .addItem('Mostrar código de sincronização', 'mostrarCodigo')
+    .addItem('Gerar novo código (bloqueia o antigo)', 'novoCodigo')
+    .addToUi();
+}
+
+/** Cria as abas, os cabeçalhos e o código de sincronização (pode rodar de novo sem perder nada). */
 function configurar() {
   const ss = SpreadsheetApp.getActive();
   const cria = (nome, cols) => {
@@ -42,6 +53,33 @@ function configurar() {
     cfg.getRange('A1:A2').setFontWeight('bold');
     cfg.getRange('C1').setValue('← altere aqui o próximo número da proposta');
   }
+  if (!codigo_()) gerarCodigo_();
+  try {
+    SpreadsheetApp.getUi().alert('Planilha configurada',
+      'Código de sincronização: ' + codigo_() + '\n\n' +
+      'Cole este código no portal, em "configurar numeração → Código de sincronização", ' +
+      'em cada computador que vai gerar propostas e termos.', SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) { Logger.log('Código de sincronização: ' + codigo_()); } // rodando pelo editor
+}
+
+function mostrarCodigo() {
+  SpreadsheetApp.getUi().alert('Código de sincronização', codigo_() || "Ainda não gerado. Use 'Configurar planilha'.", SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function novoCodigo() {
+  const ui = SpreadsheetApp.getUi();
+  const r = ui.alert('Gerar novo código?', 'Os computadores com o código antigo deixam de registrar até receberem o novo código.', ui.ButtonSet.OK_CANCEL);
+  if (r !== ui.Button.OK) return;
+  gerarCodigo_();
+  ui.alert('Novo código de sincronização', codigo_(), ui.ButtonSet.OK);
+}
+
+function codigo_() { return PropertiesService.getScriptProperties().getProperty('CODIGO') || ''; }
+
+function gerarCodigo_() {
+  const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', partes = [];
+  for (let p = 0; p < 3; p++) { let s = ''; for (let i = 0; i < 4; i++) s += letras.charAt(Math.floor(Math.random() * letras.length)); partes.push(s); }
+  PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
 function doGet() {
@@ -51,8 +89,11 @@ function doGet() {
 function doPost(e) {
   let req;
   try { req = JSON.parse(e.postData.contents); } catch (err) { return json({ ok: false, erro: 'pedido inválido' }); }
-  if (req.token !== TOKEN) return json({ ok: false, erro: 'senha inválida' });
+  const cod = codigo_();
+  if (!cod) return json({ ok: false, erro: 'a planilha ainda não tem código de sincronização (menu OZZ Gerador → Configurar planilha)' });
+  if (String(req.token || '').trim().toUpperCase() !== cod) return json({ ok: false, erro: 'código de sincronização inválido' });
   try {
+    if (req.acao === 'ping') return json({ ok: true, planilha: SpreadsheetApp.getActive().getName() });
     if (req.acao === 'proposta') return json(registrarProposta(req.dados || {}));
     if (req.acao === 'termo') return json(registrarTermo(req.dados || {}));
     if (req.acao === 'buscar') return json(buscarPorUC(req.uc));
