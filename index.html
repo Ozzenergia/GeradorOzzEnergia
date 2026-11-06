@@ -43,6 +43,9 @@ body{font-family:Outfit,system-ui,sans-serif;background:var(--bg);color:var(--in
 .nwrap{padding:0 30px;display:flex;gap:8px;overflow-x:auto}
 .tab{background:none;border:none;padding:14px 32px 12px;font:600 15px Outfit,sans-serif;color:rgba(255,255,255,.65);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;display:flex;gap:10px;align-items:center}
 .tab.active{color:#fff;border-bottom-color:var(--accent)}
+.tab-link{text-decoration:none}
+.tab-link .ext{font-size:12px;opacity:.7}
+.tab:hover{color:#fff}
 
 main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 .title{text-align:center;margin-bottom:30px}
@@ -258,6 +261,7 @@ body.locked{overflow:hidden}
   <nav class="nwrap">
     <button class="tab active" data-tab="prop">📊 Gerador de Propostas</button>
     <button class="tab" data-tab="termo">📄 Gerador de Termo de Adesão</button>
+    <a class="tab tab-link" href="posvenda/">🤝 Pós-venda <span class="ext">↗</span></a>
   </nav>
 </div>
 
@@ -631,8 +635,8 @@ function sheetStatus(id,res,okMsg){
 }
 
 /* =================== Abas =================== */
-document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
-  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===t));
+document.querySelectorAll('.tab[data-tab]').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab[data-tab]').forEach(x=>x.classList.toggle('active',x===t));
   $('tab-prop').classList.toggle('hidden',t.dataset.tab!=='prop');
   $('tab-termo').classList.toggle('hidden',t.dataset.tab!=='termo');
 });
