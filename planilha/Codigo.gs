@@ -5,8 +5,11 @@
  * planilha e use o menu OZZ Gerador → Configurar planilha. Implante como App da Web
  * (Executar como: Eu · Quem pode acessar: Qualquer pessoa).
  *
- * Cada computador precisa do código de sincronização (OZZ-XXXX-XXXX-XXXX), colado em
- * "configurar numeração" no portal. Sem ele, o script recusa tudo.
+ * Acesso:
+ *  - Com o login com Google ligado (Client ID na aba Config, célula B3), só grava quem
+ *    entrou com Google e está ativo na aba Usuários. O Google confirma a identidade.
+ *  - Antes disso, vale o código de sincronização (OZZ-XXXX-XXXX-XXXX), colado em
+ *    "configurar numeração" no portal.
  *
  * Segurança: o script só GRAVA linhas e devolve o próximo número.
  * Ele nunca devolve CPF, endereço ou outros dados de clientes.
@@ -18,6 +21,8 @@
 const ABA_PROPOSTAS = 'Propostas';
 const ABA_TERMOS = 'Termos';
 const ABA_CONFIG = 'Config';
+const ABA_USUARIOS = 'Usuários';
+const COLS_USUARIOS = ['E-mail', 'Nome', 'Perfil', 'Ativo'];
 
 const COLS_PROPOSTAS = ['Data/hora', 'Nº proposta', 'Consultor', 'Cliente', 'CPF', 'CNPJ', 'UC', 'Distribuidora',
   'Endereço', 'CEP', 'Cidade', 'UF', 'Tensão', 'Consumo médio (kWh)', 'Plano', 'Desconto (%)',
@@ -47,11 +52,21 @@ function configurar() {
   };
   cria(ABA_PROPOSTAS, COLS_PROPOSTAS);
   cria(ABA_TERMOS, COLS_TERMOS);
+  const us = cria(ABA_USUARIOS, COLS_USUARIOS);
+  if (us.getLastRow() === 1) {
+    let dono = '';
+    try { dono = Session.getEffectiveUser().getEmail(); } catch (e) {}
+    if (dono) us.appendRow([dono, 'Administrador', 'admin', 'SIM']);
+  }
   const cfg = ss.getSheetByName(ABA_CONFIG) || ss.insertSheet(ABA_CONFIG);
   if (cfg.getLastRow() === 0) {
     cfg.getRange('A1:B2').setValues([['Próximo número', 700001], ['Prefixo', '']]);
     cfg.getRange('A1:A2').setFontWeight('bold');
     cfg.getRange('C1').setValue('← altere aqui o próximo número da proposta');
+  }
+  if (!String(cfg.getRange('A3').getValue())) {
+    cfg.getRange('A3').setValue('Google Client ID').setFontWeight('bold');
+    cfg.getRange('C3').setValue('← cole aqui o Client ID para ligar o login com Google');
   }
   if (!codigo_()) gerarCodigo_();
   try {
@@ -89,11 +104,12 @@ function doGet() {
 function doPost(e) {
   let req;
   try { req = JSON.parse(e.postData.contents); } catch (err) { return json({ ok: false, erro: 'pedido inválido' }); }
-  const cod = codigo_();
-  if (!cod) return json({ ok: false, erro: 'a planilha ainda não tem código de sincronização (menu OZZ Gerador → Configurar planilha)' });
-  if (String(req.token || '').trim().toUpperCase() !== cod) return json({ ok: false, erro: 'código de sincronização inválido' });
+  let usuario;
+  try { usuario = autenticar_(req); } catch (err) { return json({ ok: false, erro: String(err.message || err), auth: true }); }
   try {
     if (req.acao === 'ping') return json({ ok: true, planilha: SpreadsheetApp.getActive().getName() });
+    if (req.acao === 'eu') return json({ ok: true, email: usuario.email, nome: usuario.nome, perfil: usuario.perfil });
+    if (usuario.nome && req.dados) req.dados.consultor = usuario.nome; // o nome vem do login, não do navegador
     if (req.acao === 'proposta') return json(registrarProposta(req.dados || {}));
     if (req.acao === 'termo') return json(registrarTermo(req.dados || {}));
     if (req.acao === 'buscar') return json(buscarPorUC(req.uc));
@@ -101,6 +117,59 @@ function doPost(e) {
   } catch (err) {
     return json({ ok: false, erro: String(err && err.message || err) });
   }
+}
+
+/* ---------- Acesso ---------- */
+function clientId_() {
+  const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
+  return cfg ? String(cfg.getRange('B3').getValue() || '').trim() : '';
+}
+
+/** Com o login ligado, exige um login Google válido de alguém ativo na aba Usuários; antes disso, o código de sincronização. */
+function autenticar_(req) {
+  const cid = clientId_();
+  if (cid) {
+    if (!req.idToken) throw new Error('faça login com Google para registrar');
+    const email = verificarGoogle_(req.idToken, cid);
+    const u = buscarUsuario_(email);
+    if (!u) throw new Error('o e-mail ' + email + ' não tem acesso. Peça ao administrador para incluir na aba Usuários');
+    return u;
+  }
+  const cod = codigo_();
+  if (!cod) throw new Error('a planilha ainda não tem código de sincronização (menu OZZ Gerador → Configurar planilha)');
+  if (String(req.token || '').trim().toUpperCase() !== cod) throw new Error('código de sincronização inválido');
+  return { email: '', nome: '', perfil: '' };
+}
+
+/** Confere com o Google se o login é verdadeiro, recente e feito para este portal. */
+function verificarGoogle_(idToken, cid) {
+  const chave = 'tk_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, idToken));
+  const cache = CacheService.getScriptCache();
+  const emCache = cache.get(chave);
+  if (emCache) return emCache;
+  const r = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), { muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('login expirado ou inválido, entre novamente');
+  const t = JSON.parse(r.getContentText());
+  const agora = Math.floor(Date.now() / 1000);
+  if (t.aud !== cid) throw new Error('login feito para outro aplicativo');
+  if (t.iss !== 'accounts.google.com' && t.iss !== 'https://accounts.google.com') throw new Error('login inválido');
+  if (String(t.email_verified) !== 'true') throw new Error('e-mail do Google não verificado');
+  if (Number(t.exp) <= agora) throw new Error('login expirado, entre novamente');
+  const email = String(t.email).toLowerCase();
+  cache.put(chave, email, Math.max(1, Math.min(3000, Number(t.exp) - agora - 60)));
+  return email;
+}
+
+function buscarUsuario_(email) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(ABA_USUARIOS);
+  if (!sh || sh.getLastRow() < 2) return null;
+  const v = sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues();
+  for (let i = 0; i < v.length; i++) {
+    if (String(v[i][0]).trim().toLowerCase() === email && /^(sim|s|x|ativo|true)$/i.test(String(v[i][3]).trim())) {
+      return { email: email, nome: String(v[i][1] || email).trim(), perfil: String(v[i][2] || 'consultor').trim() };
+    }
+  }
+  return null;
 }
 
 /** Reserva o próximo número (sem repetir, mesmo com dois consultores ao mesmo tempo) e grava a proposta. */
