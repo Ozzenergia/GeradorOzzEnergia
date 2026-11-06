@@ -87,6 +87,7 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 .loading p{color:var(--muted);font-size:14px}
 .alert{display:none;padding:12px 14px;border-radius:10px;background:var(--err-soft);color:var(--err);font-size:14px;margin-top:14px}
 .alert.warn{background:var(--warn-soft);color:var(--warn)}
+.alert.ok-note{background:var(--ok-soft);color:var(--ok)}
 .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
 .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
@@ -183,6 +184,11 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 .tmodel b{color:var(--ink);font-weight:600}
 .icon-btn{width:28px;height:28px;border-radius:50%;border:none;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;cursor:pointer}
 .icon-btn:hover{filter:brightness(.95)}
+.consult{display:flex;align-items:center;gap:10px;margin-top:20px;font-size:14px;color:var(--muted)}
+.consult label{font-weight:600;white-space:nowrap}
+.consult input{flex:1;max-width:280px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;font:15px Outfit,sans-serif;background:var(--card);color:var(--ink)}
+.sheet-st{font-size:13.5px;margin:-4px auto 14px;max-width:520px}
+.sheet-st.ok{color:var(--ok)}.sheet-st.warn{color:var(--warn)}
 .hidden{display:none!important}
 
 .modal{position:fixed;inset:0;background:rgba(15,10,30,.5);display:grid;place-items:center;padding:16px;z-index:10}
@@ -301,6 +307,7 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
           <div class="grid" id="propGrid"></div>
         </div>
 
+        <div class="consult"><label for="consultorP">👤 Consultor</label><input id="consultorP" class="consultor" placeholder="Seu nome"></div>
         <div class="rv-actions">
           <button class="btn pri big" id="propGen">Gerar proposta .docx ✨</button>
           <button class="btn sec" id="propBack">Recomeçar</button>
@@ -313,6 +320,7 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
         <div class="done-box">
           <div class="big">🎉</div>
           <h3>Proposta <span id="propNumOut"></span> gerada!</h3>
+          <div class="sheet-st" id="propSheetSt"></div>
           <div class="note">💜 Confira a proposta no Word antes de enviar ao cliente. Campos que ficaram sem dado aparecem como <b>______</b>.</div>
           <div class="actions" style="justify-content:center">
             <a class="btn pri" id="propDl" href="#">⬇️ Baixar Proposta (.docx)</a>
@@ -340,6 +348,9 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
       <div class="f"><label>Tarifa (R$/kWh)</label><input id="cfgTar" type="number" step="0.01"></div>
       <div class="f"><label>Geração (kWh/kWp/ano)</label><input id="cfgGesp" type="number"></div>
     </div>
+    <div class="sub" style="margin-top:16px">Planilha do Google (registro e numeração)</div>
+    <div class="f"><input id="cfgSheet" placeholder="https://script.google.com/macros/s/…/exec"></div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:6px;font-size:13px"><button class="btn sec sm" id="cfgSheetTest" type="button">Testar conexão</button><span id="cfgSheetSt" style="color:var(--muted)"></span></div>
     <div class="sub" style="margin-top:16px">Planos de desconto</div>
     <div id="cfgPlans" style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:6px 8px;font-size:12px;color:var(--muted)"></div>
     <p style="font-size:13px;color:var(--muted);margin:12px 0 16px">Exemplo: <b id="cfgPreview"></b></p>
@@ -434,6 +445,7 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
       <div class="note">💡 Estes dados não constam na proposta. Se deixados em branco, ficarão destacados em amarelo no Word.</div>
       <div class="grid" id="g-rep"></div>
     </div>
+    <div class="consult"><label for="consultorT">👤 Consultor</label><input id="consultorT" class="consultor" placeholder="Seu nome"></div>
     <div class="actions">
       <button class="btn pri" id="btnGen">✅ Confirmar e gerar Termo</button>
       <button class="btn sec" id="btnBack">← Voltar</button>
@@ -446,6 +458,7 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
       <div class="done-box hidden" id="done">
         <div class="big">🎉</div>
         <h3>Termo de Adesão gerado!</h3>
+        <div class="sheet-st" id="termoSheetSt"></div>
         <div class="note">💛 Campos em <b>amarelo</b> no Word devem ser preenchidos manualmente antes de assinar e converter para PDF.</div>
         <div class="actions" style="justify-content:center">
           <a class="btn pri" id="dl" href="#">⬇️ Baixar Termo (.docx)</a>
@@ -527,6 +540,30 @@ function extractConsumo(t){
   const ok=vals.filter(v=>v>0&&v<200000);
   if(ok.length>=3)return Math.round(ok.slice(0,12).reduce((a,b)=>a+b,0)/Math.min(ok.length,12));
   const k=t.match(/([\d\.,]+)\s*kWh/i);return k?Math.round(num(k[1])):NaN;
+}
+
+/* =================== Planilha do Google (Apps Script) =================== */
+const SHEET_URL_DEFAULT='';           // endereço do App da Web da planilha da OZZ
+const SHEET_TOKEN='ozz-qh_LKaYLTaACOG1ZdxpQ53LQ';
+const sheetUrl=()=>((store.get('ozz_cfg',{})||{}).sheetUrl||SHEET_URL_DEFAULT||'').trim();
+async function sheetApi(acao,payload){
+  const url=sheetUrl();if(!url)return {ok:false,off:true,erro:'planilha não configurada'};
+  const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),20000);
+  try{
+    // text/plain evita a pré-verificação de CORS, que o Apps Script não responde
+    const r=await fetch(url,{method:'POST',body:JSON.stringify({token:SHEET_TOKEN,acao,...payload}),signal:ctl.signal});
+    const j=await r.json();return j&&typeof j==='object'?j:{ok:false,erro:'resposta inválida'};
+  }catch(e){return {ok:false,erro:e.name==='AbortError'?'a planilha demorou para responder':'sem conexão com a planilha'}}
+  finally{clearTimeout(t)}
+}
+/* Consultor: lembrado no navegador, igual nas duas abas */
+const getConsultor=()=>{try{return localStorage.getItem('ozz_consultor')||''}catch(e){return ''}};
+function syncConsultor(v){try{localStorage.setItem('ozz_consultor',v)}catch(e){}document.querySelectorAll('.consultor').forEach(el=>{if(el.value!==v)el.value=v})}
+document.addEventListener('input',e=>{if(e.target.classList&&e.target.classList.contains('consultor'))syncConsultor(e.target.value.trim())});
+document.querySelectorAll('.consultor').forEach(el=>el.value=getConsultor());
+function sheetStatus(id,res,okMsg){
+  const el=$(id);if(res.off){el.className='sheet-st';el.textContent='';return}
+  el.className='sheet-st '+(res.ok?'ok':'warn');el.textContent=res.ok?okMsg:'⚠️ Não registrado na planilha: '+res.erro+'.';
 }
 
 /* =================== Abas =================== */
@@ -800,7 +837,7 @@ function openReview(d,warn){
   propData={...d};
   propData.numero_proposta=fmtNum(cfg.next);
   for(const[k,m]of Object.entries(KNOWN))if(m.def&&!propData[k])propData[k]=m.def;
-  $('rvNum').textContent=propData.numero_proposta;
+  $('rvNum').textContent=sheetUrl()?'automático':propData.numero_proposta;
   FX.forEach(k=>{const el=$('fx_'+k);el.value=propData[k]||''});
   for(let i=0;i<12;i++)$('h'+i).value=d.hist&&d.hist[i]!=null?String(d.hist[i]):'';
   propData.histMes=(d.histMes&&d.histMes.length===12)?d.histMes:null;
@@ -909,13 +946,25 @@ function buildValues(){
 
 $('propBack').onclick=()=>{$('fatOk').style.display='none';propStep(1)};
 $('propNew').onclick=()=>{$('fatOk').style.display='none';propStep(1)};
-$('propGen').onclick=()=>{
+$('propGen').onclick=async()=>{
   const e=$('propErr');e.style.display='none';
+  const btn=$('propGen');if(btn.disabled)return;
   try{
     const buf=loadTemplateBuf();
     if(!buf)throw new Error(propDefaultErr?'o modelo padrão não carregou ('+propDefaultErr+'). Importe um modelo pelo ícone ao lado de "Modelo".':'o modelo ainda está carregando, tente de novo em alguns segundos.');
     if(!tplTags.length)throw new Error('o modelo não tem campos {…} para preencher.');
     const V=buildValues(),data={};
+    // numeração: a planilha reserva o número e registra a proposta; sem planilha, usa o contador do navegador
+    let reg={off:true};
+    if(sheetUrl()){
+      btn.disabled=true;btn.textContent='Registrando na planilha…';
+      reg=await sheetApi('proposta',{dados:{consultor:getConsultor(),titular:V.titular,cpf:V.cpf,cnpj:V.cnpj,codigo_uc:V.codigo_uc,distribuidora:V.distribuidora,
+        endereco:V.endereco,cep:V.cep,cidade:propData.cidade,uf:V.uf,tensao:V.tensao,consumo:V.consumo,plano:V.plano,desconto:V.desconto,
+        custo_mensal:V.custo_mensal,custo_anual:V.custo_anual,economia_mensal:V.economia_mensal,economia_anual:V.economia_anual,modelo:$('pmName').textContent}});
+      btn.disabled=false;btn.textContent='Gerar proposta .docx ✨';
+      if(reg.ok&&reg.numero){V.numero_proposta=propData.numero_proposta=String(reg.numero)}
+      else if(!confirm('Não foi possível registrar na planilha ('+reg.erro+').\n\nGerar mesmo assim com o número '+V.numero_proposta+' do contador deste computador? Confira o número depois.'))return;
+    }
     tplTags.forEach(tag=>{const k=ALIAS[norm(tag)]||tag;const x=V[k];data[tag]=(x==null||x==='')?'______':String(x)});
     const zip=new PizZip(buf);
     const doc=new Docxtemplater(zip,{paragraphLoop:true,linebreaks:true,nullGetter:()=> '______'});
@@ -929,10 +978,12 @@ $('propGen').onclick=()=>{
     $('propDl').href=URL.createObjectURL(blob);
     $('propDl').download=`Proposta_OZZ_Energia_${n}_-_${(V.titular||'cliente').toUpperCase().replace(/[^\wÀ-ú]+/g,'_')}.docx`;
     $('propNumOut').textContent=n;
-    cfg.next=Number(cfg.next)+1;store.set('ozz_cfg',cfg);
+    if(!(reg.ok&&reg.numero)){cfg.next=Number(cfg.next)+1;store.set('ozz_cfg',cfg)}
+    sheetStatus('propSheetSt',reg,'✅ Registrada na planilha com o número '+n+'.');
     propStep(3);
   }catch(err){
-    propStep(3);
+    btn.disabled=false;btn.textContent='Gerar proposta .docx ✨';
+    propStep(3);$('propSheetSt').textContent='';
     const msg=err.properties&&err.properties.errors?err.properties.errors.map(x=>x.properties.explanation).join('; '):err.message;
     e.textContent='⚠️ Erro ao gerar a proposta: '+msg;e.style.display='block';
   }
@@ -941,16 +992,24 @@ $('propGen').onclick=()=>{
 /* Numeração */
 function cfgPreview(){$('cfgPreview').textContent=($('cfgPrefix').value||'')+String($('cfgNext').value||1).padStart(4,'0')}
 $('numCfgBtn').onclick=()=>{
+  $('cfgSheet').value=cfg.sheetUrl||SHEET_URL_DEFAULT;$('cfgSheetSt').textContent='';
   $('cfgPrefix').value=cfg.prefix;$('cfgNext').value=cfg.next;$('cfgTar').value=cfg.tarifa;$('cfgGesp').value=cfg.gesp;
   $('cfgPlans').innerHTML='<span>Nome</span><span>Desconto %</span><span>Mín. kWh</span>'+cfg.planos.map((p,i)=>
     `<div class="f"><input id="pn${i}" value="${p.nome.replace(/"/g,'&quot;')}"></div><div class="f"><input id="pd${i}" type="number" step="0.1" value="${p.desc}"></div><div class="f"><input id="pm${i}" type="number" value="${p.min}"></div>`).join('');
   cfgPreview();$('numModal').classList.remove('hidden');
 };
 ['cfgPrefix','cfgNext'].forEach(id=>$(id).addEventListener('input',cfgPreview));
+$('cfgSheetTest').onclick=async()=>{
+  const url=$('cfgSheet').value.trim(),st=$('cfgSheetSt');
+  if(!url){st.textContent='Informe o endereço do App da Web.';return}
+  st.textContent='Testando…';
+  try{const r=await fetch(url);const j=await r.json();st.textContent=j.ok?'✅ Conectado':'⚠️ Resposta inesperada'}
+  catch(e){st.textContent='⚠️ Não conectou. Confira o endereço e se o App da Web está liberado para "Qualquer pessoa".'}
+};
 $('cfgCancel').onclick=()=>$('numModal').classList.add('hidden');
 $('numModal').addEventListener('click',e=>{if(e.target.id==='numModal')$('numModal').classList.add('hidden')});
 $('cfgSave').onclick=()=>{
-  cfg={...cfg,prefix:$('cfgPrefix').value,next:Math.max(1,parseInt($('cfgNext').value)||1),tarifa:Number($('cfgTar').value)||0,gesp:Number($('cfgGesp').value)||CFG_DEF.gesp,
+  cfg={...cfg,sheetUrl:($('cfgSheet').value.trim()===SHEET_URL_DEFAULT?'':$('cfgSheet').value.trim()),prefix:$('cfgPrefix').value,next:Math.max(1,parseInt($('cfgNext').value)||1),tarifa:Number($('cfgTar').value)||0,gesp:Number($('cfgGesp').value)||CFG_DEF.gesp,
     planos:cfg.planos.map((p,i)=>({nome:$('pn'+i).value.trim()||p.nome,desc:Number($('pd'+i).value)||0,min:Number($('pm'+i).value)||0}))};
   cfg.min=Math.min(...cfg.planos.map(p=>p.min));
   if(!$('pp2').classList.contains('hidden'))recompute();
@@ -1102,8 +1161,19 @@ function tagSources(map){
     if(s){lab.textContent=s==='f'?'FATURA':'PROPOSTA';lab.className='tag '+(s==='f'?'src-f':'src-p')}
     else{lab.textContent=lab.dataset.orig;lab.className=lab.dataset.cls}});
 }
+async function lookupProposta(){
+  const uc=tv('codigo_uc'),el=$(tid('num_proposta'));
+  if(!uc||el.value.trim()||!sheetUrl())return;
+  const r=await sheetApi('buscar',{uc});
+  if(r.ok&&r.encontrada&&!el.value.trim()){
+    el.value=r.numero;el.classList.remove('empty');
+    const w=$('warn1');w.className='alert ok-note';w.style.display='block';
+    w.textContent=`✅ Nº da proposta ${r.numero} encontrado na planilha para a UC ${uc}`+([r.data&&`proposta de ${r.data}`,r.plano&&`plano ${r.plano}`].filter(Boolean).join(', ').replace(/^(.+)$/,' ($1)'))+'. Confira antes de gerar.';
+  }
+}
 function openTermo(d,src,warn,srcMap){
   tagSources(srcMap||null);
+  setTimeout(lookupProposta,0);
   d.data_assinatura=d.data_assinatura||isoHoje();
   d.rep_local=d.rep_local||`Santa Maria, ${dataExt(d.data_assinatura)}.`;
   setTermo(d,false);
@@ -1112,7 +1182,7 @@ function openTermo(d,src,warn,srcMap){
   $('compFat').classList.toggle('hidden',src==='fatura'||(src==='ambos'&&!!dual.f));$('compFat').classList.remove('ok');
   $('compTxt').textContent='A proposta não traz tudo. Adicione a fatura para preencher UC, classe, distribuidora, dia da leitura e vencimento.';
   $('compBtn').textContent='Adicionar fatura (PDF)';
-  const w=$('warn1');w.style.display=warn?'block':'none';w.textContent=warn?'⚠️ '+warn:'';
+  const w=$('warn1');w.className='alert warn';w.style.display=warn?'block':'none';w.textContent=warn?'⚠️ '+warn:'';
   goStep(2);
 }
 setupDrop($('drop'),$('file'),async file=>{
@@ -1144,6 +1214,7 @@ $('compFile').addEventListener('change',async()=>{
     $('compTxt').textContent=n?`✅ ${n} campo${n>1?'s':''} preenchido${n>1?'s':''} com a fatura (${file.name}). Os dados que já estavam preenchidos foram mantidos.`
       :`A fatura (${file.name}) não trouxe dados novos — os campos já estavam preenchidos.`;
     $('compBtn').textContent='Trocar fatura';
+    lookupProposta();
   }catch(e){$('compTxt').textContent='⚠️ Não foi possível ler a fatura: '+e.message}
   finally{$('compLoad').style.display='none';$('compFile').value=''}
 });
@@ -1158,7 +1229,11 @@ $('btnGen').onclick=async()=>{
     const blob=await buildTermo();
     $('dl').href=URL.createObjectURL(blob);
     $('dl').download=`Termo_de_Adesao_${(tv('titular')||'consorciado').replace(/[^\wÀ-ú]+/g,'_')}.docx`;
-    await new Promise(r=>setTimeout(r,500));
+    const V=termoValues();
+    const reg=await sheetApi('termo',{dados:{num_proposta:V.num_proposta,consultor:getConsultor(),titular:V.titular,documento:V.documento,codigo_uc:V.codigo_uc,
+      distribuidora:V.distribuidora,classe_uc:V.classe_uc,endereco:V.endereco,cidade:V.cidade,consumo:V.consumo,modalidade:V.modalidade,
+      data_assinatura:dataBR(V.data_assinatura),rep_nome:V.rep_nome}});
+    sheetStatus('termoSheetSt',reg,'✅ Registrado na planilha.');
     $('load3').style.display='none';$('done').classList.remove('hidden');
   }catch(e){$('load3').style.display='none';$('err3').textContent='⚠️ Erro ao gerar o documento: '+e.message;$('err3').style.display='block'}
 };
