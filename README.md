@@ -20,6 +20,12 @@ Tudo roda no navegador: nenhum arquivo ou dado de cliente é enviado para servid
 | `modelos/PROPOSTA_SOLAR_MODELO.docx` | Modelo da proposta de sistema fotovoltaico — pode ser importado pelo ícone ⇪ |
 | `modelos/TERMO_DE_ADESAO_MODELO.docx` | Template do Termo — é o modelo padrão, já embutido no portal (não precisa carregar). Outro modelo pode ser importado pelo ícone ⇪ ao lado de "Modelo: Padrão OZZ" |
 
+## Planilha de registro (Google Sheets)
+
+Cada proposta e cada Termo gerados podem ser registrados numa planilha do Google, que também
+controla a numeração (sem números repetidos entre consultores). Veja [`planilha/COMO_CONFIGURAR.md`](planilha/COMO_CONFIGURAR.md).
+Sem a planilha configurada, o portal funciona normalmente com a numeração de cada navegador.
+
 ## Campos do template da proposta
 
 Marque no Word os pontos a preencher com chaves, por exemplo `{titular}`, `{consumo}`, `{plano}`, `{desconto}`, `{custo_mensal}`, `{economia_mensal}`, `{economia_anual}`, `{numero_proposta}`, `{data}`.
