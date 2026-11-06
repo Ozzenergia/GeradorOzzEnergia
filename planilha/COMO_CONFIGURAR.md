@@ -1,5 +1,7 @@
 # Planilha de registro — como configurar
 
+> Login com Google: veja [LOGIN_GOOGLE.md](LOGIN_GOOGLE.md).
+
 A planilha guarda uma linha por proposta e por Termo e controla a numeração,
 para dois consultores nunca receberem o mesmo número.
 
