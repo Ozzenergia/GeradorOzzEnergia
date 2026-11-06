@@ -189,6 +189,28 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 .consult input{flex:1;max-width:280px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;font:15px Outfit,sans-serif;background:var(--card);color:var(--ink)}
 .sheet-st{font-size:13.5px;margin:-4px auto 14px;max-width:520px}
 .sheet-st.ok{color:var(--ok)}.sheet-st.warn{color:var(--warn)}
+/* ---- Entrada ---- */
+.login{position:fixed;inset:0;z-index:50;overflow-y:auto;display:flex;align-items:center;justify-content:center;padding:24px 16px;
+  background:radial-gradient(1200px 600px at 10% -10%,rgba(124,58,237,.35),transparent 60%),linear-gradient(130deg,var(--p1) 0%,var(--p2) 55%,var(--p3) 100%)}
+.login-card{width:100%;max-width:400px;background:var(--card);border-radius:22px;padding:34px 30px 26px;box-shadow:0 24px 60px rgba(10,4,30,.35)}
+.login-brand{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:18px;color:var(--p2)}
+.login-brand svg{width:40px;height:40px;stroke:var(--p2)}
+.login-brand b{font-weight:800;font-size:18px;letter-spacing:.5px}.login-brand span{font-size:18px}
+.login h1{text-align:center;font-size:24px;font-weight:700;letter-spacing:-.3px}
+.login-sub{text-align:center;color:var(--muted);font-size:14px;margin:2px 0 24px}
+.login .f{margin-bottom:14px}
+.login .f input{padding:12px 14px;border-radius:11px}
+.lg-btn{width:100%;justify-content:center;padding:13px;font-size:15.5px}
+.lg-msg{min-height:20px;font-size:13px;color:var(--warn);text-align:center;margin-top:10px}
+.lg-or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px;margin:8px 0 14px}
+.lg-or:before,.lg-or:after{content:"";flex:1;height:1px;background:var(--line)}
+.lg-foot{font-size:12.5px;color:var(--muted);text-align:center;margin-top:18px;line-height:1.45}
+.hd-right{display:flex;align-items:center;gap:10px}
+.user-chip{display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);padding:4px 4px 4px 14px;border-radius:999px;font-size:14px}
+.user-chip button{border:none;background:rgba(255,255,255,.16);color:#fff;font:600 13px Outfit,sans-serif;padding:5px 12px;border-radius:999px;cursor:pointer}
+.user-chip button:hover{background:rgba(255,255,255,.28)}
+body.locked{overflow:hidden}
+@media(max-width:700px){.badge-int{display:none}.login-card{padding:28px 20px 22px}}
 .hidden{display:none!important}
 
 .modal{position:fixed;inset:0;background:rgba(15,10,30,.5);display:grid;place-items:center;padding:16px;z-index:10}
@@ -201,6 +223,24 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 </style>
 </head>
 <body>
+<!-- =================== ENTRADA =================== -->
+<div id="login" class="login">
+  <div class="login-card">
+    <div class="login-brand"><svg viewBox="0 0 40 40" fill="none" stroke="#fff" stroke-width="2.6"><circle cx="20" cy="20" r="16"/><path d="M11 15h10l-10 10h10M21 15h9l-9 10h9" stroke-linejoin="round"/></svg><b>OZZ</b><span>ENERGIA</span></div>
+    <h1>Portal Interno</h1>
+    <p class="login-sub">Energia Certa Consórcio</p>
+    <form id="loginForm" autocomplete="on" novalidate>
+      <div class="f"><label for="lgEmail">E-mail</label><input id="lgEmail" type="email" autocomplete="username" placeholder="seu@email.com"></div>
+      <div class="f"><label for="lgPass">Senha</label><input id="lgPass" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+      <button class="btn pri lg-btn" type="submit">Entrar</button>
+      <div class="lg-msg" id="lgMsg" role="status"></div>
+    </form>
+    <div class="lg-or"><span>ou</span></div>
+    <button class="btn sec lg-btn" id="lgGuest" type="button">Entrar como visitante</button>
+    <p class="lg-foot">🔒 O acesso com login ainda está em configuração. Por enquanto, use <b>Entrar como visitante</b>.</p>
+  </div>
+</div>
+
 <div class="top">
   <div class="hwrap">
     <div class="logo">
@@ -210,7 +250,10 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
       </div>
       <div class="sub-h">Portal Interno · Energia Certa Consórcio</div>
     </div>
-    <div class="badge-int"><i>⚡</i>Uso interno</div>
+    <div class="hd-right">
+      <div class="badge-int"><i>⚡</i>Uso interno</div>
+      <div class="user-chip hidden" id="userChip"><span id="userName">👤 Visitante</span><button id="lgOut" type="button">Sair</button></div>
+    </div>
   </div>
   <nav class="nwrap">
     <button class="tab active" data-tab="prop">📊 Gerador de Propostas</button>
@@ -541,6 +584,27 @@ function extractConsumo(t){
   if(ok.length>=3)return Math.round(ok.slice(0,12).reduce((a,b)=>a+b,0)/Math.min(ok.length,12));
   const k=t.match(/([\d\.,]+)\s*kWh/i);return k?Math.round(num(k[1])):NaN;
 }
+
+/* =================== Entrada (login / visitante) =================== */
+// O login ainda não está ligado a nenhum sistema: só a entrada como visitante funciona.
+const LOGIN_ATIVO=false;
+function getSessao(){try{return JSON.parse(localStorage.getItem('ozz_sessao')||'null')}catch(e){return null}}
+function setSessao(v){try{v?localStorage.setItem('ozz_sessao',JSON.stringify(v)):localStorage.removeItem('ozz_sessao')}catch(e){}}
+let sessaoMem=null;
+function aplicarSessao(){
+  const ses=getSessao()||sessaoMem;
+  $('login').classList.toggle('hidden',!!ses);document.body.classList.toggle('locked',!ses);
+  $('userChip').classList.toggle('hidden',!ses);
+  if(ses)$('userName').textContent=ses.tipo==='visitante'?'👤 Visitante':'👤 '+(ses.nome||ses.email);
+  else setTimeout(()=>$('lgEmail').focus(),50);
+}
+$('lgGuest').onclick=()=>{const v={tipo:'visitante',desde:new Date().toISOString()};sessaoMem=v;setSessao(v);aplicarSessao()};
+$('loginForm').addEventListener('submit',ev=>{
+  ev.preventDefault();const m=$('lgMsg');
+  if(!LOGIN_ATIVO){m.textContent='O login ainda não está disponível. Use "Entrar como visitante".';return}
+});
+$('lgOut').onclick=()=>{sessaoMem=null;setSessao(null);$('lgPass').value='';$('lgMsg').textContent='';aplicarSessao()};
+aplicarSessao();
 
 /* =================== Planilha do Google (Apps Script) =================== */
 const SHEET_URL_DEFAULT='https://script.google.com/macros/s/AKfycbyQiL-LOZi4JAfogS3U1g8H-SoeRCYN4cJesPjCz0WvAmBB1wHnYahd31-dQjpPlfbK/exec';           // endereço do App da Web da planilha da OZZ
