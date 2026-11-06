@@ -9,6 +9,10 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
 - **Gerador de Propostas** — usa o modelo padrão de Energia por Assinatura (não precisa carregar), lê a fatura em PDF (layout RGE/CPFL), calcula média de consumo, plano de desconto, custo e economia, e gera a proposta preenchida. Outro modelo pode ser importado pelo ícone ⇪ ao lado de "Modelo: Padrão OZZ".
 - **Gerador de Termo de Adesão** — lê a proposta aprovada e gera o Termo no modelo oficial. Campos não preenchidos saem destacados em amarelo no Word.
 
+- **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
+  instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho
+  em separado para não misturar com o app original.
+
 Tudo roda no navegador: nenhum arquivo ou dado de cliente é enviado para servidor.
 
 ## Arquivos
