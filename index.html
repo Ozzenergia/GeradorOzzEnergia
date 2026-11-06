@@ -543,7 +543,7 @@ function extractConsumo(t){
 }
 
 /* =================== Planilha do Google (Apps Script) =================== */
-const SHEET_URL_DEFAULT='';           // endereço do App da Web da planilha da OZZ
+const SHEET_URL_DEFAULT='https://script.google.com/macros/s/AKfycbyQiL-LOZi4JAfogS3U1g8H-SoeRCYN4cJesPjCz0WvAmBB1wHnYahd31-dQjpPlfbK/exec';           // endereço do App da Web da planilha da OZZ
 const SHEET_TOKEN='ozz-qh_LKaYLTaACOG1ZdxpQ53LQ';
 const sheetUrl=()=>((store.get('ozz_cfg',{})||{}).sheetUrl||SHEET_URL_DEFAULT||'').trim();
 async function sheetApi(acao,payload){
