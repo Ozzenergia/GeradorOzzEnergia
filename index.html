@@ -220,6 +220,10 @@ main{max-width:800px;margin:0 auto;padding:40px 16px 60px}
 .user-chip button:hover{background:rgba(255,255,255,.28)}
 body.locked{overflow:hidden}
 @media(max-width:700px){.badge-int{display:none}.login-card{padding:28px 20px 22px}}
+.unsure,.rv .f input.unsure,.f input.unsure,.f select.unsure{background:var(--warn-soft)!important;border-color:var(--accent)!important;box-shadow:0 0 0 1px var(--accent) inset}
+.hist-img{margin:0 0 12px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:6px;text-align:center}
+.hist-img img{width:100%;max-width:460px;border-radius:6px;display:block;margin:0 auto}
+.hist-img figcaption{font-size:12px;color:var(--warn);margin-top:4px}
 .hidden{display:none!important}
 
 .modal{position:fixed;inset:0;background:rgba(15,10,30,.5);display:grid;place-items:center;padding:16px;z-index:10}
@@ -299,11 +303,11 @@ body.locked{overflow:hidden}
         <div class="drop" id="fatDrop">
           <div class="ic">☁️</div>
           <strong>Arraste a fatura aqui ou clique para selecionar</strong>
-          <small>Aceita PDF ou imagem (JPG, PNG)</small>
-          <input type="file" id="fatFile" accept=".pdf,.jpg,.jpeg,.png" hidden>
+          <small>PDF da fatura ou <b>foto</b> (JPG, PNG) · a foto é lida no próprio aparelho</small>
+          <input type="file" id="fatFile" accept=".pdf,image/*" hidden>
         </div>
         <div class="file-ok" id="fatOk">✅ <span id="fatName"></span></div>
-        <div class="loading" id="fatLoad"><div class="spin"></div><strong>Lendo a fatura...</strong><p>Extraindo dados do cliente, da UC e do consumo</p></div>
+        <div class="loading" id="fatLoad"><div class="spin"></div><strong>Lendo a fatura...</strong><p id="fatProg">Extraindo dados do cliente, da UC e do consumo</p></div>
         <div class="alert" id="fatErr"></div>
       </div>
       <div class="actions" style="justify-content:center"><button class="linkbtn" id="skipFat">ou preencher manualmente sem fatura</button></div>
@@ -338,6 +342,7 @@ body.locked{overflow:hidden}
           <div class="hist">
             <div class="method" id="method"></div>
             <div class="hist-l">Histórico dos últimos 12 meses (kWh):</div>
+            <figure class="hist-img hidden" id="histImgBox"><img id="histImg" alt="Histórico de consumo recortado da foto da fatura"><figcaption>Recorte da foto — confira os números destacados</figcaption></figure>
             <div class="g4" id="histGrid"></div>
           </div>
           <div class="sumbox" id="sumBox"></div>
@@ -447,11 +452,11 @@ body.locked{overflow:hidden}
         <div class="dual">
           <div class="drop mini" id="dropP"><div class="ic">📋</div><strong>Proposta aprovada</strong><small id="stP">PDF, Word ou imagem</small>
             <input type="file" id="fileP" accept=".pdf,.docx,.jpg,.jpeg,.png" hidden></div>
-          <div class="drop mini" id="dropF"><div class="ic">🧾</div><strong>Fatura de energia</strong><small id="stF">PDF da fatura</small>
-            <input type="file" id="fileF" accept=".pdf" hidden></div>
+          <div class="drop mini" id="dropF"><div class="ic">🧾</div><strong>Fatura de energia</strong><small id="stF">PDF ou foto da fatura</small>
+            <input type="file" id="fileF" accept=".pdf,image/*" hidden></div>
         </div>
         <p class="dual-hint">A fatura preenche os dados da UC; a proposta, o número, o consumo e os contatos.</p>
-        <div class="loading" id="loadD"><div class="spin"></div><strong>Lendo os documentos...</strong></div>
+        <div class="loading" id="loadD"><div class="spin"></div><strong>Lendo os documentos...</strong><p id="loadDProg"></p></div>
         <button class="btn pri big-w" id="dualGo" disabled>Continuar →</button>
       </div>
       <div class="drop" id="drop">
@@ -461,7 +466,7 @@ body.locked{overflow:hidden}
         <input type="file" id="file" accept=".pdf,.docx,.jpg,.jpeg,.png" hidden>
       </div>
       <div class="file-ok" id="fileOk">✅ <span id="fileName"></span></div>
-      <div class="loading" id="load1"><div class="spin"></div><strong id="loadT">Analisando a proposta...</strong><p>Extraindo dados do cliente e da unidade consumidora</p></div>
+      <div class="loading" id="load1"><div class="spin"></div><strong id="loadT">Analisando a proposta...</strong><p id="load1Prog">Extraindo dados do cliente e da unidade consumidora</p></div>
       <div class="alert" id="err1"></div>
     </div>
     <div class="actions" style="justify-content:center"><button class="linkbtn" id="termoManual">ou preencher manualmente</button></div>
@@ -473,8 +478,8 @@ body.locked{overflow:hidden}
       <div class="comp-row">
         <div><h3 style="margin:0">🧾 Complementar com a fatura</h3>
           <p id="compTxt">A proposta não traz tudo. Adicione a fatura para preencher UC, classe, distribuidora, dia da leitura e vencimento.</p></div>
-        <button class="btn sec" id="compBtn">Adicionar fatura (PDF)</button>
-        <input type="file" id="compFile" accept=".pdf" hidden>
+        <button class="btn sec" id="compBtn">Adicionar fatura (PDF ou foto)</button>
+        <input type="file" id="compFile" accept=".pdf,image/*" hidden>
       </div>
       <div class="loading" id="compLoad" style="padding:16px 0 0"><div class="spin" style="width:28px;height:28px;margin-bottom:8px"></div><p>Lendo a fatura...</p></div>
     </div>
@@ -558,6 +563,192 @@ async function readPdf(file){
     out+='\n';
   }
   return out;
+}
+/* Interpreta o texto do OCR de uma fatura RGE/CPFL (foto). Mesmo código vai para o portal. */
+function parseFaturaOCR(T){
+  const d={},MES3='JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ';
+  const limpa=l=>{let t=l.replace(/[|“”"'`´~^_=—–]+/g,' ').replace(/\s+/g,' ').trim().split(' ');
+    while(t.length&&(/[a-zà-ü]/.test(t[0])||!/[A-ZÀ-Ü0-9]/.test(t[0])))t.shift();
+    // número solto e curto antes de um nome (ex.: "83 PADARIA ...") é sujeira; CEP e endereço não começam assim
+    while(t.length>2&&/^\d{1,3}$/.test(t[0])&&/^[A-ZÀ-Ü]{2,}/.test(t[1]))t.shift();
+    while(t.length&&(/[a-zà-ü]/.test(t.at(-1))||!/[A-ZÀ-Ü0-9]/.test(t.at(-1))||/^[A-ZÀ-Ü][:.]?$/.test(t.at(-1))&&t.length>1&&!/^\d/.test(t.at(-2))))t.pop();
+    return t.join(' ')};
+  const L=T.split('\n').map(limpa).filter(Boolean);   // sem linhas vazias
+  d.distribuidora=/RGE/i.test(T)?'RGE Sul':/CPFL/i.test(T)?'CPFL':'';
+  // bloco do cliente: linha "CEP CIDADE/UF" que não é da distribuidora
+  const reCep=/(\d{5})\s*-\s*(\d{3})\s*-?\s*([A-ZÀ-Ü][A-ZÀ-Ü .]*?)\s*[\/ -]\s*([A-Z]{2})\b/;
+  let ci=L.findIndex(l=>{const m=l.match(reCep);return m&&m[1]+'-'+m[2]!=='93032-525'});
+  if(ci>=0){const m=L[ci].match(reCep);d.cep=m[1]+'-'+m[2];d.cidade=m[3].trim().toLowerCase().replace(/(^|\s)\S/g,c=>c.toUpperCase());d.uf=m[4];
+    const isEnd=s=>/^(R|RUA|AV|AVENIDA|TV|TRAV|TRAVESSA|ESTR|ESTRADA|ROD|RODOVIA|AL|ALAMEDA|PC|PCA|PRACA|LINHA|LOC|BR|RS|ERS)\b/.test(s)||/\d/.test(s);
+    const up=k=>(L[ci-k]||'').trim();
+    // tira "sujeira" curta antes do tipo de logradouro (ex.: "E R CARLOS ..." → "R CARLOS ...")
+    const tiraLixo=s=>s.replace(/^(?:\S{1,2}\s+){1,2}(?=(?:R|RUA|AV|AVENIDA|TV|TRAV|ESTR|ROD|AL|PC|PRACA|LINHA)\s+[A-ZÀ-Ü]{2})/,'');
+    if(isEnd(up(2))&&up(3)){d.titular=up(3);d.logradouro=tiraLixo(up(2));d.bairro=up(1)}
+    else if(isEnd(up(1))&&up(2)){d.titular=up(2);d.logradouro=tiraLixo(up(1));d.bairro=''}
+    d.endereco=[d.logradouro,d.bairro].filter(Boolean).join(', ');}
+  // documentos (ignora o CNPJ da RGE)
+  const cnpj=(T.match(/\d{2}\.\d{3}\.\d{3}\s*\/\s*\d{4}\s*-\s*\d{2}/g)||[]).map(x=>x.replace(/\s/g,'')).find(x=>x!=='02.016.440/0001-62');
+  if(cnpj)d.cnpj=cnpj;
+  const cpf=(T.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g)||[]).find(x=>!/^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(x)||true);
+  // (a UC nova tem o mesmo formato do CPF: 760.013.001-35 — CPF só se vier rotulado)
+  const cpfR=T.match(/CPF:?\s*(\d{3}\.\d{3}\.\d{3}-\d{2})/);if(cpfR)d.cpf=cpfR[1];
+  const ucR=T.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b/);if(ucR&&(!d.cpf||ucR[1]!==d.cpf))d.codigo_uc=ucR[1];
+  const cl=T.match(/C\S{0,2}assifica\S*\s*:?\s*(Convencional[^|\n]*?)(?=\s+Tipo\b|\s*\||\s*$)/im);if(cl)d.classe_uc=cl[1].replace(/\s+/g,' ').trim();
+  const tn=T.match(/Disp\.?\s*:?\s*(\d{3})/i);if(tn)d.tensao=tn[1];
+  // linha de datas abaixo de "Data de Vencimento": apresentação, leitura próximo mês, vencimento
+  const hv=T.split('\n').findIndex(l=>/Vencimento/i.test(l)&&/Leitura/i.test(l));
+  if(hv>=0){const dts=(T.split('\n')[hv+1]||'').match(/\d{2}\/\d{2}\/\d{4}/g)||[];
+    if(dts.length>=2){d.dia_vencimento=String(+dts.at(-1).slice(0,2));d.dia_leitura=String(+dts.at(-2).slice(0,2))}}
+  if(!d.dia_vencimento){const m=T.match(new RegExp('\\b(?:'+MES3+')\\/20\\d\\d\\s+(\\d{2})\\/\\d{2}\\/\\d{4}'));if(m)d.dia_vencimento=String(+m[1])}
+  if(!d.dia_leitura){const m=T.match(/Pr[óo]xima leitura:?\s*(\d{2})\//i);if(m)d.dia_leitura=String(+m[1])}
+  const inj=T.match(/Energia\s+[Ii]njetada[^\n]*?(\d{1,3}(?:\.\d{3})+|\d{3,5})\s*\S{0,25}$/m);if(inj)d.inj_te=String(Math.round(+inj[1].replace(/\./g,'')));
+  // mês de referência
+  let ref=T.match(new RegExp('\\b('+MES3+')\\/(20\\d\\d)\\s+\\d{2}\\/\\d{2}\\/\\d{4}'));
+  if(ref)d._ref=[ref[1],+ref[2]];
+  else{const m=T.match(/EMISS\S*\s*:?\s*[\s\S]{0,40}?(\d{2})\/(\d{2})\/(20\d\d)/i)||T.match(new RegExp('(?:CIP|TUSD|TE)\\s+('+MES3+')\\s*[\\/I1l]\\s*(\\d{2})\\b'));
+    if(m&&m.length===4)d._ref=[MES3.split('|')[+m[2]-1],+m[3]];else if(m)d._ref=[m[1],2000+(+m[2])];
+    else if(hv>=0){const dts=(T.split('\n')[hv+1]||'').match(/\d{2}\/(\d{2})\/(20\d\d)/g)||[];if(dts.length){const [dd,mm,yy]=dts.at(-1).split('/');d._ref=[MES3.split('|')[+mm-1],+yy]}}}
+  return d;
+}
+/* rótulos dos 13 meses do histórico (mais recente primeiro), a partir do mês de referência */
+function mesesHist(ref,n=13){const M='JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ'.split('|');let mi=M.indexOf(ref[0]),y=ref[1]%100;const o=[];
+  for(let i=0;i<n;i++){o.push(M[mi]+'/'+String(y).padStart(2,'0'));mi--;if(mi<0){mi=11;y--}}return o}
+/* =================== Leitura de foto da fatura (OCR no navegador) =================== */
+// Tesseract.js roda aqui mesmo, no navegador: a foto não é enviada para nenhum servidor.
+const OCR_CDN={script:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+  workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+  corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+  langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/por@1.0.0/4.0.0_best_int'};
+let ocrWorker=null,ocrProg=()=>{};
+function loadScript(src){return new Promise((ok,err)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>err(new Error('não foi possível carregar o leitor de fotos (verifique a internet)'));document.head.appendChild(s)})}
+async function getOcrWorker(){
+  if(ocrWorker)return ocrWorker;
+  if(!window.Tesseract)await loadScript(OCR_CDN.script);
+  ocrWorker=await Tesseract.createWorker('por',1,{workerPath:OCR_CDN.workerPath,corePath:OCR_CDN.corePath,langPath:OCR_CDN.langPath,
+    logger:m=>{if(m.status==='recognizing text')ocrProg(m.progress);else if(/loading|initializ/i.test(m.status||''))ocrProg(null,m.status)}});
+  return ocrWorker;
+}
+/* cinza + contraste automático (corta 1% dos extremos) */
+function autoContraste(ctx,w,h,corte){
+  const im=ctx.getImageData(0,0,w,h),p=im.data,hist=new Uint32Array(256);
+  for(let i=0;i<p.length;i+=4){const g=(p[i]*299+p[i+1]*587+p[i+2]*114)/1000|0;p[i]=g;hist[g]++}
+  const tot=w*h,lim=tot*corte;let a=0,b=255,s=0;while(a<255&&(s+=hist[a])<lim)a++;s=0;while(b>0&&(s+=hist[b])<lim)b--;
+  const k=b>a?255/(b-a):1;for(let i=0;i<p.length;i+=4){const v=Math.max(0,Math.min(255,(p[i]-a)*k));p[i]=p[i+1]=p[i+2]=v}
+  ctx.putImageData(im,0,0);
+}
+function prepCanvas(src){
+  const W=src.width,sc=W<2200?2200/W:W>3200?3200/W:1;
+  const c=document.createElement('canvas');c.width=Math.round(W*sc);c.height=Math.round(src.height*sc);
+  const x=c.getContext('2d',{willReadFrequently:true});x.imageSmoothingQuality='high';x.drawImage(src,0,0,c.width,c.height);
+  autoContraste(x,c.width,c.height,0.01);return c;
+}
+function cropCanvas(src,r,sc){
+  // recorta em tamanho original e amplia em etapas de até 2x (fica mais nítido que ampliar de uma vez)
+  let c=document.createElement('canvas');c.width=Math.max(1,Math.round(r.width));c.height=Math.max(1,Math.round(r.height));
+  c.getContext('2d').drawImage(src,r.left,r.top,r.width,r.height,0,0,c.width,c.height);
+  let falta=sc;
+  while(falta>1.001){const f=Math.min(2,falta);const n=document.createElement('canvas');n.width=Math.round(c.width*f);n.height=Math.round(c.height*f);
+    const nx=n.getContext('2d');nx.imageSmoothingEnabled=true;nx.imageSmoothingQuality='high';nx.drawImage(c,0,0,n.width,n.height);c=n;falta/=f}
+  const x=c.getContext('2d',{willReadFrequently:true});autoContraste(x,c.width,c.height,0.02);return c;
+}
+async function ocrRegion(w,canvas,r,sc,psm,wl){
+  const c=cropCanvas(canvas,r,sc);
+  await w.setParameters({tessedit_pageseg_mode:String(psm),tessedit_char_whitelist:wl||''});
+  const res=await w.recognize(c,{},{blocks:true});
+  await w.setParameters({tessedit_pageseg_mode:'3',tessedit_char_whitelist:''});
+  (res.data.words||[]).forEach(x=>{x.bbox={x0:r.left+x.bbox.x0/sc,x1:r.left+x.bbox.x1/sc,y0:r.top+x.bbox.y0/sc,y1:r.top+x.bbox.y1/sc}});
+  (res.data.lines||[]).forEach(x=>{x.bbox={x0:r.left+x.bbox.x0/sc,x1:r.left+x.bbox.x1/sc,y0:r.top+x.bbox.y0/sc,y1:r.top+x.bbox.y1/sc}});
+  return res.data;
+}
+/* lê a foto (ou a página escaneada) e devolve os dados no mesmo formato da leitura de PDF */
+async function ocrFatura(src,prog){
+  const etapa=(a,b,txt)=>{ocrProg=(p,st)=>prog(txt+(p!=null?' '+Math.round((a+(b-a)*p)*100)+'%':''))};
+  etapa(0,0.05,'Preparando o leitor de fotos…');prog('Preparando o leitor de fotos… (na primeira vez pode levar alguns segundos)');
+  const w=await getOcrWorker();
+  const cv=prepCanvas(src);
+  etapa(0.05,0.7,'Lendo a foto da fatura…');
+  const r1=await w.recognize(cv,{},{blocks:true});const T=r1.data.text||'';
+  const d=parseFaturaOCR(T),incertos=new Set();
+  const ws=(r1.data.words||[]).filter(x=>x.text.length>2&&x.confidence>40);
+  if(ws.length<15)throw new Error('não deu para ler o texto da foto. Tire a foto de frente, com boa luz e a fatura inteira aparecendo');
+  const pg={x0:Math.min(...ws.map(x=>x.bbox.x0)),y0:Math.min(...ws.map(x=>x.bbox.y0)),x1:Math.max(...ws.map(x=>x.bbox.x1)),y1:Math.max(...ws.map(x=>x.bbox.y1))};
+  const R=(a,b,c,e)=>({left:Math.round(pg.x0+(pg.x1-pg.x0)*a),top:Math.round(pg.y0+(pg.y1-pg.y0)*b),width:Math.round((pg.x1-pg.x0)*(c-a)),height:Math.round((pg.y1-pg.y0)*(e-b))});
+  // UC: recorte do bloco central, só dígitos
+  etapa(0.7,0.75,'Conferindo a UC…');
+  if(!d.codigo_uc){const u=await ocrRegion(w,cv,R(0.38,0.15,0.76,0.34),2,11,'0123456789.-/');const m=(u.text||'').match(/\d{3}\.\d{3}\.\d{3}-\d{2}/);if(m)d.codigo_uc=m[0]}
+  if(!d.codigo_uc)incertos.add('codigo_uc');
+  // histórico: acha a coluna de números na faixa da direita, depois lê só a coluna, bem ampliada
+  etapa(0.75,1,'Lendo o histórico de consumo…');
+  const strip=R(0.73,0.48,1.0,0.84);let histImg=null;
+  try{ // recorte colorido, só do quadro do histórico, tirado da foto original para o consultor conferir
+    const k=src.width/cv.width,q=R(0.735,0.555,1.0,0.79),c=document.createElement('canvas');
+    const sw=q.width*k,sh=q.height*k,z=Math.min(2,Math.max(1,700/sw));c.width=Math.round(sw*z);c.height=Math.round(sh*z);
+    const cx=c.getContext('2d');cx.imageSmoothingQuality='high';cx.drawImage(src,q.left*k,q.top*k,sw,sh,0,0,c.width,c.height);histImg=c.toDataURL('image/jpeg',0.9)}catch(e){}
+  let vals=[];
+  try{
+    const d2=await ocrRegion(w,cv,strip,2.2,11,'0123456789');
+    const nums=(d2.words||[]).filter(x=>/^\d{4,5}$/.test(x.text));const xs=nums.map(x=>x.bbox.x0).sort((p,q)=>p-q);const xmed=xs[Math.floor(xs.length/2)];
+    const col=nums.filter(x=>Math.abs(x.bbox.x0-xmed)<strip.width*0.12);
+    let colR;
+    if(col.length>=5){const ys=col.map(x=>x.bbox.y0),rh=(Math.max(...ys)-Math.min(...ys))/Math.max(1,col.length-1);
+      const top=Math.max(strip.top,Math.min(...ys)-rh*13),bot=Math.min(strip.top+strip.height,Math.max(...col.map(x=>x.bbox.y1))+rh*13);
+      colR={left:Math.round(xmed-rh*1.2),top:Math.round(top),width:Math.round(strip.left+strip.width-xmed+rh*1.2),height:Math.round(bot-top)};}
+    else colR={left:Math.round(strip.left+strip.width*0.45),top:Math.round(strip.top+strip.height*0.3),width:Math.round(strip.width*0.55),height:Math.round(strip.height*0.7)};
+    const dA=await ocrRegion(w,cv,colR,3,11,'0123456789');
+    const tk=(dA.words||[]).filter(x=>/^\d{3,5}$/.test(x.text)).sort((p,q)=>p.bbox.y0-q.bbox.y0);
+    const grupos=[];tk.forEach(t=>{const g=grupos.find(g=>Math.abs(g.x-t.bbox.x1)<colR.width*0.08);if(g){g.l.push(t);g.x=(g.x*(g.l.length-1)+t.bbox.x1)/g.l.length}else grupos.push({x:t.bbox.x1,l:[t]})});
+    grupos.sort((p,q)=>q.l.length-p.l.length);const G=grupos[0]?grupos[0].l:[];
+    if(G.length>=3){
+      const ys=G.map(t=>t.bbox.y0),gaps=ys.slice(1).map((y,i)=>y-ys[i]).filter(v=>v>2).sort((p,q)=>p-q),rh=gaps[Math.floor(gaps.length/2)]||20;
+      const xa=Math.min(...G.map(t=>t.bbox.x0)),xb=Math.max(...G.map(t=>t.bbox.x1));
+      const have=Math.round((ys.at(-1)-ys[0])/rh)+1,extra=Math.max(0,13-have);
+      const bR={left:Math.round(xa-rh*0.6),top:Math.round(ys[0]-rh*(0.6+extra)),width:Math.round(xb-xa+rh*1.2),height:Math.round(ys.at(-1)-ys[0]+rh*(1.6+2*extra))};
+      const dB=await ocrRegion(w,cv,bR,4.5,6,'0123456789');
+      vals=(dB.lines||[]).map(l=>({v:(l.text.match(/\d{3,5}/)||[''])[0],c:l.confidence})).filter(x=>x.v);
+    }
+  }catch(e){console.warn('histórico',e)}
+  // valida: 13 linhas esperadas (mês atual + 12); números fora do padrão ficam para conferir
+  let histOk=false;
+  if(vals.length>=9){
+    const tam=vals.map(x=>x.v.length).sort((p,q)=>p-q)[Math.floor(vals.length/2)];
+    const med=vals.map(x=>+x.v).sort((p,q)=>p-q)[Math.floor(vals.length/2)];
+    const rows=vals.slice(0,13).map(x=>({v:+x.v,ok:x.c>=75&&x.v.length===tam&&+x.v<=med*3&&+x.v>=med/4}));
+    const completo=rows.length===13;histOk=completo&&rows.filter(x=>x.ok).length>=9;
+  if(histOk){
+    d.consumo_te=String(rows[0].v);if(!rows[0].ok||!completo)incertos.add('consumo_te');
+    const prev=rows.slice(1);while(prev.length<12)prev.push({v:NaN,ok:false});
+    d.hist=prev.map(x=>x.v).reverse();
+    prev.slice().reverse().forEach((x,i)=>{if(!x.ok||!completo)incertos.add('h'+i)});
+    if(d._ref)d.histMes=mesesHist(d._ref).slice(1).reverse();
+  }}
+  if(!histOk){delete d.hist;delete d.consumo_te;for(let i=0;i<12;i++)incertos.add('h'+i);incertos.add('consumo_te');
+    if(d._ref)d.histMes=mesesHist(d._ref).slice(1).reverse();d._histIlegivel=true}
+  ['titular','endereco','cep','cidade','uf','distribuidora'].forEach(k=>{if(!d[k])incertos.add(k)});
+  if(!d.cpf&&!d.cnpj){incertos.add('cpf');incertos.add('cnpj')}
+  delete d._ref;const ileg=!!d._histIlegivel;delete d._histIlegivel;
+  return {d,incertos,histImg,histIlegivel:ileg};
+}
+/* ponto único de leitura da fatura: PDF com texto → leitura direta; foto ou PDF escaneado → OCR */
+async function lerFatura(file,prog){
+  prog=prog||(()=>{});const nome=(file.name||'').toLowerCase(),tipo=file.type||'';
+  const ehPdf=nome.endsWith('.pdf')||tipo==='application/pdf',ehImg=/^image\//.test(tipo)||/\.(jpe?g|png|webp|heic|heif)$/.test(nome);
+  if(ehPdf){
+    const text=await readPdf(file);
+    if(text.replace(/\s/g,'').length>80)return {d:extractFatura(text),incertos:new Set(),histImg:null,origem:'pdf',aviso:''};
+    prog('PDF sem texto (escaneado) — lendo como foto…');
+    const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer(),verbosity:0}).promise;
+    const page=await pdf.getPage(1),vp=page.getViewport({scale:1});const sc=2600/vp.width,v2=page.getViewport({scale:sc});
+    const c=document.createElement('canvas');c.width=v2.width;c.height=v2.height;await page.render({canvasContext:c.getContext('2d'),viewport:v2}).promise;
+    const r=await ocrFatura(c,prog);return {...r,origem:'pdf-escaneado',aviso:'PDF escaneado lido como foto: confira os campos destacados em amarelo.'};
+  }
+  if(ehImg){
+    let bmp;
+    try{bmp=await createImageBitmap(file)}
+    catch(e){throw new Error(/heic|heif/.test(nome+tipo)?'este navegador não abre fotos HEIC. No iPhone, envie pelo app Fotos (ele converte para JPG) ou tire um print da foto':'não foi possível abrir a imagem')}
+    const r=await ocrFatura(bmp,prog);
+    return {...r,origem:'foto',aviso:r.histIlegivel?'Dados lidos da foto. O histórico de consumo ficou ilegível nesta foto: digite os 12 valores olhando o recorte abaixo (ou tire uma foto mais de perto). Confira também os campos em amarelo.':'Dados lidos da foto: confira os campos destacados em amarelo, principalmente o histórico.'};
+  }
+  throw new Error('envie a fatura em PDF ou uma foto (JPG/PNG)');
 }
 function after(text,labels){
   for(const l of labels){const m=text.match(new RegExp(l+'\\s*[:\\-–]?\\s*([^\\n]{2,120})','i'));if(m)return m[1].trim().replace(/\s{2,}/g,' ')}
@@ -904,11 +1095,10 @@ setupDrop($('fatDrop'),$('fatFile'),async file=>{
   const e=$('fatErr');e.style.display='none';
   $('fatName').textContent=file.name;$('fatOk').style.display='flex';$('fatLoad').style.display='block';
   try{
-    const isPdf=file.name.toLowerCase().endsWith('.pdf');
-    const text=isPdf?await readPdf(file):'';
-    openReview(extractFatura(text),!isPdf?'Imagem recebida: os dados não puderam ser lidos automaticamente. Preencha os campos.':(!text.trim()?'PDF sem texto (escaneado). Preencha os campos.':''));
+    const r=await lerFatura(file,t=>$('fatProg').textContent=t);
+    openReview(r.d,r.aviso,r);
   }catch(err){e.textContent='⚠️ Não foi possível ler a fatura: '+err.message;e.style.display='block'}
-  finally{$('fatLoad').style.display='none';$('fatFile').value=''}
+  finally{$('fatLoad').style.display='none';$('fatProg').textContent='Extraindo dados do cliente, da UC e do consumo';$('fatFile').value=''}
 });
 $('skipFat').onclick=()=>openReview({},'');
 
@@ -939,7 +1129,7 @@ function parseCPFL(t){
   if(di>=0){
     const doc=L[di].replace(/^(CPF|CNPJ):\s*/i,'');
     if(!/\*/.test(doc)){if(doc.replace(/\D/g,'').length===14)d.cnpj=doc;else d.cpf=doc}
-    for(let k=di+1;k<Math.min(L.length,di+4);k++){const u=L[k].match(/^(\d{8,12})$/);if(u){d.codigo_uc=u[1];break}}
+    for(let k=di+1;k<Math.min(L.length,di+4);k++){const u=L[k].match(/^(\d{8,12}|\d{3}\.\d{3}\.\d{3}-\d{2})$/);/* formato antigo e o novo (REN ANEEL 1095/24) */if(u){d.codigo_uc=u[1];break}}
     const end2=L.slice(Math.max(0,di-5),di).find(s=>/,\s*\d/.test(s));end2Glob=end2||d._end1;
     d.endereco=[end2||d._end1,d.bairro].filter(Boolean).join(', ');
   }
@@ -988,7 +1178,7 @@ function extractFatura(t){
 function bindMark(el,cb){const mk=()=>el.classList.toggle('empty',!el.value.trim());mk();
   el.addEventListener('input',()=>{mk();cb&&cb()});el.addEventListener('change',()=>{mk();cb&&cb()})}
 
-function openReview(d,warn){
+function openReview(d,warn,leitura){
   propData={...d};
   propData.numero_proposta=fmtNum(cfg.next);
   for(const[k,m]of Object.entries(KNOWN))if(m.def&&!propData[k])propData[k]=m.def;
@@ -997,7 +1187,12 @@ function openReview(d,warn){
   for(let i=0;i<12;i++)$('h'+i).value=d.hist&&d.hist[i]!=null?String(d.hist[i]):'';
   propData.histMes=(d.histMes&&d.histMes.length===12)?d.histMes:null;
   for(let i=0;i<12;i++)$('h'+i).previousElementSibling.textContent=propData.histMes?propData.histMes[i]:'Mês '+(i+1);
-  document.querySelectorAll('#pp2 .f input,#pp2 .f select').forEach(el=>el.classList.toggle('empty',!el.value.trim()));
+  document.querySelectorAll('#pp2 .f input,#pp2 .f select').forEach(el=>{el.classList.toggle('empty',!el.value.trim());el.classList.remove('unsure')});
+  // leitura por foto: destaca o que precisa conferir e mostra o recorte do histórico
+  const inc=(leitura&&leitura.incertos)||new Set();
+  inc.forEach(k=>{const el=/^h\d+$/.test(k)?$(k):$('fx_'+k);if(el)el.classList.add('unsure')});
+  for(let i=0;i<12;i++){const el=$('h'+i);if(el.value==='NaN')el.value=''}
+  const hb=$('histImgBox');hb.classList.toggle('hidden',!(leitura&&leitura.histImg));if(leitura&&leitura.histImg)$('histImg').src=leitura.histImg;
   planSel=-1;
   // Outros campos do template
   const extra=tplTags.filter(t=>!COVERED.has(ALIAS[norm(t)]||t));
@@ -1011,6 +1206,7 @@ function openReview(d,warn){
   recompute(true);propStep(2);
 }
 FX.forEach(k=>bindMark($('fx_'+k),()=>recompute()));
+document.getElementById('pp2').addEventListener('input',e=>{if(e.target.classList)e.target.classList.remove('unsure')});
 for(let i=0;i<12;i++)bindMark($('h'+i),()=>recompute());
 
 function refreshNumBadge(){
@@ -1234,8 +1430,8 @@ $('srcSeg').addEventListener('click',e=>{
   $('srcSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
   const f=termoSrc==='fatura';
   $('dropT').textContent=f?'Arraste a fatura aqui ou clique para selecionar':'Arraste a proposta aqui ou clique para selecionar';
-  $('dropS').textContent=f?'Aceita PDF da fatura (RGE/CPFL lida automaticamente)':'Aceita PDF, Word (.docx) ou imagem (JPG, PNG) · a fatura pode ser adicionada depois';
-  $('file').accept=f?'.pdf':'.pdf,.docx,.jpg,.jpeg,.png';
+  $('dropS').textContent=f?'PDF ou foto da fatura (RGE/CPFL lida automaticamente)':'Aceita PDF, Word (.docx) ou imagem (JPG, PNG) · a fatura pode ser adicionada depois';
+  $('file').accept=f?'.pdf,image/*':'.pdf,.docx,.jpg,.jpeg,.png';
   $('loadT').textContent=f?'Lendo a fatura...':'Analisando a proposta...';
   const amb=termoSrc==='ambos';
   $('dualBox').classList.toggle('hidden',!amb);$('drop').classList.toggle('hidden',amb);
@@ -1252,18 +1448,19 @@ async function readAny(file){
 function dualUI(){
   $('dropP').classList.toggle('done',!!dual.p);$('dropF').classList.toggle('done',!!dual.f);
   $('stP').textContent=dual.p?'✅ '+dual.pn:'PDF, Word ou imagem';
-  $('stF').textContent=dual.f?'✅ '+dual.fn:'PDF da fatura';
+  $('stF').textContent=dual.f?'✅ '+dual.fn:'PDF ou foto da fatura';
   $('dualGo').disabled=!(dual.p||dual.f);
   $('dualGo').textContent=dual.p&&dual.f?'Continuar →':dual.p?'Continuar só com a proposta →':dual.f?'Continuar só com a fatura →':'Continuar →';
 }
 async function dualLoad(file,kind){
   const err=$('err1');err.style.display='none';$('loadD').style.display='block';
   try{
-    const text=await readAny(file);
-    if(!text.trim())throw new Error('não foi possível ler o texto (imagem ou PDF escaneado)');
-    if(kind==='p'){dual.p=fromProposta(text);dual.pn=file.name}else{dual.f=fromFatura(text);dual.fn=file.name}
+    if(kind==='f'){const r=await lerFatura(file,t=>$('loadDProg').textContent=t);dual.f=fromFaturaD(r.d);dual.fn=file.name+(r.origem==='pdf'?'':' (foto — confira)')}
+    else{const text=await readAny(file);
+      if(!text.trim())throw new Error('não foi possível ler o texto (imagem ou PDF escaneado)');
+      dual.p=fromProposta(text);dual.pn=file.name}
   }catch(e){err.textContent=`⚠️ ${kind==='p'?'Proposta':'Fatura'}: ${e.message}`;err.style.display='block'}
-  finally{$('loadD').style.display='none';dualUI()}
+  finally{$('loadD').style.display='none';$('loadDProg').textContent='';dualUI()}
 }
 setupDrop($('dropP'),$('fileP'),f=>{dualLoad(f,'p');$('fileP').value=''});
 setupDrop($('dropF'),$('fileF'),f=>{dualLoad(f,'f');$('fileF').value=''});
@@ -1295,8 +1492,9 @@ function fromProposta(text){
   return d;
 }
 /* Converte a leitura da fatura para os campos do Termo */
-function fromFatura(text){
-  const f=extractFatura(text),d={};
+function fromFatura(text){return fromFaturaD(extractFatura(text))}
+function fromFaturaD(f){
+  const d={};
   d.titular=f.titular||'';
   d.documento=f.cpf||f.cnpj||'';
   d.endereco=f.logradouro||f.endereco||'';
@@ -1344,7 +1542,7 @@ function openTermo(d,src,warn,srcMap){
   // quadro de complemento: aparece quando ainda não há fatura
   $('compFat').classList.toggle('hidden',src==='fatura'||(src==='ambos'&&!!dual.f));$('compFat').classList.remove('ok');
   $('compTxt').textContent='A proposta não traz tudo. Adicione a fatura para preencher UC, classe, distribuidora, dia da leitura e vencimento.';
-  $('compBtn').textContent='Adicionar fatura (PDF)';
+  $('compBtn').textContent='Adicionar fatura (PDF ou foto)';
   const w=$('warn1');w.className='alert warn';w.style.display=warn?'block':'none';w.textContent=warn?'⚠️ '+warn:'';
   goStep(2);
 }
@@ -1353,13 +1551,15 @@ setupDrop($('drop'),$('file'),async file=>{
   $('fileName').textContent=file.name;$('fileOk').style.display='flex';$('load1').style.display='block';
   try{
     const name=file.name.toLowerCase();let text='';
-    if(name.endsWith('.pdf'))text=await readPdf(file);
-    else if(name.endsWith('.docx'))text=(await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
     const fat=termoSrc==='fatura';
-    const d=fat?fromFatura(text):fromProposta(text);
-    openTermo(d,fat?'fatura':'proposta',!text.trim()?'Não foi possível ler o texto do arquivo (imagem ou PDF escaneado). Preencha os campos manualmente.':'');
+    if(fat){const r=await lerFatura(file,t=>$('load1Prog').textContent=t);openTermo(fromFaturaD(r.d),'fatura',r.aviso)}
+    else{
+      if(name.endsWith('.pdf'))text=await readPdf(file);
+      else if(name.endsWith('.docx'))text=(await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
+      openTermo(fromProposta(text),'proposta',!text.trim()?'Não foi possível ler o texto do arquivo (imagem ou PDF escaneado). Preencha os campos manualmente.':'');
+    }
   }catch(e){err.textContent='⚠️ Não foi possível ler o arquivo: '+e.message;err.style.display='block'}
-  finally{$('load1').style.display='none';$('file').value=''}
+  finally{$('load1').style.display='none';$('load1Prog').textContent='Extraindo dados do cliente e da unidade consumidora';$('file').value=''}
 });
 $('termoManual').onclick=()=>openTermo({},'manual','');
 $('compBtn').onclick=()=>$('compFile').click();
@@ -1367,9 +1567,8 @@ $('compFile').addEventListener('change',async()=>{
   const file=$('compFile').files[0];if(!file)return;
   $('compLoad').style.display='block';
   try{
-    const text=await readPdf(file);
-    if(!text.trim())throw new Error('o PDF não tem texto (escaneado)');
-    const n=setTermo(fromFatura(text),true);
+    const r=await lerFatura(file,t=>$('compTxt').textContent=t);
+    const n=setTermo(fromFaturaD(r.d),true);
     // evita bairro repetido ("Rua X, 10, Bairro" + campo Bairro)
     const en=$(tid('endereco')),ba=tv('bairro');
     if(ba&&en.value.trim().toUpperCase().endsWith(', '+ba.toUpperCase()))en.value=en.value.trim().slice(0,-(ba.length+2));
