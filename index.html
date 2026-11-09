@@ -872,7 +872,10 @@ $('lgOut').onclick=()=>{
 };
 
 /* =================== Planilha do Google (Apps Script) =================== */
-const SHEET_URL_DEFAULT='https://script.google.com/macros/s/AKfycbyQiL-LOZi4JAfogS3U1g8H-SoeRCYN4cJesPjCz0WvAmBB1wHnYahd31-dQjpPlfbK/exec';           // endereço do App da Web da planilha da OZZ
+const SHEET_URL_DEFAULT='https://script.google.com/macros/s/AKfycbwSfuQBkFawC_2i4lE23ULZCdzj5Wgk1236MlTxYvnAMPH-2kbsj0jqne_xpWiOaIlD/exec';
+// endereços antigos da planilha (implantações arquivadas): se algum computador tiver um deles salvo, volta para o padrão
+(function(){const antigos=['https://script.google.com/macros/s/AKfycbyQiL-LOZi4JAfogS3U1g8H-SoeRCYN4cJesPjCz0WvAmBB1wHnYahd31-dQjpPlfbK/exec'];
+  try{const c=JSON.parse(localStorage.getItem('ozz_cfg')||'{}');if(c.sheetUrl&&antigos.includes(c.sheetUrl.trim())){delete c.sheetUrl;localStorage.setItem('ozz_cfg',JSON.stringify(c))}}catch(e){}})();           // endereço do App da Web da planilha da OZZ
 const sheetUrl=()=>((store.get('ozz_cfg',{})||{}).sheetUrl||SHEET_URL_DEFAULT||'').trim();
 // código de sincronização: gerado pela planilha (menu OZZ Gerador) e colado em cada computador; não fica no código
 const sheetCode=()=>((store.get('ozz_cfg',{})||{}).sheetCode||'').trim();
