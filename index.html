@@ -43,12 +43,26 @@ body{font-family:Outfit,system-ui,sans-serif;background:var(--bg);color:var(--in
 .nwrap{padding:0 30px;display:flex;gap:8px;overflow-x:auto}
 .tab{background:none;border:none;padding:14px 32px 12px;font:600 15px Outfit,sans-serif;color:rgba(255,255,255,.65);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;display:flex;gap:10px;align-items:center}
 .tab.active{color:#fff;border-bottom-color:var(--accent)}
-.subnav{display:flex;gap:8px;justify-content:center;padding:14px 16px 0;overflow-x:auto;scrollbar-width:none}
-.subnav::-webkit-scrollbar{display:none}
-.subnav button{border:1px solid var(--line);background:var(--card);color:var(--muted);font:600 14px Outfit,sans-serif;padding:8px 18px;border-radius:999px;cursor:pointer;white-space:nowrap;display:flex;gap:7px;align-items:center}
-.subnav button:hover{color:var(--ink)}
-.subnav button.on{background:var(--p2);border-color:var(--p2);color:#fff}
-.full-panel{display:flex;flex-direction:column;height:calc(100vh - 175px);height:calc(100dvh - 175px);min-height:520px;margin:14px 16px 16px}
+/* ---- menu suspenso das categorias ---- */
+.nwrap{overflow:visible}
+.mcat{position:relative}
+.mcat>.tab{display:flex;align-items:center;gap:8px}
+.mcat .chev{font-size:11px;opacity:.75;transition:transform .2s}
+.mcat.open .chev{transform:rotate(180deg)}
+@media(hover:hover){.mcat:hover .chev{transform:rotate(180deg)}.mcat:hover .drop-menu{opacity:1;visibility:visible;transform:none}}
+.drop-menu{position:absolute;top:100%;left:0;z-index:30;min-width:300px;background:var(--card);color:var(--ink);border:1px solid var(--line);
+  border-radius:16px;padding:8px;box-shadow:0 18px 40px rgba(20,8,60,.22);opacity:0;visibility:hidden;transform:translateY(-6px);transition:opacity .15s,transform .15s,visibility .15s}
+.drop-menu:before{content:"";position:absolute;top:-10px;left:0;right:0;height:10px}
+.mcat.open .drop-menu{opacity:1;visibility:visible;transform:none}
+.drop-menu button{display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;border:none;background:none;border-radius:11px;padding:11px 12px;cursor:pointer;font-family:inherit;color:inherit}
+.drop-menu button:hover,.drop-menu button:focus-visible{background:var(--primary-soft);outline:none}
+.drop-menu button.on{background:var(--primary-soft)}
+.drop-menu .ic{font-size:20px;line-height:1.2}
+.drop-menu b{display:block;font-size:15px;font-weight:600}
+.drop-menu small{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
+.drop-menu button.on b:after{content:" ✓";color:var(--primary-line);font-weight:700}
+@media(max-width:700px){.drop-menu{min-width:260px}.mcat:last-child .drop-menu{left:auto;right:0}}
+.full-panel{display:flex;flex-direction:column;height:calc(100vh - 150px);height:calc(100dvh - 150px);min-height:520px;margin:14px 16px 16px}
 .full-panel.hidden{display:none!important}
 .panel-bar{display:flex;justify-content:flex-end;font-size:13px;padding:0 4px 6px;color:var(--muted)}
 .panel-bar span{display:none}
@@ -279,12 +293,10 @@ body.locked{overflow:hidden}
     </div>
   </div>
   <nav class="nwrap">
-    <button class="tab active" data-cat="ger">📄 Geradores</button>
-    <button class="tab" data-cat="pos">🤝 Pós-venda</button>
+
   </nav>
 </div>
 
-<div class="subnav" id="subnav" role="tablist" aria-label="Funcionalidades"></div>
 <main id="mainArea">
 <!-- =================== GERADOR DE PROPOSTAS =================== -->
 <section id="tab-prop">
@@ -955,27 +967,47 @@ function sheetStatus(id,res,okMsg){
 aplicarSessao();iniciarGoogle();
 
 /* =================== Abas =================== */
-/* Abas em dois níveis: categoria (no cabeçalho) → funcionalidade (abaixo). Para incluir algo novo, é só acrescentar aqui. */
+/* Menu: categorias no cabeçalho com menu suspenso (passar o mouse ou tocar). Para incluir algo novo, é só acrescentar aqui. */
 const MENU={
-  ger:{nome:'📄 Geradores',itens:[{id:'prop',nome:'📊 Propostas',sec:'tab-prop'},{id:'termo',nome:'📄 Termo de Adesão',sec:'tab-termo'}]},
-  pos:{nome:'🤝 Pós-venda',itens:[{id:'visitas',nome:'📝 Visita e feedback',sec:'tab-visitas',iframe:'posvenda/'}]}
+  ger:{nome:'📄 Geradores',itens:[
+    {id:'prop',ic:'📊',nome:'Propostas',desc:'Fatura → proposta preenchida em segundos',sec:'tab-prop'},
+    {id:'termo',ic:'📄',nome:'Termo de Adesão',desc:'Termo preenchido a partir da proposta ou da fatura',sec:'tab-termo'}]},
+  pos:{nome:'🤝 Pós-venda',itens:[
+    {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]}
 };
-const ultimoItem={};
+const nav=document.querySelector('nav.nwrap');
+nav.innerHTML=Object.entries(MENU).map(([c,v])=>`<div class="mcat" data-cat="${c}">
+  <button class="tab" type="button" aria-haspopup="true" aria-expanded="false">${v.nome} <span class="chev">▾</span></button>
+  <div class="drop-menu" role="menu">${v.itens.map(i=>`<button type="button" role="menuitem" data-item="${i.id}"><span class="ic">${i.ic}</span><span><b>${i.nome}</b><small>${i.desc}</small></span></button>`).join('')}</div>
+</div>`).join('');
+const ultimoItem={};let catAtual='ger';
+function fecharMenus(){document.querySelectorAll('.mcat.open').forEach(m=>{m.classList.remove('open');m.querySelector('.tab').setAttribute('aria-expanded','false')})}
 function abrir(cat,item,semHash){
   if(!MENU[cat])cat='ger';
   const itens=MENU[cat].itens;item=itens.find(i=>i.id===item)||itens.find(i=>i.id===ultimoItem[cat])||itens[0];
-  ultimoItem[cat]=item.id;
-  document.querySelectorAll('.tab[data-cat]').forEach(t=>t.classList.toggle('active',t.dataset.cat===cat));
-  $('subnav').innerHTML=itens.map(i=>`<button type="button" role="tab" data-item="${i.id}" class="${i.id===item.id?'on':''}" aria-selected="${i.id===item.id}">${i.nome}</button>`).join('');
+  ultimoItem[cat]=item.id;catAtual=cat;
+  document.querySelectorAll('.mcat').forEach(m=>m.querySelector('.tab').classList.toggle('active',m.dataset.cat===cat));
+  document.querySelectorAll('.drop-menu button[data-item]').forEach(b=>b.classList.toggle('on',b.dataset.item===item.id));
   Object.values(MENU).forEach(c=>c.itens.forEach(i=>$(i.sec).classList.toggle('hidden',i!==item)));
   $('mainArea').classList.toggle('hidden',!!item.iframe);
   if(item.iframe){const fr=$('fr'+item.id[0].toUpperCase()+item.id.slice(1));if(fr&&!fr.src)fr.src=item.iframe}
   if(!semHash)history.replaceState(null,'','#'+cat+'/'+item.id);
   try{localStorage.setItem('ozz_aba',cat+'/'+item.id)}catch(e){}
+  fecharMenus();window.scrollTo({top:0});
 }
-document.querySelectorAll('.tab[data-cat]').forEach(t=>t.onclick=()=>abrir(t.dataset.cat));
-$('subnav').addEventListener('click',e=>{const b=e.target.closest('button[data-item]');if(b)abrir(document.querySelector('.tab.active').dataset.cat,b.dataset.item)});
-// compatibilidade: botões antigos com data-tab (testes / links)
+nav.addEventListener('click',e=>{
+  const it=e.target.closest('.drop-menu button[data-item]');
+  if(it){abrir(it.closest('.mcat').dataset.cat,it.dataset.item);it.blur();return}
+  const t=e.target.closest('.mcat>.tab');
+  if(t){const m=t.parentElement,ab=!m.classList.contains('open');fecharMenus();if(ab){m.classList.add('open');t.setAttribute('aria-expanded','true')}}
+});
+// ao tirar o mouse, o menu fecha (no toque, fecha ao tocar fora)
+// só com mouse de verdade: no toque o navegador simula um "mouse saiu" logo após tocar
+nav.querySelectorAll('.mcat').forEach(m=>m.addEventListener('pointerleave',e=>{if(e.pointerType!=='mouse')return;m.classList.remove('open');m.querySelector('.tab').setAttribute('aria-expanded','false')}));
+document.addEventListener('click',e=>{if(!e.target.closest('.mcat'))fecharMenus()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')fecharMenus()});
+// toque/clique dentro do pós-venda (página embutida) não chega aqui; o portal só perde o foco: fecha o menu
+window.addEventListener('blur',()=>setTimeout(fecharMenus,0));
 window.abrirTab=id=>{for(const [c,v] of Object.entries(MENU))if(v.itens.some(i=>i.id===id))return abrir(c,id)};
 (function(){let h=(location.hash||'').slice(1);if(!h){try{h=localStorage.getItem('ozz_aba')||''}catch(e){}}const [c,i]=h.split('/');abrir(c||'ger',i,!location.hash&&!h)})();
 window.addEventListener('hashchange',()=>{const [c,i]=location.hash.slice(1).split('/');abrir(c,i,true)});
