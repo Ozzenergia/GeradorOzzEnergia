@@ -592,7 +592,8 @@ function parseFaturaOCR(T){
   const cpf=(T.match(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g)||[]).find(x=>!/^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(x)||true);
   // (a UC nova tem o mesmo formato do CPF: 760.013.001-35 — CPF só se vier rotulado)
   const cpfR=T.match(/CPF:?\s*(\d{3}\.\d{3}\.\d{3}-\d{2})/);if(cpfR)d.cpf=cpfR[1];
-  const ucR=T.match(/\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b/);if(ucR&&(!d.cpf||ucR[1]!==d.cpf))d.codigo_uc=ucR[1];
+  const ucR=T.match(/\b(\d{3})\s?[.,·]\s?(\d{3})\s?[.,·]\s?(\d{3})\s?[-–—~]\s?(\d{2})\b/);   // tolera "613,160.001–18"
+  if(ucR){const uc=ucR[1]+'.'+ucR[2]+'.'+ucR[3]+'-'+ucR[4];if(!d.cpf||uc!==d.cpf)d.codigo_uc=uc}
   const cl=T.match(/C\S{0,2}assifica\S*\s*:?\s*(Convencional[^|\n]*?)(?=\s+Tipo\b|\s*\||\s*$)/im);if(cl)d.classe_uc=cl[1].replace(/\s+/g,' ').trim();
   const tn=T.match(/Disp\.?\s*:?\s*(\d{3})/i);if(tn)d.tensao=tn[1];
   // linha de datas abaixo de "Data de Vencimento": apresentação, leitura próximo mês, vencimento
@@ -675,7 +676,11 @@ async function ocrFatura(src,prog){
   const R=(a,b,c,e)=>({left:Math.round(pg.x0+(pg.x1-pg.x0)*a),top:Math.round(pg.y0+(pg.y1-pg.y0)*b),width:Math.round((pg.x1-pg.x0)*(c-a)),height:Math.round((pg.y1-pg.y0)*(e-b))});
   // UC: recorte do bloco central, só dígitos
   etapa(0.7,0.75,'Conferindo a UC…');
-  if(!d.codigo_uc){const u=await ocrRegion(w,cv,R(0.38,0.15,0.76,0.34),2,11,'0123456789.-/');const m=(u.text||'').match(/\d{3}\.\d{3}\.\d{3}-\d{2}/);if(m)d.codigo_uc=m[0]}
+  const achaUC=t=>{const m=(t||'').match(/(\d{3})\s?[.,]\s?(\d{3})\s?[.,]\s?(\d{3})\s?-\s?(\d{2})/);return m?m[1]+'.'+m[2]+'.'+m[3]+'-'+m[4]:''};
+  for(const [reg,sc,psm] of [[R(0.38,0.15,0.76,0.34),2,11],[R(0.30,0.10,0.85,0.40),2.5,6]]){
+    if(d.codigo_uc)break;
+    try{const u=await ocrRegion(w,cv,reg,sc,psm,'0123456789.,-');const v=achaUC(u.text);if(v)d.codigo_uc=v}catch(e){}
+  }
   if(!d.codigo_uc)incertos.add('codigo_uc');
   // histórico: acha a coluna de números na faixa da direita, depois lê só a coluna, bem ampliada
   etapa(0.75,1,'Lendo o histórico de consumo…');
