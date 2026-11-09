@@ -97,8 +97,13 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
+const VERSAO_SCRIPT = '3 (login Google)';
+
+/** Abrir o endereço /exec no navegador mostra a versão publicada — serve para conferir a implantação. */
 function doGet() {
-  return json({ ok: true, app: 'OZZ Energia – registro' });
+  let login = false;
+  try { login = !!clientId_(); } catch (e) {}
+  return json({ ok: true, app: 'OZZ Energia – registro', versao: VERSAO_SCRIPT, loginGoogleLigado: login });
 }
 
 function doPost(e) {
