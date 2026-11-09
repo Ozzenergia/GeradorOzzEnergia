@@ -894,7 +894,10 @@ async function sheetApi(acao,payload,opts){
   try{
     // text/plain evita a pré-verificação de CORS, que o Apps Script não responde
     const r=await fetch(url,{method:'POST',body:JSON.stringify(body),signal:ctl.signal});
-    const j=await r.json();return j&&typeof j==='object'?j:{ok:false,erro:'resposta inválida'};
+    const j=await r.json();if(!j||typeof j!=='object')return {ok:false,erro:'resposta inválida'};
+    // "senha inválida" só existe na 1ª versão do script: a implantação não foi atualizada
+    if(j.erro==='senha inválida')j.erro='a planilha está com o script antigo publicado. No Apps Script: Implantar → Gerenciar implantações → lápis → Versão: Nova versão → Implantar';
+    return j;
   }catch(e){return {ok:false,erro:e.name==='AbortError'?'a planilha demorou para responder':'sem conexão com a planilha'}}
   finally{clearTimeout(t)}
 }
