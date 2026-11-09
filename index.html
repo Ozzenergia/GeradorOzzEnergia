@@ -849,6 +849,21 @@ function aplicarSessao(){
   });
   if(typeof refreshNumBadge==='function')refreshNumBadge();
 }
+/* reconfere, a cada abertura, se quem está logado ainda tem acesso (aba Usuários da planilha) */
+async function revalidarSessao(){
+  if(!isGoogle()||!sheetUrl())return;
+  const t=await ensureToken();if(!t)return;            // sem login renovado: os registros pedem para entrar de novo
+  const r=await sheetApi('eu',{},{idToken:t});
+  const transicao=!r.ok&&/ação desconhecida|código de sincronização/.test(r.erro||'');
+  if(r.ok&&r.email&&r.email!==sessao().email){sairComMotivo('O login mudou de conta. Entre de novo.');return}
+  if(!r.ok&&!transicao&&(r.auth||/não tem acesso|outro aplicativo|login/.test(r.erro||''))){sairComMotivo(r.erro);return}
+  if(r.ok&&r.nome&&r.nome!==sessao().nome){const v={...sessao(),nome:r.nome,perfil:r.perfil||''};sessaoMem=v;setSessao(v);aplicarSessao()}
+}
+function sairComMotivo(msg){
+  sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok')}catch(e){}
+  try{google.accounts.id.disableAutoSelect()}catch(e){}
+  aplicarSessao();const m=$('lgMsg');m.className='lg-msg';m.textContent='⚠️ '+msg+'.';
+}
 function iniciarGoogle(){
   if(!LOGIN_ATIVO){
     $('gOff').classList.remove('hidden');$('gBtn').classList.add('hidden');
@@ -859,7 +874,7 @@ function iniciarGoogle(){
   sc.onload=()=>{
     google.accounts.id.initialize({client_id:GOOGLE_CLIENT_ID,callback:onCredential,auto_select:true,use_fedcm_for_prompt:true,itp_support:true});
     google.accounts.id.renderButton($('gBtn'),{theme:'filled_blue',size:'large',shape:'pill',text:'signin_with',locale:'pt-BR',width:300});
-    if(isGoogle()&&!idTok)ensureToken();   // já entrou antes: renova o login em segundo plano
+    if(isGoogle())revalidarSessao();   // já entrou antes: renova o login e reconfere o acesso na planilha
   };
   sc.onerror=()=>{$('gOff').classList.remove('hidden');$('gOff').textContent='⚠️ Não foi possível carregar o login do Google. Verifique a internet.'};
   document.head.appendChild(sc);
