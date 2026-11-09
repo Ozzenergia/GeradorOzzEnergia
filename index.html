@@ -462,8 +462,8 @@ body.locked{overflow:hidden}
       <div class="drop" id="drop">
         <div class="ic">☁️</div>
         <strong id="dropT">Arraste a proposta aqui ou clique para selecionar</strong>
-        <small id="dropS">Aceita PDF, Word (.docx) ou imagem (JPG, PNG) · a fatura pode ser adicionada depois</small>
-        <input type="file" id="file" accept=".pdf,.docx,.jpg,.jpeg,.png" hidden>
+        <small id="dropS">Aceita PDF, Word (.docx) ou foto (JPG, PNG) · a fatura pode ser adicionada depois</small>
+        <input type="file" id="file" accept=".pdf,.docx,image/*" hidden>
       </div>
       <div class="file-ok" id="fileOk">✅ <span id="fileName"></span></div>
       <div class="loading" id="load1"><div class="spin"></div><strong id="loadT">Analisando a proposta...</strong><p id="load1Prog">Extraindo dados do cliente e da unidade consumidora</p></div>
@@ -726,7 +726,7 @@ async function ocrFatura(src,prog){
   ['titular','endereco','cep','cidade','uf','distribuidora'].forEach(k=>{if(!d[k])incertos.add(k)});
   if(!d.cpf&&!d.cnpj){incertos.add('cpf');incertos.add('cnpj')}
   delete d._ref;const ileg=!!d._histIlegivel;delete d._histIlegivel;
-  return {d,incertos,histImg,histIlegivel:ileg};
+  return {d,incertos,histImg,histIlegivel:ileg,texto:T};
 }
 /* ponto único de leitura da fatura: PDF com texto → leitura direta; foto ou PDF escaneado → OCR */
 async function lerFatura(file,prog){
@@ -1430,8 +1430,8 @@ $('srcSeg').addEventListener('click',e=>{
   $('srcSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
   const f=termoSrc==='fatura';
   $('dropT').textContent=f?'Arraste a fatura aqui ou clique para selecionar':'Arraste a proposta aqui ou clique para selecionar';
-  $('dropS').textContent=f?'PDF ou foto da fatura (RGE/CPFL lida automaticamente)':'Aceita PDF, Word (.docx) ou imagem (JPG, PNG) · a fatura pode ser adicionada depois';
-  $('file').accept=f?'.pdf,image/*':'.pdf,.docx,.jpg,.jpeg,.png';
+  $('dropS').textContent=f?'PDF ou foto da fatura (RGE/CPFL lida automaticamente)':'Aceita PDF, Word (.docx) ou foto (JPG, PNG) · a fatura pode ser adicionada depois';
+  $('file').accept=f?'.pdf,image/*':'.pdf,.docx,image/*';
   $('loadT').textContent=f?'Lendo a fatura...':'Analisando a proposta...';
   const amb=termoSrc==='ambos';
   $('dualBox').classList.toggle('hidden',!amb);$('drop').classList.toggle('hidden',amb);
@@ -1456,7 +1456,11 @@ async function dualLoad(file,kind){
   const err=$('err1');err.style.display='none';$('loadD').style.display='block';
   try{
     if(kind==='f'){const r=await lerFatura(file,t=>$('loadDProg').textContent=t);dual.f=fromFaturaD(r.d);dual.fn=file.name+(r.origem==='pdf'?'':' (foto — confira)')}
-    else{const text=await readAny(file);
+    else{let text=await readAny(file);
+      if(!text.trim()&&(/^image\//.test(file.type||'')||/\.(jpe?g|png|webp)$/i.test(file.name))){
+        const r=await lerFatura(file,t=>$('loadDProg').textContent=t).catch(()=>null);text=(r&&r.texto)||'';
+        if(r&&/DANF3E|N[úu]mero da UC|Distribuidora de Energia/i.test(text)){dual.f=fromFaturaD(r.d);dual.fn=file.name+' (era a fatura — confira)';return}
+      }
       if(!text.trim())throw new Error('não foi possível ler o texto (imagem ou PDF escaneado)');
       dual.p=fromProposta(text);dual.pn=file.name}
   }catch(e){err.textContent=`⚠️ ${kind==='p'?'Proposta':'Fatura'}: ${e.message}`;err.style.display='block'}
@@ -1552,7 +1556,18 @@ setupDrop($('drop'),$('file'),async file=>{
   try{
     const name=file.name.toLowerCase();let text='';
     const fat=termoSrc==='fatura';
+    const ehImg=/^image\//.test(file.type||'')||/\.(jpe?g|png|webp|heic|heif)$/.test(name);
     if(fat){const r=await lerFatura(file,t=>$('load1Prog').textContent=t);openTermo(fromFaturaD(r.d),'fatura',r.aviso)}
+    else if(ehImg){
+      // foto na opção "Proposta aprovada": lê a imagem e decide se é fatura ou proposta
+      const r=await lerFatura(file,t=>$('load1Prog').textContent=t).catch(e=>({erro:e}));
+      const T=(r&&r.texto)||'';
+      if(r&&!r.erro&&/DANF3E|N[úu]mero da UC|Distribuidora de Energia|Data de Vencimento/i.test(T)){
+        openTermo(fromFaturaD(r.d),'fatura','A imagem enviada é uma fatura de energia, então foi lida como fatura. '+r.aviso);
+      }else if(T.trim()){
+        openTermo(fromProposta(T),'proposta','Proposta lida a partir da foto: confira todos os campos.');
+      }else throw (r&&r.erro)||new Error('não foi possível ler a imagem');
+    }
     else{
       if(name.endsWith('.pdf'))text=await readPdf(file);
       else if(name.endsWith('.docx'))text=(await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
