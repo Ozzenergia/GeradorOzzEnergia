@@ -28,7 +28,8 @@ const COLS_PROPOSTAS = ['Data/hora', 'Nº proposta', 'Consultor', 'Cliente', 'CP
   'Endereço', 'CEP', 'Cidade', 'UF', 'Tensão', 'Consumo médio (kWh)', 'Plano', 'Desconto (%)',
   'Custo mensal', 'Custo anual', 'Economia mensal', 'Economia anual', 'Modelo'];
 const COLS_TERMOS = ['Data/hora', 'Nº proposta', 'Consultor', 'Titular', 'CPF/CNPJ', 'UC', 'Distribuidora',
-  'Classe', 'Endereço', 'Cidade/UF', 'Consumo médio (kWh)', 'Modalidade', 'Data de assinatura', 'Representante'];
+  'Classe', 'Endereço', 'Cidade/UF', 'Consumo médio (kWh)', 'Modalidade', 'Data de assinatura', 'Representante',
+  'Celular', 'E-mail'];
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('OZZ Gerador')
@@ -51,7 +52,7 @@ function configurar() {
     return sh;
   };
   cria(ABA_PROPOSTAS, COLS_PROPOSTAS);
-  cria(ABA_TERMOS, COLS_TERMOS);
+  completaCabecalho_(cria(ABA_TERMOS, COLS_TERMOS), COLS_TERMOS);
   const us = cria(ABA_USUARIOS, COLS_USUARIOS);
   if (us.getLastRow() === 1) {
     let dono = '';
@@ -97,7 +98,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '3 (login Google)';
+const VERSAO_SCRIPT = '4 (busca de clientes)';
 
 /** Abrir o endereço /exec no navegador mostra a versão publicada — serve para conferir a implantação. */
 function doGet() {
@@ -118,9 +119,22 @@ function doPost(e) {
     if (req.acao === 'proposta') return json(registrarProposta(req.dados || {}));
     if (req.acao === 'termo') return json(registrarTermo(req.dados || {}));
     if (req.acao === 'buscar') return json(buscarPorUC(req.uc));
+    if (req.acao === 'clientes') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para buscar clientes', auth: true });
+      return json(buscarClientes(req.q));
+    }
     return json({ ok: false, erro: 'ação desconhecida' });
   } catch (err) {
     return json({ ok: false, erro: String(err && err.message || err) });
+  }
+}
+
+/** Acrescenta no fim do cabeçalho as colunas novas que ainda não existem (não mexe nas antigas). */
+function completaCabecalho_(sh, cols) {
+  const atual = sh.getLastColumn();
+  if (atual < cols.length) {
+    sh.getRange(1, atual + 1, 1, cols.length - atual).setValues([cols.slice(atual)])
+      .setFontWeight('bold').setBackground('#3a0a8c').setFontColor('#ffffff');
   }
 }
 
@@ -203,8 +217,9 @@ function registrarProposta(d) {
 function registrarTermo(d) {
   const sh = SpreadsheetApp.getActive().getSheetByName(ABA_TERMOS);
   if (!sh) throw new Error('planilha não configurada (rode a função "configurar")');
+  completaCabecalho_(sh, COLS_TERMOS);
   sh.appendRow([new Date(), d.num_proposta, d.consultor, d.titular, d.documento, d.codigo_uc, d.distribuidora,
-    d.classe_uc, d.endereco, d.cidade, d.consumo, d.modalidade, d.data_assinatura, d.rep_nome].map(limpa));
+    d.classe_uc, d.endereco, d.cidade, d.consumo, d.modalidade, d.data_assinatura, d.rep_nome, d.celular, d.email].map(limpa));
   return { ok: true };
 }
 
@@ -222,6 +237,40 @@ function buscarPorUC(uc) {
     }
   }
   return { ok: true, encontrada: false };
+}
+
+/**
+ * Busca clientes já registrados (termos e propostas) por nome ou UC, para preencher a visita de pós-venda.
+ * Só responde a quem passou pelo login (com o login ligado) — devolve dados de contato, não CPF/CNPJ.
+ */
+function buscarClientes(q) {
+  const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  const termo = norm(q), dig = String(q || '').replace(/\D/g, '');
+  if (termo.length < 3 && dig.length < 4) return { ok: true, clientes: [] };
+  const ss = SpreadsheetApp.getActive(), porChave = {};
+  const bate = (nome, uc) => (termo.length >= 3 && norm(nome).indexOf(termo) >= 0) || (dig.length >= 4 && String(uc).replace(/\D/g, '').indexOf(dig) >= 0);
+  const data = v => v instanceof Date ? Utilities.formatDate(v, 'America/Sao_Paulo', 'dd/MM/yyyy') : '';
+  const junta = (k, o) => { const a = porChave[k] || (porChave[k] = {}); Object.keys(o).forEach(c => { if (o[c] && !a[c]) a[c] = o[c]; }); };
+  // termos primeiro (mais recentes no fim): têm telefone e o contrato fechado
+  const st = ss.getSheetByName(ABA_TERMOS);
+  if (st && st.getLastRow() > 1) {
+    const v = st.getRange(2, 1, st.getLastRow() - 1, Math.max(16, st.getLastColumn())).getValues();
+    for (let i = v.length - 1; i >= 0; i--) { const r = v[i];
+      if (!bate(r[3], r[5])) continue;
+      const cu = String(r[9] || '').split('/');
+      junta(String(r[5]).replace(/\D/g, '') || norm(r[3]), { titular: r[3], uc: r[5], cidade: cu[0], uf: cu[1], distribuidora: r[6],
+        consultor: r[2], celular: r[14], email: r[15], numero: String(r[1] || ''), data: data(r[0]), origem: 'Termo' }); }
+  }
+  const sp = ss.getSheetByName(ABA_PROPOSTAS);
+  if (sp && sp.getLastRow() > 1) {
+    const v = sp.getRange(2, 1, sp.getLastRow() - 1, 16).getValues();
+    for (let i = v.length - 1; i >= 0; i--) { const r = v[i];
+      if (!bate(r[3], r[6])) continue;
+      junta(String(r[6]).replace(/\D/g, '') || norm(r[3]), { titular: r[3], uc: r[6], cidade: r[10], uf: r[11], distribuidora: r[7],
+        consultor: r[2], plano: r[14], numero: String(r[1] || ''), data: data(r[0]), origem: 'Proposta' }); }
+  }
+  const lista = Object.keys(porChave).map(k => porChave[k]).slice(0, 8);
+  return { ok: true, clientes: lista };
 }
 
 /** Evita que um texto começando com = + - @ vire fórmula na planilha. */

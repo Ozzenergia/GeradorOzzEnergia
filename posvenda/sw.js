@@ -1,10 +1,11 @@
 /* Service worker: guarda o app no aparelho para abrir sem internet.
    Sempre que alterar qualquer arquivo do app, aumente o número em VERSAO. */
-const VERSAO = "ozz-portal-posvenda-v1.1.2";
+const VERSAO = "ozz-portal-posvenda-v1.1.3";
 const ARQUIVOS = [
   "./",
   "index.html",
   "app.js",
+  "busca-cliente.js",
   "manifest.webmanifest",
   "lib/qrcode.js",
   "fonts/figtree-latin-400-normal.woff2",
