@@ -64,7 +64,7 @@
     painel.querySelector(".bc-limpar").onclick=function(){if(confirm("Tirar todos os clientes salvos deste aparelho?")){gravar([]);renderSalvos();marcarPins()}};
   }
   var ultimos=[];
-  function marcarPins(){lista.querySelectorAll(".bc-pin").forEach(function(b){var on=estaSalvo(ultimos[+b.dataset.i]);b.classList.toggle("on",on);b.setAttribute("aria-pressed",on);b.textContent=on?"📌 Salvo":"📌 Salvar";b.title=on?"Tirar dos salvos":"Guardar no aparelho para usar sem internet"})}
+  function marcarPins(){lista.querySelectorAll(".bc-pin").forEach(function(b){var on=estaSalvo(ultimos[+b.dataset.i]);b.classList.toggle("on",on);b.setAttribute("aria-pressed",on);b.innerHTML=(on?"📌 Salvo":"📌 Salvar")+"<small>(modo offline)</small>";b.title=on?"Tirar dos salvos":"Guardar no aparelho para usar sem internet"})}
   function mostrar(cs,texto){
     ultimos=cs;msg.className="bc-msg";msg.textContent=texto;
     lista.innerHTML=cs.map(function(c,i){return itemHtml(c,i,'<button type="button" class="bc-pin" data-i="'+i+'" aria-pressed="false"></button>')}).join("");
