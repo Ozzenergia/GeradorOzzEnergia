@@ -2,14 +2,14 @@
    Só funciona com o login Google do portal: dentro do portal usa a conexão dele; aberto sozinho, usa o login desta aba. */
 (function(){
   "use strict";
-  var SHEET_URL_PADRAO="https://script.google.com/macros/s/AKfycbwSfuQBkFawC_2i4lE23ULZCdzj5Wgk1236MlTxYvnAMPH-2kbsj0jqne_xpWiOaIlD/exec";
+  var SHEET_URL_PADRAO="https://script.google.com/macros/s/AKfycbxvWor5qxhAuoRinvKDT5picANh9fmn3vCCTfC0XAdberp1OxpWSGMNg7YYZ6FWo0_F/exec";
   var $=function(s){return document.querySelector(s)};
   var caixa=$("#bc_q"),lista=$("#bc_lista"),msg=$("#bc_msg"),painel=$("#bc_salvos");
   if(!caixa)return;
 
   function portal(){try{if(window.parent!==window&&typeof window.parent.sheetApi==="function")return window.parent}catch(e){}return null}
   function tokenDaAba(){try{var x=JSON.parse(sessionStorage.getItem("ozz_idtok")||"null");if(x&&x.exp*1000>Date.now()+60000)return x.t}catch(e){}return null}
-  function urlPlanilha(){try{var c=JSON.parse(localStorage.getItem("ozz_cfg")||"{}");if(c.sheetUrl)return String(c.sheetUrl).trim()}catch(e){}return SHEET_URL_PADRAO}
+  function urlPlanilha(){try{var c=JSON.parse(localStorage.getItem("ozz_cfg")||"{}");if(c.sheetUrl&&String(c.sheetUrl).indexOf("AKfycbwSfuQBkFawC_2i4lE23ULZCdzj5Wgk1236MlTxYvnAMPH-2kbsj0jqne_xpWiOaIlD")<0)return String(c.sheetUrl).trim()}catch(e){}return SHEET_URL_PADRAO}
 
   function buscar(q){
     var p=portal();
