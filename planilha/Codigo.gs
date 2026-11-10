@@ -27,13 +27,14 @@ const COLS_USUARIOS = ['E-mail', 'Nome', 'Perfil', 'Ativo'];
 /* Perfis (coluna Perfil da aba Usuários) e as áreas do portal que cada um usa.
    ger = Geradores (propostas e termos) · pos = Pós-venda. O TI ainda pode "ver como" outro perfil no portal. */
 const PERFIS_ = {
-  ti:             { nome: 'TI',             areas: ['ger', 'pos'] },
-  admin:          { nome: 'Admin',          areas: ['ger', 'pos'] },
+  ti:             { nome: 'TI',             areas: ['ger', 'pos', 'ana'] },
+  admin:          { nome: 'Admin',          areas: ['ger', 'pos', 'ana'] },
   administrativo: { nome: 'Administrativo', areas: ['ger'] },
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos'] }
 };
-const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos' };
-const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda' };
+const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana' };
+const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise' };
+const ABA_PROGRAMACAO_EXT = 'PROGRAMAÇÃO';   // aba de contas a pagar da planilha de controle (a mesma de Config!B4)
 
 /** "Administrador", "T.I.", "Vendedores", "consultor"… → ti | admin | administrativo | vendedor. Vazio ou desconhecido = vendedor. */
 function perfil_(p) {
@@ -139,7 +140,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '6 (perfis de acesso)';
+const VERSAO_SCRIPT = '7 (análise da programação)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -166,6 +167,10 @@ function doPost(e) {
     if (req.acao === 'proposta') return json(registrarProposta(req.dados || {}));
     if (req.acao === 'termo') return json(registrarTermo(req.dados || {}));
     if (req.acao === 'buscar') return json(buscarPorUC(req.uc));
+    if (req.acao === 'programacao') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
+      return json(lerProgramacao());
+    }
     if (req.acao === 'clientes') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para buscar clientes', auth: true });
       return json(buscarClientes(req.q));
@@ -393,6 +398,54 @@ function lerClientesExternos_(semCache) {
   }
   try { cache.put(chave, JSON.stringify(out), 300); } catch (e) {}
   return out;
+}
+
+/** ID da planilha de controle (Config!B4; sem a linha 4, a padrão). '' = não usar. */
+function idPlanilhaControle_() {
+  const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
+  let ref = PLANILHA_CLIENTES_PADRAO;
+  if (cfg && String(cfg.getRange('A4').getValue() || '').trim()) ref = String(cfg.getRange('B4').getValue() || '').trim();
+  const m = ref.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+  return m ? m[1] : ref;
+}
+
+/**
+ * Contas da aba PROGRAMAÇÃO da planilha de controle, para a tela Análise do portal (só TI e Admin).
+ * Lê as colunas pelo nome do cabeçalho; não devolve CPF/CNPJ.
+ */
+function lerProgramacao() {
+  const id = idPlanilhaControle_();
+  if (!id) return { ok: false, erro: 'a planilha de controle não está configurada (Config!B4)' };
+  let ss, sh;
+  try { ss = SpreadsheetApp.openById(id); sh = ss.getSheetByName(ABA_PROGRAMACAO_EXT); }
+  catch (e) { return { ok: false, erro: 'não consegui abrir a planilha de controle: ' + e.message }; }
+  if (!sh) return { ok: false, erro: 'aba ' + ABA_PROGRAMACAO_EXT + ' não encontrada na planilha de controle' };
+  const ult = sh.getLastRow(), cols = sh.getLastColumn();
+  const tz = ss.getSpreadsheetTimeZone();
+  const agora = new Date();
+  const base = { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'),
+    lidoEm: Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'), contas: [] };
+  if (ult < 2) return base;
+  const v = sh.getRange(1, 1, ult, cols).getValues();
+  const up = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const cab = v[0].map(up), col = n => cab.indexOf(n);
+  const C = { nome: col('NOME DO TITULAR'), uc: col('NUMERO DA UC'), ucAnt: col('UC ANTIGA'), cidade: col('CIDADE'), mes: col('MES DE REFERENCIA'),
+    venc: col('DATA DE VENCIMENTO'), valor: col('VALOR DA CONTA'), email: col('DATA DO E MAIL'), link: col('LINK DE ACESSO A CONTA'),
+    pix: col('PIX COPIA E COLA'), sit: col('SITUACAO'), usCod: col('CODIGO USINA'), usNome: col('NOME USINA') };
+  if (C.nome < 0 || C.venc < 0) return { ok: false, erro: 'não achei as colunas NOME DO TITULAR e DATA DE VENCIMENTO na aba ' + ABA_PROGRAMACAO_EXT };
+  const txt = (r, i) => i < 0 ? '' : (r[i] instanceof Date ? Utilities.formatDate(r[i], tz, 'dd/MM/yyyy') : String(r[i] == null ? '' : r[i]).trim());
+  const dataISO = x => x instanceof Date ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : (String(x || '').match(/^(\d{2})\/(\d{2})\/(\d{4})/) ? String(x).replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1') : '');
+  for (let i = 1; i < v.length; i++) {
+    const r = v[i], nome = txt(r, C.nome);
+    if (!nome) continue;
+    const mes = C.mes < 0 ? '' : (r[C.mes] instanceof Date ? Utilities.formatDate(r[C.mes], tz, 'MM/yyyy') : String(r[C.mes] || '').trim());
+    const link = txt(r, C.link);
+    base.contas.push({ linha: i + 1, nome: nome, uc: txt(r, C.uc), ucAntiga: txt(r, C.ucAnt), cidade: txt(r, C.cidade), mes: mes,
+      venc: dataISO(r[C.venc]), valor: C.valor >= 0 && typeof r[C.valor] === 'number' ? r[C.valor] : null,
+      link: /^https:\/\//i.test(link) ? link : '', pix: txt(r, C.pix),
+      situacao: (txt(r, C.sit) || 'AGENDADO').toUpperCase(), usinaCod: txt(r, C.usCod).replace(/\.0+$/, ''), usinaNome: txt(r, C.usNome) });
+  }
+  return base;
 }
 
 /** Primeiro telefone de um campo de contato ("55 9116-5376 / email…", 55981440018 …) no formato (55) 98144-0018. */

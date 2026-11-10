@@ -41,8 +41,8 @@ decide quem pode registrar: só e-mails **ativos** na aba **Usuários**.
 
    | Perfil | O que acessa |
    |---|---|
-   | `ti` | tudo, e ainda pode **ver como** outro perfil (só muda a tela; a planilha continua usando o perfil verdadeiro) |
-   | `admin` | tudo |
+   | `ti` | tudo (geradores, pós-venda e análise), e ainda pode **ver como** outro perfil (só muda a tela; a planilha continua usando o perfil verdadeiro) |
+   | `admin` | tudo (geradores, pós-venda e análise) |
    | `administrativo` | só os geradores (propostas e termos) |
    | `vendedor` | geradores e pós-venda |
 

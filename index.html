@@ -72,6 +72,57 @@ body{font-family:Outfit,system-ui,sans-serif;background:var(--bg);color:var(--in
 
 main{max-width:800px;margin:0 auto;padding:26px 16px 60px}
 main.hidden{display:none}
+main.wide{max-width:1180px}
+/* ===== Análise · Programação ===== */
+.ana-top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:18px}
+.ana-top h2{font-size:25px;font-weight:700;letter-spacing:-.3px}
+.ana-top p{color:var(--muted);font-size:14px;margin-top:2px}
+.ana-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.ana-kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;text-align:left;font:inherit;color:var(--ink);cursor:pointer;border-left:5px solid var(--line)}
+.ana-kpi:hover{border-color:var(--primary-line)}
+.ana-kpi.on{outline:2px solid var(--primary-line);outline-offset:1px}
+.ana-kpi small{display:block;color:var(--muted);font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.ana-kpi b{display:block;font-size:22px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+.ana-kpi span{color:var(--muted);font-size:13px}
+.ana-kpi.k-venc{border-left-color:var(--err)}.ana-kpi.k-prox{border-left-color:var(--accent)}
+.ana-kpi.k-apagar{border-left-color:var(--primary-line)}.ana-kpi.k-pago{border-left-color:var(--ok)}
+.ana-filtros{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.ana-filtros input,.ana-filtros select{font:inherit;font-size:14px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.ana-filtros input{flex:1;min-width:200px}
+.ana-tabela{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.ana-scroll{overflow-x:auto}
+.ana-tabela table{width:100%;border-collapse:collapse;font-size:14px}
+.ana-tabela th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--card);cursor:pointer;user-select:none}
+.ana-tabela th.num,.ana-tabela td.num{text-align:right}
+.ana-tabela td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.ana-tabela tr:last-child td{border-bottom:none}
+.ana-tabela td small{display:block;color:var(--muted);font-size:12.5px}
+.ana-tabela td.uc{white-space:nowrap}
+.ana-tabela td.num{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
+.ana-tabela tr.r-venc td:first-child{box-shadow:inset 4px 0 0 var(--err)}
+.ana-tabela tr.r-p3 td:first-child{box-shadow:inset 4px 0 0 var(--accent)}
+.ana-tabela tr.r-p7 td:first-child{box-shadow:inset 4px 0 0 #e9c94a}
+.ana-tabela tr.r-pago td{color:var(--muted)}
+.ana-pill{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;background:var(--line);color:var(--ink)}
+.ana-pill.venc{background:var(--err-soft);color:var(--err)}
+.ana-pill.p3,.ana-pill.p7{background:var(--warn-soft);color:var(--warn)}
+.ana-pill.pago{background:var(--ok-soft);color:var(--ok)}
+.ana-acoes{display:flex;gap:6px;white-space:nowrap}
+.ana-acoes a,.ana-acoes button{font:600 12.5px Outfit,sans-serif;color:var(--primary);background:var(--primary-soft);border:none;border-radius:8px;padding:5px 9px;cursor:pointer;text-decoration:none}
+.ana-rodape{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+.ana-rodape b{color:var(--ink);font-variant-numeric:tabular-nums}
+.ana-vazio{padding:34px 16px;text-align:center;color:var(--muted)}
+@media(max-width:760px){
+  .ana-kpis{grid-template-columns:repeat(2,1fr)}.ana-kpi b{font-size:18px}
+  .ana-filtros input{flex-basis:100%}.ana-filtros select{flex:1;min-width:0}
+  .ana-tabela thead{display:none}
+  .ana-tabela table,.ana-tabela tbody,.ana-tabela tr,.ana-tabela td{display:block;width:100%}
+  .ana-tabela tr{padding:10px 12px;border-bottom:1px solid var(--line);position:relative}
+  .ana-tabela td{border:none;padding:2px 0 2px 8px;text-align:left!important}
+  .ana-tabela td:first-child{box-shadow:none!important}
+  .ana-tabela tr.r-venc{box-shadow:inset 4px 0 0 var(--err)}.ana-tabela tr.r-p3{box-shadow:inset 4px 0 0 var(--accent)}.ana-tabela tr.r-p7{box-shadow:inset 4px 0 0 #e9c94a}
+  .ana-tabela td[data-l]:not(:empty)::before{content:attr(data-l) ": ";color:var(--muted);font-size:12px;font-weight:400}
+}
 .title{text-align:center;margin-bottom:30px}
 .title h2{font-size:27px;font-weight:700;letter-spacing:-.3px}
 .title p{color:var(--muted);margin-top:4px}
@@ -265,7 +316,7 @@ body.locked{overflow:hidden}
 
 @media(max-width:700px){
   .hwrap{padding:14px 16px}.nwrap{padding:0 6px}.sub-h{display:none}
-  .tab{padding:12px 14px;font-size:14px}.step span{display:none}.title h2{font-size:22px}.card{padding:20px}
+  .tab{padding:12px 9px;font-size:13.5px}.step span{display:none}.title h2{font-size:22px}.card{padding:20px}
 }
 </style>
 </head>
@@ -559,6 +610,28 @@ body.locked{overflow:hidden}
       </div>
       <div class="alert" id="err3"></div>
     </div>
+  </div>
+</section>
+
+<!-- =================== ANÁLISE · PROGRAMAÇÃO =================== -->
+<section id="tab-analise" class="hidden">
+  <div class="ana-top">
+    <div><h2>Programação de contas</h2><p id="anaSub">Contas de energia da aba PROGRAMAÇÃO da planilha de controle</p></div>
+    <button class="btn sec sm" id="anaAtualizar" type="button">↻ Atualizar</button>
+  </div>
+  <div class="alert" id="anaErro"></div>
+  <div class="ana-kpis" id="anaKpis"></div>
+  <div class="ana-filtros">
+    <input type="search" id="anaBusca" placeholder="Buscar por titular, UC, cidade ou usina" autocomplete="off" aria-label="Buscar contas">
+    <select id="anaMes" aria-label="Mês de vencimento"></select>
+    <select id="anaUsina" aria-label="Usina"></select>
+  </div>
+  <div class="ana-tabela">
+    <div class="ana-scroll"><table>
+      <thead><tr><th data-ord="venc">Vencimento</th><th data-ord="nome">Titular</th><th data-ord="uc">UC</th><th data-ord="mes">Mês ref.</th><th data-ord="usina">Usina</th><th class="num" data-ord="valor">Valor</th><th data-ord="sit">Situação</th><th></th></tr></thead>
+      <tbody id="anaCorpo"></tbody>
+    </table></div>
+    <div class="ana-rodape" id="anaRodape"></div>
   </div>
 </section>
 </main>
@@ -878,8 +951,8 @@ async function finishLogin(pl){
 }
 /* ===== Perfis (coluna Perfil da aba Usuários) — o mesmo quadro está no script da planilha ===== */
 const PERFIS={
-  ti:{nome:'TI',areas:['ger','pos'],verComo:true},
-  admin:{nome:'Admin',areas:['ger','pos']},
+  ti:{nome:'TI',areas:['ger','pos','ana'],verComo:true},
+  admin:{nome:'Admin',areas:['ger','pos','ana']},
   administrativo:{nome:'Administrativo',areas:['ger']},
   vendedor:{nome:'Vendedor',areas:['ger','pos']}
 };
@@ -888,7 +961,7 @@ function normPerfil(p){const t=String(p||'').normalize('NFD').replace(/[\u0300-\
 function perfilReal(){const s=sessao();return s?normPerfil(s.perfil):null}
 // TI pode simular outro perfil (só a tela; a planilha continua conferindo o perfil verdadeiro)
 function perfilVisto(){const r=perfilReal();if(r!=='ti')return r;let v='';try{v=sessionStorage.getItem('ozz_vercomo')||''}catch(e){}return PERFIS[v]?v:r}
-function areasPermitidas(){const p=perfilVisto();return p?PERFIS[p].areas:['ger','pos']}
+function areasPermitidas(){const p=perfilVisto();return p?PERFIS[p].areas:['ger','pos','ana']}   // sem login a tela de entrada cobre tudo; o perfil é aplicado ao entrar
 function aplicarPerfil(){
   const r=perfilReal(),v=perfilVisto();
   $('perfilTag').textContent=r?PERFIS[r].nome:'';$('perfilTag').classList.toggle('hidden',!r);
@@ -902,6 +975,7 @@ function aplicarPerfil(){
     const ok=areasPermitidas();
     document.querySelectorAll('.mcat').forEach(m=>m.classList.toggle('sem-acesso',!ok.includes(m.dataset.cat)));
     if(!ok.includes(catAtual))abrir(ok[0]);
+    else{const it=MENU[catAtual].itens.find(i=>i.id===ultimoItem[catAtual]);if(it&&it.aoAbrir&&sessao())it.aoAbrir()}
   }catch(e){} // o menu ainda não foi montado
 }
 function verComo(p){try{p===perfilReal()?sessionStorage.removeItem('ozz_vercomo'):sessionStorage.setItem('ozz_vercomo',p)}catch(e){}aplicarPerfil()}
@@ -944,6 +1018,7 @@ function voltarSePedido(){
 }
 function sairComMotivo(msg){
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo');localStorage.removeItem('ozz_pv_salvos')}catch(e){}
+  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML=''}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
   aplicarSessao();const m=$('lgMsg');m.className='lg-msg';m.textContent='⚠️ '+msg+'.';
 }
@@ -965,6 +1040,7 @@ function iniciarGoogle(){
 (function(){const v=getSessao();if(v&&v.tipo!=='google')setSessao(null)})();
 $('lgOut').onclick=()=>{
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo');localStorage.removeItem('ozz_pv_salvos')}catch(e){}
+  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML=''}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
   $('lgMsg').textContent='';aplicarSessao();
 };
@@ -1019,12 +1095,106 @@ aplicarSessao();iniciarGoogle();
 
 /* =================== Abas =================== */
 /* Menu: categorias no cabeçalho com menu suspenso (passar o mouse ou tocar). Para incluir algo novo, é só acrescentar aqui. */
+/* ===== Análise · Programação (lê a aba PROGRAMAÇÃO pela planilha do portal; só TI e Admin) ===== */
+const ana={dados:null,filtro:'apagar',mes:'',usina:'',busca:'',ord:'venc',desc:false,carregando:false};
+const anaEsc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const anaDias=(iso,hoje)=>iso?Math.round((Date.parse(iso+'T12:00:00Z')-Date.parse(hoje+'T12:00:00Z'))/864e5):null;
+const anaDataBR=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4):'—';
+function anaClasse(c){   // mesma regra das cores da planilha
+  if(c.situacao==='PAGO')return 'pago';
+  if(c.dias==null)return '';
+  return c.dias<0?'venc':c.dias<=3?'p3':c.dias<=7?'p7':'';
+}
+function anaRotulo(c){
+  if(c.situacao==='PAGO')return 'Pago';
+  if(c.dias==null)return c.situacao||'Agendado';
+  if(c.dias<0)return 'Vencida há '+(-c.dias)+(c.dias===-1?' dia':' dias');
+  if(c.dias===0)return 'Vence hoje';
+  if(c.dias<=7)return 'Vence em '+c.dias+(c.dias===1?' dia':' dias');
+  return 'Agendado';
+}
+async function anaCarregar(){
+  if(ana.carregando)return;ana.carregando=true;
+  const bt=$('anaAtualizar');bt.disabled=true;bt.textContent='Carregando…';$('anaErro').style.display='none';
+  if(!ana.dados)$('anaCorpo').innerHTML='<tr><td colspan="8" class="ana-vazio">Lendo a planilha…</td></tr>';
+  const r=await sheetApi('programacao',{});
+  ana.carregando=false;bt.disabled=false;bt.textContent='↻ Atualizar';
+  if(!r||!r.ok){
+    let e=(r&&r.erro)||'não foi possível ler a planilha';
+    if(/ação desconhecida/.test(e))e='a planilha do portal ainda está com o script antigo (atualize o Apps Script para a versão 7 e implante uma Nova versão)';
+    $('anaErro').textContent='⚠️ '+e;$('anaErro').style.display='block';
+    if(!ana.dados)$('anaCorpo').innerHTML='<tr><td colspan="8" class="ana-vazio">Sem dados para mostrar.</td></tr>';
+    return;
+  }
+  r.contas.forEach(c=>{c.dias=anaDias(c.venc,r.hoje);c.mesVenc=c.venc?c.venc.slice(0,7):''});
+  ana.dados=r;
+  const meses=[...new Set(r.contas.map(c=>c.mesVenc).filter(Boolean))].sort().reverse();
+  if(ana.mes&&!meses.includes(ana.mes))ana.mes='';
+  $('anaMes').innerHTML='<option value="">Todos os meses de vencimento</option>'+meses.map(m=>`<option value="${m}">Vencimento em ${m.slice(5)}/${m.slice(0,4)}</option>`).join('');
+  $('anaMes').value=ana.mes;
+  const usinas=[...new Set(r.contas.map(c=>c.usinaNome).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  if(ana.usina&&!usinas.includes(ana.usina))ana.usina='';
+  $('anaUsina').innerHTML='<option value="">Todas as usinas</option>'+usinas.map(u=>`<option value="${anaEsc(u)}">${anaEsc(u)}</option>`).join('');
+  $('anaUsina').value=ana.usina;$('anaUsina').classList.toggle('hidden',!usinas.length);
+  $('anaSub').textContent='Aba PROGRAMAÇÃO da planilha de controle · lido em '+r.lidoEm+' · '+r.contas.length+' contas';
+  anaRender();
+}
+function anaAbrir(){if(!ana.dados)anaCarregar();else anaRender()}
+function anaRender(){
+  if(!ana.dados)return;
+  const sem=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const q=sem(ana.busca),qd=ana.busca.replace(/\D/g,'');
+  // mês, usina e busca valem para tudo; os cartões escolhem a situação
+  const base=ana.dados.contas.filter(c=>(!ana.mes||c.mesVenc===ana.mes)&&(!ana.usina||c.usinaNome===ana.usina)&&
+    (!q||sem(c.nome+' '+c.cidade+' '+c.usinaNome+' '+c.usinaCod).includes(q)||(qd.length>=4&&(c.uc+c.ucAntiga).replace(/\D/g,'').includes(qd))));
+  const grupos={
+    venc:c=>c.situacao!=='PAGO'&&c.dias!=null&&c.dias<0,
+    prox:c=>c.situacao!=='PAGO'&&c.dias!=null&&c.dias>=0&&c.dias<=7,
+    apagar:c=>c.situacao!=='PAGO',
+    pago:c=>c.situacao==='PAGO',
+    todas:()=>true};
+  const soma=l=>l.reduce((t,c)=>t+(c.valor||0),0);
+  const K=[['venc','k-venc','Vencidas'],['prox','k-prox','Vencem em até 7 dias'],['apagar','k-apagar','Total a pagar'],['pago','k-pago','Pagas']];
+  $('anaKpis').innerHTML=K.map(([k,cl,nome])=>{const l=base.filter(grupos[k]);
+    return `<button type="button" class="ana-kpi ${cl}${ana.filtro===k?' on':''}" data-f="${k}" aria-pressed="${ana.filtro===k}"><small>${nome}</small><b>${brl(soma(l))}</b><span>${l.length} conta${l.length===1?'':'s'}</span></button>`}).join('');
+  $('anaKpis').querySelectorAll('button').forEach(b=>b.onclick=()=>{ana.filtro=ana.filtro===b.dataset.f?'todas':b.dataset.f;anaRender()});
+  const lista=base.filter(grupos[ana.filtro]||grupos.todas);
+  const chave={venc:c=>c.venc||'9999',nome:c=>sem(c.nome),uc:c=>c.uc,mes:c=>c.mes.slice(3)+c.mes.slice(0,2),usina:c=>sem(c.usinaNome),valor:c=>c.valor==null?-1:c.valor,sit:c=>anaRotulo(c)}[ana.ord];
+  lista.sort((a,b)=>{const x=chave(a),y=chave(b);return (x<y?-1:x>y?1:0)*(ana.desc?-1:1)||(a.venc<b.venc?-1:1)});
+  document.querySelectorAll('#tab-analise th[data-ord]').forEach(th=>{const on=th.dataset.ord===ana.ord;th.setAttribute('aria-sort',on?(ana.desc?'descending':'ascending'):'none');
+    th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(on?(ana.desc?' ▼':' ▲'):'')});
+  $('anaCorpo').innerHTML=lista.length?lista.map(c=>{const cl=anaClasse(c);
+    return `<tr class="${cl?'r-'+cl:''}">
+      <td data-l="Vencimento"><b>${anaDataBR(c.venc)}</b></td>
+      <td>${anaEsc(c.nome)}<small>${anaEsc(c.cidade)}</small></td>
+      <td class="uc" data-l="UC">${anaEsc(c.uc||c.ucAntiga)}${c.uc&&c.ucAntiga?`<small>antiga ${anaEsc(c.ucAntiga)}</small>`:''}</td>
+      <td data-l="Mês ref.">${anaEsc(c.mes)}</td>
+      <td data-l="Usina">${c.usinaCod?'<b>'+anaEsc(c.usinaCod)+'</b> ':''}${c.usinaNome?(c.usinaCod?`<small>${anaEsc(c.usinaNome)}</small>`:anaEsc(c.usinaNome)):''}</td>
+      <td class="num" data-l="Valor">${c.valor==null?'—':brl(c.valor)}</td>
+      <td><span class="ana-pill ${cl}">${anaRotulo(c)}</span></td>
+      <td><div class="ana-acoes">${c.link?`<a href="${anaEsc(c.link)}" target="_blank" rel="noopener">Conta ↗</a>`:''}${c.pix?`<button type="button" data-pix="${anaEsc(c.pix)}">Copiar PIX</button>`:''}</div></td>
+    </tr>`}).join(''):'<tr><td colspan="8" class="ana-vazio">Nenhuma conta com esses filtros.</td></tr>';
+  const nomes={venc:'vencidas',prox:'que vencem em até 7 dias',apagar:'a pagar',pago:'pagas',todas:'no total'};
+  $('anaRodape').innerHTML=`<span>${lista.length} conta${lista.length===1?'':'s'} ${nomes[ana.filtro]}${ana.filtro!=='todas'?' · <a href="#" id="anaTodas">ver todas</a>':''}</span><span>Soma: <b>${brl(soma(lista))}</b></span>`;
+  const t=$('anaTodas');if(t)t.onclick=e=>{e.preventDefault();ana.filtro='todas';anaRender()};
+}
+$('anaAtualizar').onclick=anaCarregar;
+$('anaBusca').oninput=e=>{ana.busca=e.target.value.trim();anaRender()};
+$('anaMes').onchange=e=>{ana.mes=e.target.value;anaRender()};
+$('anaUsina').onchange=e=>{ana.usina=e.target.value;anaRender()};
+document.querySelectorAll('#tab-analise th[data-ord]').forEach(th=>th.onclick=()=>{if(ana.ord===th.dataset.ord)ana.desc=!ana.desc;else{ana.ord=th.dataset.ord;ana.desc=false}anaRender()});
+$('anaCorpo').addEventListener('click',async e=>{const b=e.target.closest('button[data-pix]');if(!b)return;
+  try{await navigator.clipboard.writeText(b.dataset.pix);b.textContent='Copiado ✓'}catch(x){b.textContent='Não deu para copiar'}
+  setTimeout(()=>{b.textContent='Copiar PIX'},1800)});
+
 const MENU={
   ger:{nome:'📄 Geradores',itens:[
     {id:'prop',ic:'📊',nome:'Propostas',desc:'Fatura → proposta preenchida em segundos',sec:'tab-prop'},
     {id:'termo',ic:'📄',nome:'Termo de Adesão',desc:'Termo preenchido a partir da proposta ou da fatura',sec:'tab-termo'}]},
   pos:{nome:'🤝 Pós-venda',itens:[
-    {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]}
+    {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
+  ana:{nome:'📈 Análise',itens:[
+    {id:'prog',ic:'🗓️',nome:'Programação',desc:'Contas de energia a pagar: vencimentos, valores e usinas',sec:'tab-analise',largo:true,aoAbrir:()=>anaAbrir()}]}
 };
 const nav=document.querySelector('nav.nwrap');
 nav.innerHTML=Object.entries(MENU).map(([c,v])=>`<div class="mcat" data-cat="${c}">
@@ -1042,6 +1212,8 @@ function abrir(cat,item,semHash){
   document.querySelectorAll('.drop-menu button[data-item]').forEach(b=>b.classList.toggle('on',b.dataset.item===item.id));
   Object.values(MENU).forEach(c=>c.itens.forEach(i=>$(i.sec).classList.toggle('hidden',i!==item)));
   $('mainArea').classList.toggle('hidden',!!item.iframe);
+  $('mainArea').classList.toggle('wide',!!item.largo);
+  if(item.aoAbrir&&sessao())item.aoAbrir();
   if(item.iframe){const fr=$('fr'+item.id[0].toUpperCase()+item.id.slice(1));if(fr&&!fr.src)fr.src=item.iframe}
   if(!semHash)history.replaceState(null,'','#'+cat+'/'+item.id);
   try{localStorage.setItem('ozz_aba',cat+'/'+item.id)}catch(e){}
