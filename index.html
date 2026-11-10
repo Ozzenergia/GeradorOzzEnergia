@@ -242,6 +242,16 @@ main.hidden{display:none}
 .user-chip{display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);padding:4px 4px 4px 14px;border-radius:999px;font-size:14px}
 .user-chip button{border:none;background:rgba(255,255,255,.16);color:#fff;font:600 13px Outfit,sans-serif;padding:5px 12px;border-radius:999px;cursor:pointer}
 .user-chip button:hover{background:rgba(255,255,255,.28)}
+.perfil-tag{font-size:11.5px;font-weight:600;letter-spacing:.02em;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.16);white-space:nowrap}
+.ver-como{display:flex;align-items:center;gap:6px;font-size:12.5px;opacity:.95}
+.ver-como select{font:600 12.5px Outfit,sans-serif;color:#fff;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:4px 8px;cursor:pointer}
+.ver-como select option{color:#111}
+.vendo-como{background:#fff4d6;color:#5b4300;border-bottom:1px solid #f0d58a;font-size:14px;text-align:center;padding:8px 16px}
+.vendo-como button{margin-left:8px;border:1px solid #c9a227;background:#fff;color:#5b4300;font:600 13px Outfit,sans-serif;border-radius:999px;padding:3px 12px;cursor:pointer}
+.mcat.sem-acesso{display:none}
+@media(max-width:640px){.ver-como span{display:none}.perfil-tag{display:none}.ver-como select{max-width:120px}
+  .hd-right{flex-wrap:wrap;justify-content:flex-end;gap:6px}
+  .user-chip #userName{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 body.locked{overflow:hidden}
 @media(max-width:700px){.badge-int{display:none}.login-card{padding:28px 20px 22px}}
 .unsure,.rv .f input.unsure,.f input.unsure,.f select.unsure{background:var(--warn-soft)!important;border-color:var(--accent)!important;box-shadow:0 0 0 1px var(--accent) inset}
@@ -287,13 +297,15 @@ body.locked{overflow:hidden}
     </div>
     <div class="hd-right">
       <div class="badge-int"><i>⚡</i>Uso interno</div>
-      <div class="user-chip hidden" id="userChip"><span id="userName">👤 Visitante</span><button id="lgOut" type="button">Sair</button></div>
+      <label class="ver-como hidden" id="verComoBox" title="Só muda o que aparece na tela; as permissões da planilha continuam as suas"><span>👁 Ver como</span><select id="verComo"></select></label>
+      <div class="user-chip hidden" id="userChip"><span id="userName">👤 Visitante</span><span class="perfil-tag" id="perfilTag"></span><button id="lgOut" type="button">Sair</button></div>
     </div>
   </div>
   <nav class="nwrap">
 
   </nav>
 </div>
+<div class="vendo-como hidden" id="vendoComo"></div>
 
 <main id="mainArea">
 <!-- =================== GERADOR DE PROPOSTAS =================== -->
@@ -864,6 +876,37 @@ async function finishLogin(pl){
   const v={tipo:'google',email:String(pl.email||'').toLowerCase(),nome,perfil,foto:pl.picture||'',validadoEm:Date.now()};
   sessaoMem=v;setSessao(v);m.textContent='';loginEmAndamento=false;aplicarSessao();voltarSePedido();
 }
+/* ===== Perfis (coluna Perfil da aba Usuários) — o mesmo quadro está no script da planilha ===== */
+const PERFIS={
+  ti:{nome:'TI',areas:['ger','pos'],verComo:true},
+  admin:{nome:'Admin',areas:['ger','pos']},
+  administrativo:{nome:'Administrativo',areas:['ger']},
+  vendedor:{nome:'Vendedor',areas:['ger','pos']}
+};
+function normPerfil(p){const t=String(p||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z ]/g,'').trim();
+  if(/^ti$|^ti |^tecnologia/.test(t))return 'ti';if(/^administrativ/.test(t))return 'administrativo';if(/^admin/.test(t))return 'admin';return 'vendedor'}
+function perfilReal(){const s=sessao();return s?normPerfil(s.perfil):null}
+// TI pode simular outro perfil (só a tela; a planilha continua conferindo o perfil verdadeiro)
+function perfilVisto(){const r=perfilReal();if(r!=='ti')return r;let v='';try{v=sessionStorage.getItem('ozz_vercomo')||''}catch(e){}return PERFIS[v]?v:r}
+function areasPermitidas(){const p=perfilVisto();return p?PERFIS[p].areas:['ger','pos']}
+function aplicarPerfil(){
+  const r=perfilReal(),v=perfilVisto();
+  $('perfilTag').textContent=r?PERFIS[r].nome:'';$('perfilTag').classList.toggle('hidden',!r);
+  const sel=$('verComo');
+  $('verComoBox').classList.toggle('hidden',!(r&&PERFIS[r].verComo));
+  if(r&&PERFIS[r].verComo){sel.innerHTML=Object.entries(PERFIS).map(([k,o])=>`<option value="${k}">${o.nome}${k===r?' (eu)':''}</option>`).join('');sel.value=v}
+  const vc=$('vendoComo');
+  if(r&&v!==r){vc.innerHTML=`👁 Você está vendo o portal como <b>${PERFIS[v].nome}</b>. <button type="button" id="vcVoltar">Voltar para ${PERFIS[r].nome}</button>`;vc.classList.remove('hidden');$('vcVoltar').onclick=()=>verComo(r)}
+  else vc.classList.add('hidden');
+  try{
+    const ok=areasPermitidas();
+    document.querySelectorAll('.mcat').forEach(m=>m.classList.toggle('sem-acesso',!ok.includes(m.dataset.cat)));
+    if(!ok.includes(catAtual))abrir(ok[0]);
+  }catch(e){} // o menu ainda não foi montado
+}
+function verComo(p){try{p===perfilReal()?sessionStorage.removeItem('ozz_vercomo'):sessionStorage.setItem('ozz_vercomo',p)}catch(e){}aplicarPerfil()}
+$('verComo').onchange=e=>verComo(e.target.value);
+
 function aplicarSessao(){
   const ses=sessao();
   $('login').classList.toggle('hidden',!!ses);document.body.classList.toggle('locked',!ses);
@@ -879,6 +922,7 @@ function aplicarSessao(){
     else{el.readOnly=false;el.title='';el.value=getConsultor()}
   });
   if(typeof refreshNumBadge==='function')refreshNumBadge();
+  aplicarPerfil();
 }
 /* reconfere, a cada abertura, se quem está logado ainda tem acesso (aba Usuários da planilha) */
 async function revalidarSessao(){
@@ -893,10 +937,13 @@ async function revalidarSessao(){
 // veio do pós-venda em tela cheia (?volta=posvenda): depois de entrar, volta para lá
 function voltarSePedido(){
   const q=new URLSearchParams(location.search).get('volta');
-  if(q==='posvenda'&&isGoogle())location.replace('posvenda/');
+  if(q==='posvenda'&&isGoogle()){
+    if(areasPermitidas().includes('pos'))location.replace('posvenda/');
+    else history.replaceState(null,'','./#ger/prop');   // perfil sem pós-venda: fica nos geradores
+  }
 }
 function sairComMotivo(msg){
-  sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok')}catch(e){}
+  sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo')}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
   aplicarSessao();const m=$('lgMsg');m.className='lg-msg';m.textContent='⚠️ '+msg+'.';
 }
@@ -917,7 +964,7 @@ function iniciarGoogle(){
 // sem acesso de visitante: quem tinha entrado como visitante volta para a tela de login
 (function(){const v=getSessao();if(v&&v.tipo!=='google')setSessao(null)})();
 $('lgOut').onclick=()=>{
-  sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok')}catch(e){}
+  sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo')}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
   $('lgMsg').textContent='';aplicarSessao();
 };
@@ -988,6 +1035,7 @@ const ultimoItem={};let catAtual='ger';
 function fecharMenus(){document.querySelectorAll('.mcat.open').forEach(m=>{m.classList.remove('open');m.querySelector('.tab').setAttribute('aria-expanded','false')})}
 function abrir(cat,item,semHash){
   if(!MENU[cat])cat='ger';
+  const pode=areasPermitidas();if(!pode.includes(cat)){cat=pode[0];item=null}
   const itens=MENU[cat].itens;item=itens.find(i=>i.id===item)||itens.find(i=>i.id===ultimoItem[cat])||itens[0];
   ultimoItem[cat]=item.id;catAtual=cat;
   document.querySelectorAll('.mcat').forEach(m=>m.querySelector('.tab').classList.toggle('active',m.dataset.cat===cat));
@@ -1015,6 +1063,7 @@ window.addEventListener('blur',()=>setTimeout(fecharMenus,0));
 window.abrirTab=id=>{for(const [c,v] of Object.entries(MENU))if(v.itens.some(i=>i.id===id))return abrir(c,id)};
 (function(){let h=(location.hash||'').slice(1);if(!h){try{h=localStorage.getItem('ozz_aba')||''}catch(e){}}const [c,i]=h.split('/');abrir(c||'ger',i,!location.hash&&!h)})();
 window.addEventListener('hashchange',()=>{const [c,i]=location.hash.slice(1).split('/');abrir(c,i,true)});
+aplicarPerfil();
 
 /* =================== GERADOR DE PROPOSTAS =================== */
 const CFG_DEF={prefix:'',next:54384,min:600,tarifa:1.06,desconto:0,gesp:1370};
