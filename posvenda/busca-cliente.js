@@ -43,7 +43,7 @@
     poe("#c_tel",c.celular);
     opcao($("#c_plano"),c.plano,PLANOS);
     opcao($("#c_dist"),c.distribuidora,DISTS);
-    poe("#c_consultor",c.consultor);
+    poe("#c_consultor",nomeProprio(c.consultor));
     lista.innerHTML="";caixa.value="";
     msg.className="bc-msg ok";
     msg.textContent="✓ Dados de "+nomeProprio(c.titular)+" preenchidos"+(c.celular?"":" (sem telefone na planilha: pergunte ao cliente)")+". Confira antes de seguir.";
@@ -68,9 +68,10 @@
         return}
       var cs=r.clientes||[];
       if(!cs.length){msg.className="bc-msg";msg.textContent="Nenhum cliente encontrado com “"+q+"”. Preencha à mão.";return}
+      if(r.aviso)console.warn("Busca de clientes:",r.aviso);
       msg.className="bc-msg";msg.textContent=cs.length+(cs.length>1?" clientes encontrados — toque para preencher:":" cliente encontrado — toque para preencher:");
       lista.innerHTML=cs.map(function(c,i){
-        var linha=[c.uc?"UC "+c.uc:"",c.cidade?nomeProprio(c.cidade)+(c.uf?"/"+String(c.uf).toUpperCase():""):"",c.plano||"",c.origem&&c.numero?c.origem+" "+c.numero:"",c.data||""].filter(Boolean).join(" · ");
+        var linha=[c.fantasia&&semAcento(c.fantasia)!==semAcento(c.titular)?nomeProprio(c.fantasia):"",c.responsavel?"Resp.: "+nomeProprio(c.responsavel):"",c.uc?"UC "+c.uc:"",c.cidade?nomeProprio(c.cidade)+(c.uf?"/"+String(c.uf).toUpperCase():""):"",c.plano||"",c.origem&&c.numero?c.origem+" "+c.numero:"",c.data||""].filter(Boolean).join(" · ");
         return '<button type="button" data-i="'+i+'"><b>'+esc(nomeProprio(c.titular))+'</b><small>'+esc(linha)+'</small></button>'}).join("");
       lista.querySelectorAll("button").forEach(function(b){b.onclick=function(){preencher(cs[+b.dataset.i])}});
     });
