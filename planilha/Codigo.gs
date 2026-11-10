@@ -34,9 +34,21 @@ const COLS_TERMOS = ['Data/hora', 'Nº proposta', 'Consultor', 'Titular', 'CPF/C
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('OZZ Gerador')
     .addItem('Configurar planilha', 'configurar')
+    .addItem('Testar planilha de clientes (pós-venda)', 'testarClientes')
     .addItem('Mostrar código de sincronização', 'mostrarCodigo')
     .addItem('Gerar novo código (bloqueia o antigo)', 'novoCodigo')
     .addToUi();
+}
+
+/** Mostra quantos clientes o portal consegue ler da planilha de controle, ou o erro. */
+function testarClientes() {
+  let msg;
+  try {
+    const l = lerClientesExternos_(true);
+    msg = l.length ? '✅ Li ' + l.length + ' clientes da aba ' + ABA_CLIENTES_EXT + '.\n\nExemplo: ' + l[0].titular + ' — UC ' + l[0].uc + ' — ' + (l[0].celular || 'sem telefone')
+      : '⚠️ Nenhum cliente lido. Confira a célula B4 da aba Config (ID ou link da planilha com a aba ' + ABA_CLIENTES_EXT + ').';
+  } catch (e) { msg = '❌ Não consegui ler a planilha de clientes:\n' + e.message + '\n\nConfira se a sua conta tem acesso a ela e se o link em Config!B4 está certo.'; }
+  try { SpreadsheetApp.getUi().alert('Planilha de clientes', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) { Logger.log(msg); }
 }
 
 /** Cria as abas, os cabeçalhos e o código de sincronização (pode rodar de novo sem perder nada). */
@@ -104,7 +116,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '5 (clientes da planilha de programação)';
+const VERSAO_SCRIPT = '5.1 (clientes da planilha de programação)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -267,7 +279,7 @@ function buscarClientes(q) {
       if (!bate(c.titular, c.uc) && !(termo.length >= 3 && (norm(c.fantasia).indexOf(termo) >= 0 || norm(c.responsavel).indexOf(termo) >= 0))) return;
       junta(String(c.uc).replace(/\D/g, '') || norm(c.titular), c);
     });
-  } catch (e) { aviso = 'planilha de clientes indisponível: ' + e.message; }
+  } catch (e) { aviso = 'não consegui ler a planilha de clientes: ' + e.message; console.error(aviso); }
   // depois os termos (mais recentes no fim): têm telefone e o contrato fechado
   const st = ss.getSheetByName(ABA_TERMOS);
   if (st && st.getLastRow() > 1) {
@@ -297,7 +309,8 @@ function buscarClientes(q) {
  */
 function lerClientesExternos_(semCache) {
   const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
-  let ref = cfg ? String(cfg.getRange('B4').getValue() || '').trim() : PLANILHA_CLIENTES_PADRAO;
+  let ref = PLANILHA_CLIENTES_PADRAO;
+  if (cfg && String(cfg.getRange('A4').getValue() || '').trim()) ref = String(cfg.getRange('B4').getValue() || '').trim(); // linha criada: vale o que estiver lá
   if (!ref) return [];
   const m = ref.match(/\/d\/([a-zA-Z0-9_-]{20,})/); if (m) ref = m[1];
   const cache = CacheService.getScriptCache(), chave = 'cli_ext_' + ref;
