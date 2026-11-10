@@ -67,7 +67,9 @@
         msg.innerHTML="⚠️ "+esc(e)+"."+(r&&r.relogin?' <a href="../?volta=posvenda#pos/visitas">Entrar de novo</a>':"");
         return}
       var cs=r.clientes||[];
-      if(!cs.length){msg.className="bc-msg";msg.textContent="Nenhum cliente encontrado com “"+q+"”. Preencha à mão.";return}
+      if(!cs.length){
+        if(r.aviso){msg.className="bc-msg warn";msg.textContent="⚠️ "+r.aviso+". Avise o administrador do portal.";return}
+        msg.className="bc-msg";msg.textContent="Nenhum cliente encontrado com “"+q+"”. Preencha à mão.";return}
       if(r.aviso)console.warn("Busca de clientes:",r.aviso);
       msg.className="bc-msg";msg.textContent=cs.length+(cs.length>1?" clientes encontrados — toque para preencher:":" cliente encontrado — toque para preencher:");
       lista.innerHTML=cs.map(function(c,i){
