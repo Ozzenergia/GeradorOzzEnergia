@@ -176,6 +176,27 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
 .to-portal:hover{opacity:1}
 .embutido .to-portal{display:none}
 </style>
+<script>
+/* Login obrigatório: o pós-venda só abre para quem entrou no Portal OZZ com o Google.
+   Dentro do portal, o próprio portal já exige o login. Sem internet, vale o último login feito neste aparelho. */
+(function(){
+  var embutido=false;try{embutido=window.top!==window.self&&window.top.location.origin===location.origin}catch(e){}
+  if(embutido)return;
+  var s=null;try{s=JSON.parse(localStorage.getItem('ozz_sessao')||'null')}catch(e){}
+  var logado=!!(s&&s.tipo==='google');
+  var recente=logado&&s.validadoEm&&(Date.now()-s.validadoEm<8*3600e3);
+  if(logado&&(recente||!navigator.onLine))return;
+  if(!navigator.onLine){
+    document.addEventListener('DOMContentLoaded',function(){var o=document.createElement('div');
+      o.setAttribute('style','position:fixed;inset:0;z-index:99999;background:#f1f3f8;color:#111827;display:flex;align-items:center;justify-content:center;padding:24px;font:16px system-ui;text-align:center');
+      o.innerHTML='<div style="max-width:420px"><h2 style="margin:0 0 8px">Entre no Portal OZZ</h2><p>Para usar o pós-venda, entre uma vez no Portal OZZ com a sua conta Google (precisa de internet). Depois ele funciona também sem internet.</p></div>';
+      document.body.appendChild(o)});
+    return;
+  }
+  document.documentElement.style.visibility='hidden';
+  location.replace('../?volta=posvenda#pos/visitas');
+})();
+</script>
 <script>/* aberto dentro do Portal OZZ: as abas do portal fazem a navegação */try{if(window.top!==window.self)document.documentElement.classList.add("embutido")}catch(e){document.documentElement.classList.add("embutido")}</script>
 </head>
 <body>
