@@ -116,7 +116,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '5.1 (clientes da planilha de programação)';
+const VERSAO_SCRIPT = '5.2 (clientes da planilha de programação)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -320,13 +320,25 @@ function lerClientesExternos_(semCache) {
   const ult = sh.getLastRow(), cols = sh.getLastColumn();
   if (ult < 2) return [];
   const v = sh.getRange(1, 1, ult, cols).getValues();
-  const up = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  const up = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9/ ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const ehCliente = t => t === 'CLIENTE' || t === 'CLIENTES' || t === 'NOME' || t === 'NOME DO CLIENTE' || t === 'RAZAO SOCIAL';
+  const ehUC = t => t === 'UC' || /^(N|NO|NUMERO|COD|CODIGO)( DA| DO)? (UC|INSTALACAO)$/.test(t) || /^UC /.test(t);
   // acha a linha do cabeçalho (a que tem CLIENTE e UC) e as colunas pelo nome, para não quebrar se mudarem de lugar
   let h = -1;
-  for (let i = 0; i < Math.min(6, v.length); i++) { const r = v[i].map(up); if (r.indexOf('CLIENTE') >= 0 && r.indexOf('UC') >= 0) { h = i; break; } }
-  if (h < 0) throw new Error('cabeçalho da aba ' + ABA_CLIENTES_EXT + ' não encontrado');
-  const cab = v[h].map(up), col = n => cab.indexOf(n);
-  const C = { nome: col('CLIENTE'), resp: col('RESPONSAVEL'), cont: col('CONTATO'), fan: col('FANTASIA'), cid: col('CIDADE'), uc: col('UC'), vend: col('VENDEDOR') };
+  for (let i = 0; i < Math.min(30, v.length); i++) { const r = v[i].map(up); if (r.some(ehCliente) && r.some(ehUC)) { h = i; break; } }
+  if (h < 0) {
+    const vistos = [];
+    for (let i = 0; i < Math.min(4, v.length); i++) {
+      const t = v[i].map(x => String(x || '').trim()).filter(x => x && x.length <= 25 && !/\d{3}/.test(x)).slice(0, 8);
+      if (t.length) vistos.push('linha ' + (i + 1) + ': ' + t.join(' | '));
+    }
+    throw new Error('não achei a linha com as colunas CLIENTE e UC na aba ' + ABA_CLIENTES_EXT +
+      ' (' + v.length + ' linhas × ' + cols + ' colunas). ' + (vistos.length ? 'Primeiras linhas: ' + vistos.join(' ; ') : 'As primeiras linhas estão vazias.'));
+  }
+  const cab = v[h].map(up);
+  const col = (n, f) => { let i = cab.indexOf(n); if (i < 0 && f) i = cab.findIndex(f); return i; };
+  const C = { nome: col('CLIENTE', ehCliente), resp: col('RESPONSAVEL', t => /^RESPONSAVEL|^SOCIO/.test(t)), cont: col('CONTATO', t => /^(CONTATO|TELEFONE|CELULAR|FONE|WHATSAPP)/.test(t)),
+    fan: col('FANTASIA', t => /FANTASIA/.test(t)), cid: col('CIDADE', t => /^CIDADE/.test(t)), uc: col('UC', ehUC), vend: col('VENDEDOR', t => /^(VENDEDOR|CONSULTOR)/.test(t)) };
   const out = [];
   for (let i = h + 1; i < v.length; i++) {
     const r = v[i], nome = String(r[C.nome] || '').replace(/\s+/g, ' ').trim();
