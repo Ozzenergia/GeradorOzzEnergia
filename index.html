@@ -1706,7 +1706,7 @@ $('btnGen').onclick=async()=>{
     const V=termoValues();
     const reg=await sheetApi('termo',{dados:{num_proposta:V.num_proposta,consultor:consultorAtual(),titular:V.titular,documento:V.documento,codigo_uc:V.codigo_uc,
       distribuidora:V.distribuidora,classe_uc:V.classe_uc,endereco:V.endereco,cidade:V.cidade,consumo:V.consumo,modalidade:V.modalidade,
-      data_assinatura:dataBR(V.data_assinatura),rep_nome:V.rep_nome}});
+      data_assinatura:dataBR(V.data_assinatura),rep_nome:V.rep_nome,celular:V.celular||'',email:V.email||''}});
     sheetStatus('termoSheetSt',reg,'✅ Registrado na planilha.');
     $('load3').style.display='none';$('done').classList.remove('hidden');
   }catch(e){$('load3').style.display='none';$('err3').textContent='⚠️ Erro ao gerar o documento: '+e.message;$('err3').style.display='block'}

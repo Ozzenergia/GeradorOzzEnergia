@@ -77,7 +77,7 @@ main{padding-block:24px 64px}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px 18px}
 label.f{display:grid;gap:6px;font-weight:600;font-size:14px}
 label.f small{font-weight:400;color:var(--muted)}
-input[type=text],input[type=tel],input[type=url],select,textarea{width:100%;font:16px var(--body);color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-height:48px}
+input[type=text],input[type=tel],input[type=url],input[type=search],select,textarea{width:100%;font:16px var(--body);color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-height:48px}
 textarea{min-height:96px;resize:vertical}
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
 fieldset{border:0;padding:0;margin:0;display:grid;gap:10px;min-width:0}
@@ -175,6 +175,17 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
 .to-portal{color:inherit;opacity:.85;text-decoration:none;font-size:13px;font-weight:600;border:1px solid currentColor;border-radius:999px;padding:3px 10px;margin-right:10px;white-space:nowrap}
 .to-portal:hover{opacity:1}
 .embutido .to-portal{display:none}
+.busca-cli{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:0 0 18px}
+.busca-cli input{width:100%}
+.bc-msg{font-size:13px;color:var(--muted);margin-top:8px;min-height:1px}
+.bc-msg:empty{display:none}
+.bc-msg.ok{color:var(--good)}.bc-msg.warn{color:var(--warn)}
+.bc-msg a{color:var(--link)}
+.bc-lista{display:grid;gap:6px;margin-top:8px}
+.bc-lista:empty{display:none}
+.bc-lista button{display:grid;gap:2px;text-align:left;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;cursor:pointer}
+.bc-lista button:hover,.bc-lista button:focus-visible{border-color:var(--link)}
+.bc-lista small{color:var(--muted);font-size:12.5px}
 </style>
 <script>
 /* Login obrigatório: o pós-venda só abre para quem entrou no Portal OZZ com o Google.
@@ -240,6 +251,11 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
       <div>
         <h2>Dados da visita</h2>
         <p class="lead">Preencha antes de entregar o tablet. Comece pela conversa: pergunte como está a economia, tire dúvidas da fatura e só depois apresente a pesquisa.</p>
+      </div>
+      <div class="busca-cli">
+        <label class="f">🔎 Buscar cliente cadastrado <small>nome ou UC de quem já tem proposta ou termo no portal</small><input type="search" id="bc_q" autocomplete="off" placeholder="Ex.: Maria Silva ou 3087"></label>
+        <div class="bc-msg" id="bc_msg" aria-live="polite"></div>
+        <div class="bc-lista" id="bc_lista"></div>
       </div>
       <div class="grid2">
         <label class="f">Nome do cliente *<input type="text" id="c_nome" autocomplete="off"></label>
@@ -474,5 +490,6 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
 
 <script src="lib/qrcode.js"></script>
 <script src="app.js"></script>
+<script src="busca-cliente.js"></script>
 </body>
 </html>
