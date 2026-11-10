@@ -183,8 +183,17 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
 .bc-msg a{color:var(--link)}
 .bc-lista{display:grid;gap:6px;margin-top:8px}
 .bc-lista:empty{display:none}
-.bc-lista button{display:grid;gap:2px;text-align:left;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;cursor:pointer}
+.bc-item{display:flex;gap:6px;align-items:stretch}
+.bc-lista button{text-align:left;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;cursor:pointer}
+.bc-lista .bc-usar{flex:1;display:grid;gap:2px;min-width:0}
+.bc-lista .bc-pin,.bc-lista .bc-tirar{flex:none;font-size:13px;font-weight:600;white-space:nowrap;color:var(--muted)}
+.bc-lista .bc-pin.on{background:#fff4d6;border-color:#e2c25c;color:#5b4300}
 .bc-lista button:hover,.bc-lista button:focus-visible{border-color:var(--link)}
+.bc-salvos:empty{display:none}
+.bc-salvos{margin-bottom:12px;padding-bottom:12px;border-bottom:1px dashed var(--line)}
+.bc-salvos-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;font-size:14px}
+.bc-salvos-top span{color:var(--muted);font-size:12.5px}
+.bc-salvos-top .bc-limpar{margin-left:auto;background:none;border:none;color:var(--link);font:inherit;font-size:12.5px;cursor:pointer;text-decoration:underline}
 .bc-lista small{color:var(--muted);font-size:12.5px}
 </style>
 <script>
@@ -260,6 +269,7 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
         <p class="lead">Preencha antes de entregar o tablet. Comece pela conversa: pergunte como está a economia, tire dúvidas da fatura e só depois apresente a pesquisa.</p>
       </div>
       <div class="busca-cli">
+        <div class="bc-salvos" id="bc_salvos"></div>
         <label class="f">🔎 Buscar cliente cadastrado <small>nome, fantasia, responsável ou UC — base de clientes da OZZ</small><input type="search" id="bc_q" autocomplete="off" placeholder="Ex.: Maria Silva ou 3087"></label>
         <div class="bc-msg" id="bc_msg" aria-live="polite"></div>
         <div class="bc-lista" id="bc_lista"></div>
