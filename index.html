@@ -861,8 +861,8 @@ async function finishLogin(pl){
       try{google.accounts.id.disableAutoSelect()}catch(e){}idTok=null;try{sessionStorage.removeItem('ozz_idtok')}catch(e){}return}
     if(r.nome)nome=r.nome;perfil=r.perfil||'';
   }
-  const v={tipo:'google',email:String(pl.email||'').toLowerCase(),nome,perfil,foto:pl.picture||''};
-  sessaoMem=v;setSessao(v);m.textContent='';loginEmAndamento=false;aplicarSessao();
+  const v={tipo:'google',email:String(pl.email||'').toLowerCase(),nome,perfil,foto:pl.picture||'',validadoEm:Date.now()};
+  sessaoMem=v;setSessao(v);m.textContent='';loginEmAndamento=false;aplicarSessao();voltarSePedido();
 }
 function aplicarSessao(){
   const ses=sessao();
@@ -888,7 +888,12 @@ async function revalidarSessao(){
   const transicao=!r.ok&&/ação desconhecida|código de sincronização/.test(r.erro||'');
   if(r.ok&&r.email&&r.email!==sessao().email){sairComMotivo('O login mudou de conta. Entre de novo.');return}
   if(!r.ok&&!transicao&&(r.auth||/não tem acesso|outro aplicativo|login/.test(r.erro||''))){sairComMotivo(r.erro);return}
-  if(r.ok&&r.nome&&r.nome!==sessao().nome){const v={...sessao(),nome:r.nome,perfil:r.perfil||''};sessaoMem=v;setSessao(v);aplicarSessao()}
+  if(r.ok||transicao){const v={...sessao(),validadoEm:Date.now()};if(r.ok&&r.nome){v.nome=r.nome;v.perfil=r.perfil||''}sessaoMem=v;setSessao(v);aplicarSessao();voltarSePedido()}
+}
+// veio do pós-venda em tela cheia (?volta=posvenda): depois de entrar, volta para lá
+function voltarSePedido(){
+  const q=new URLSearchParams(location.search).get('volta');
+  if(q==='posvenda'&&isGoogle())location.replace('posvenda/');
 }
 function sairComMotivo(msg){
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok')}catch(e){}
@@ -963,6 +968,7 @@ function sheetStatus(id,res,okMsg){
 }
 
 aplicarSessao();iniciarGoogle();
+(function(){const v=getSessao();if(v&&v.tipo==='google'&&v.validadoEm&&Date.now()-v.validadoEm<8*3600e3)voltarSePedido()})();
 
 /* =================== Abas =================== */
 /* Menu: categorias no cabeçalho com menu suspenso (passar o mouse ou tocar). Para incluir algo novo, é só acrescentar aqui. */
