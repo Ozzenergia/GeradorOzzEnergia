@@ -69,6 +69,12 @@ function configurar() {
     cfg.getRange('A3').setValue('Google Client ID').setFontWeight('bold');
     cfg.getRange('C3').setValue('← cole aqui o Client ID para ligar o login com Google');
   }
+  if (!String(cfg.getRange('A4').getValue())) {
+    cfg.getRange('A4').setValue('Planilha de clientes').setFontWeight('bold');
+    cfg.getRange('B4').setValue(PLANILHA_CLIENTES_PADRAO);
+    cfg.getRange('C4').setValue('← ID ou link da planilha com a aba CLIENTES (busca do pós-venda). Vazio = não usa');
+  }
+  try { lerClientesExternos_(true); } catch (e) { Logger.log('Planilha de clientes: ' + e.message); } // pede a autorização de leitura já agora
   if (!codigo_()) gerarCodigo_();
   try {
     SpreadsheetApp.getUi().alert('Planilha configurada',
@@ -98,7 +104,10 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '4 (busca de clientes)';
+const VERSAO_SCRIPT = '5 (clientes da planilha de programação)';
+// Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
+const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
+const ABA_CLIENTES_EXT = 'CLIENTES';
 
 /** Abrir o endereço /exec no navegador mostra a versão publicada — serve para conferir a implantação. */
 function doGet() {
@@ -251,7 +260,15 @@ function buscarClientes(q) {
   const bate = (nome, uc) => (termo.length >= 3 && norm(nome).indexOf(termo) >= 0) || (dig.length >= 4 && String(uc).replace(/\D/g, '').indexOf(dig) >= 0);
   const data = v => v instanceof Date ? Utilities.formatDate(v, 'America/Sao_Paulo', 'dd/MM/yyyy') : '';
   const junta = (k, o) => { const a = porChave[k] || (porChave[k] = {}); Object.keys(o).forEach(c => { if (o[c] && !a[c]) a[c] = o[c]; }); };
-  // termos primeiro (mais recentes no fim): têm telefone e o contrato fechado
+  // 1º a planilha de controle (aba CLIENTES): é a base oficial de clientes ativos, com telefone e vendedor
+  let aviso = '';
+  try {
+    lerClientesExternos_().forEach(c => {
+      if (!bate(c.titular, c.uc) && !(termo.length >= 3 && (norm(c.fantasia).indexOf(termo) >= 0 || norm(c.responsavel).indexOf(termo) >= 0))) return;
+      junta(String(c.uc).replace(/\D/g, '') || norm(c.titular), c);
+    });
+  } catch (e) { aviso = 'planilha de clientes indisponível: ' + e.message; }
+  // depois os termos (mais recentes no fim): têm telefone e o contrato fechado
   const st = ss.getSheetByName(ABA_TERMOS);
   if (st && st.getLastRow() > 1) {
     const v = st.getRange(2, 1, st.getLastRow() - 1, Math.max(16, st.getLastColumn())).getValues();
@@ -270,7 +287,62 @@ function buscarClientes(q) {
         consultor: r[2], plano: r[14], numero: String(r[1] || ''), data: data(r[0]), origem: 'Proposta' }); }
   }
   const lista = Object.keys(porChave).map(k => porChave[k]).slice(0, 8);
+  if (aviso) return { ok: true, clientes: lista, aviso: aviso };
   return { ok: true, clientes: lista };
+}
+
+/**
+ * Lê só as colunas necessárias da aba CLIENTES da planilha de controle (nunca CPF/CNPJ, endereço, logins ou valores).
+ * Guarda 5 minutos em cache para a busca ficar rápida.
+ */
+function lerClientesExternos_(semCache) {
+  const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
+  let ref = cfg ? String(cfg.getRange('B4').getValue() || '').trim() : PLANILHA_CLIENTES_PADRAO;
+  if (!ref) return [];
+  const m = ref.match(/\/d\/([a-zA-Z0-9_-]{20,})/); if (m) ref = m[1];
+  const cache = CacheService.getScriptCache(), chave = 'cli_ext_' + ref;
+  if (!semCache) { const c = cache.get(chave); if (c) return JSON.parse(c); }
+  const sh = SpreadsheetApp.openById(ref).getSheetByName(ABA_CLIENTES_EXT);
+  if (!sh) throw new Error('aba ' + ABA_CLIENTES_EXT + ' não encontrada');
+  const ult = sh.getLastRow(), cols = sh.getLastColumn();
+  if (ult < 2) return [];
+  const v = sh.getRange(1, 1, ult, cols).getValues();
+  const up = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  // acha a linha do cabeçalho (a que tem CLIENTE e UC) e as colunas pelo nome, para não quebrar se mudarem de lugar
+  let h = -1;
+  for (let i = 0; i < Math.min(6, v.length); i++) { const r = v[i].map(up); if (r.indexOf('CLIENTE') >= 0 && r.indexOf('UC') >= 0) { h = i; break; } }
+  if (h < 0) throw new Error('cabeçalho da aba ' + ABA_CLIENTES_EXT + ' não encontrado');
+  const cab = v[h].map(up), col = n => cab.indexOf(n);
+  const C = { nome: col('CLIENTE'), resp: col('RESPONSAVEL'), cont: col('CONTATO'), fan: col('FANTASIA'), cid: col('CIDADE'), uc: col('UC'), vend: col('VENDEDOR') };
+  const out = [];
+  for (let i = h + 1; i < v.length; i++) {
+    const r = v[i], nome = String(r[C.nome] || '').replace(/\s+/g, ' ').trim();
+    if (!nome) continue;
+    const uc = typeof r[C.uc] === 'number' ? String(Math.round(r[C.uc])) : String(r[C.uc] || '').trim();
+    const cont = C.cont >= 0 ? r[C.cont] : '';
+    const cidTxt = C.cid >= 0 ? String(r[C.cid] || '').trim() : '';
+    const cm = cidTxt.match(/^(.*?)\s*[-–\/]\s*([A-Za-z]{2})$/);
+    out.push({
+      titular: nome, responsavel: C.resp >= 0 ? String(r[C.resp] || '').trim() : '', fantasia: C.fan >= 0 ? String(r[C.fan] || '').trim() : '',
+      uc: uc, cidade: cm ? cm[1] : cidTxt, uf: cm ? cm[2].toUpperCase() : '',
+      celular: telefone_(cont), email: (String(cont).match(/[\w.+-]+@[\w-]+\.[\w.]+/) || [''])[0],
+      distribuidora: /^(30|40)\d{8}$/.test(uc) ? 'RGE' : '', consultor: C.vend >= 0 ? String(r[C.vend] || '').trim() : '',
+      origem: 'Clientes'
+    });
+  }
+  try { cache.put(chave, JSON.stringify(out), 300); } catch (e) {}
+  return out;
+}
+
+/** Primeiro telefone de um campo de contato ("55 9116-5376 / email…", 55981440018 …) no formato (55) 98144-0018. */
+function telefone_(x) {
+  const t = typeof x === 'number' ? String(Math.round(x)) : String(x || '');
+  const m = t.match(/\(?\d{2}\)?[\s.-]*9?\s?\d{4}[\s.-]?\d{4}/);
+  if (!m) return '';
+  const d = m[0].replace(/\D/g, '');
+  if (d.length === 11) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
+  if (d.length === 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
+  return m[0].trim();
 }
 
 /** Evita que um texto começando com = + - @ vire fórmula na planilha. */
