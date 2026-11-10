@@ -195,6 +195,13 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
   if(embutido)return;
   var s=null;try{s=JSON.parse(localStorage.getItem('ozz_sessao')||'null')}catch(e){}
   var logado=!!(s&&s.tipo==='google');
+  // perfil sem pós-venda (administrativo), inclusive o TI "vendo como" ele: volta para os geradores
+  if(logado){
+    var norm=function(p){var t=String(p||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z ]/g,'').trim();
+      return /^ti$|^ti |^tecnologia/.test(t)?'ti':/^administrativ/.test(t)?'administrativo':/^admin/.test(t)?'admin':'vendedor'};
+    var p=norm(s.perfil);if(p==='ti'){try{var vc=sessionStorage.getItem('ozz_vercomo');if(vc)p=vc}catch(e){}}
+    if(p==='administrativo'){document.documentElement.style.visibility='hidden';location.replace('../#ger/prop');return}
+  }
   var recente=logado&&s.validadoEm&&(Date.now()-s.validadoEm<8*3600e3);
   if(logado&&(recente||!navigator.onLine))return;
   if(!navigator.onLine){

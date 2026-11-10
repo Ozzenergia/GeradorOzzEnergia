@@ -24,6 +24,26 @@ const ABA_CONFIG = 'Config';
 const ABA_USUARIOS = 'Usuários';
 const COLS_USUARIOS = ['E-mail', 'Nome', 'Perfil', 'Ativo'];
 
+/* Perfis (coluna Perfil da aba Usuários) e as áreas do portal que cada um usa.
+   ger = Geradores (propostas e termos) · pos = Pós-venda. O TI ainda pode "ver como" outro perfil no portal. */
+const PERFIS_ = {
+  ti:             { nome: 'TI',             areas: ['ger', 'pos'] },
+  admin:          { nome: 'Admin',          areas: ['ger', 'pos'] },
+  administrativo: { nome: 'Administrativo', areas: ['ger'] },
+  vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos'] }
+};
+const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos' };
+const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda' };
+
+/** "Administrador", "T.I.", "Vendedores", "consultor"… → ti | admin | administrativo | vendedor. Vazio ou desconhecido = vendedor. */
+function perfil_(p) {
+  const t = String(p || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z ]/g, '').trim();
+  if (/^ti$|^ti |^tecnologia/.test(t)) return 'ti';
+  if (/^administrativ/.test(t)) return 'administrativo';
+  if (/^admin/.test(t)) return 'admin';
+  return 'vendedor';
+}
+
 const COLS_PROPOSTAS = ['Data/hora', 'Nº proposta', 'Consultor', 'Cliente', 'CPF', 'CNPJ', 'UC', 'Distribuidora',
   'Endereço', 'CEP', 'Cidade', 'UF', 'Tensão', 'Consumo médio (kWh)', 'Plano', 'Desconto (%)',
   'Custo mensal', 'Custo anual', 'Economia mensal', 'Economia anual', 'Modelo'];
@@ -66,6 +86,9 @@ function configurar() {
   cria(ABA_PROPOSTAS, COLS_PROPOSTAS);
   completaCabecalho_(cria(ABA_TERMOS, COLS_TERMOS), COLS_TERMOS);
   const us = cria(ABA_USUARIOS, COLS_USUARIOS);
+  us.getRange(2, 3, Math.max(us.getMaxRows() - 1, 1), 1).setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(Object.keys(PERFIS_), true).setAllowInvalid(true)
+    .setHelpText('ti = tudo + ver como outro perfil · admin = tudo · administrativo = só geradores · vendedor = geradores e pós-venda').build());
   if (us.getLastRow() === 1) {
     let dono = '';
     try { dono = Session.getEffectiveUser().getEmail(); } catch (e) {}
@@ -116,7 +139,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '5.3 (clientes da planilha de programação)';
+const VERSAO_SCRIPT = '6 (perfis de acesso)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -136,6 +159,9 @@ function doPost(e) {
   try {
     if (req.acao === 'ping') return json({ ok: true, planilha: SpreadsheetApp.getActive().getName() });
     if (req.acao === 'eu') return json({ ok: true, email: usuario.email, nome: usuario.nome, perfil: usuario.perfil });
+    const area = AREA_DA_ACAO_[req.acao];
+    if (usuario.email && area && PERFIS_[usuario.perfil].areas.indexOf(area) < 0)
+      return json({ ok: false, erro: 'o perfil ' + PERFIS_[usuario.perfil].nome + ' não tem acesso a ' + NOME_AREA_[area], perfil: true });
     if (usuario.nome && req.dados) req.dados.consultor = usuario.nome; // o nome vem do login, não do navegador
     if (req.acao === 'proposta') return json(registrarProposta(req.dados || {}));
     if (req.acao === 'termo') return json(registrarTermo(req.dados || {}));
@@ -206,7 +232,7 @@ function buscarUsuario_(email) {
   const v = sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues();
   for (let i = 0; i < v.length; i++) {
     if (String(v[i][0]).trim().toLowerCase() === email && /^(sim|s|x|ativo|true)$/i.test(String(v[i][3]).trim())) {
-      return { email: email, nome: String(v[i][1] || email).trim(), perfil: String(v[i][2] || 'consultor').trim() };
+      return { email: email, nome: String(v[i][1] || email).trim(), perfil: perfil_(v[i][2]) };
     }
   }
   return null;

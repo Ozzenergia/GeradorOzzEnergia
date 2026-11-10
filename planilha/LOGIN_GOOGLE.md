@@ -35,7 +35,20 @@ decide quem pode registrar: só e-mails **ativos** na aba **Usuários**.
 
    | E-mail | Nome | Perfil | Ativo |
    |---|---|---|---|
-   | ana@gmail.com | Ana Souza | consultor | SIM |
+   | ana@gmail.com | Ana Souza | vendedor | SIM |
+
+   **Perfis** (a coluna tem uma lista para escolher):
+
+   | Perfil | O que acessa |
+   |---|---|
+   | `ti` | tudo, e ainda pode **ver como** outro perfil (só muda a tela; a planilha continua usando o perfil verdadeiro) |
+   | `admin` | tudo |
+   | `administrativo` | só os geradores (propostas e termos) |
+   | `vendedor` | geradores e pós-venda |
+
+   Perfil vazio ou diferente desses (por exemplo o antigo `consultor`) vale como **vendedor**.
+   A planilha também confere o perfil: um administrativo não consegue buscar clientes do pós-venda
+   mesmo que abra o link direto.
 
    O **Nome** é o que aparece como consultor nas propostas. Para tirar o acesso de alguém, troque
    **Ativo** para **NÃO** (vale na hora, sem mexer no portal).
