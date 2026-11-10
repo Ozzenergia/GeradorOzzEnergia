@@ -73,7 +73,7 @@
       if(r.aviso)console.warn("Busca de clientes:",r.aviso);
       msg.className="bc-msg";msg.textContent=cs.length+(cs.length>1?" clientes encontrados — toque para preencher:":" cliente encontrado — toque para preencher:");
       lista.innerHTML=cs.map(function(c,i){
-        var linha=[c.fantasia&&semAcento(c.fantasia)!==semAcento(c.titular)?nomeProprio(c.fantasia):"",c.responsavel?"Resp.: "+nomeProprio(c.responsavel):"",c.uc?"UC "+c.uc:"",c.cidade?nomeProprio(c.cidade)+(c.uf?"/"+String(c.uf).toUpperCase():""):"",c.plano||"",c.origem&&c.numero?c.origem+" "+c.numero:"",c.data||""].filter(Boolean).join(" · ");
+        var linha=[c.fantasia&&semAcento(c.fantasia)!==semAcento(c.titular)?nomeProprio(c.fantasia):"",c.responsavel?"Resp.: "+nomeProprio(c.responsavel):"",c.uc?"UC "+c.uc:"",c.uc_antiga?"antiga "+c.uc_antiga:"",c.cidade?nomeProprio(c.cidade)+(c.uf?"/"+String(c.uf).toUpperCase():""):"",c.plano||"",c.origem&&c.numero?c.origem+" "+c.numero:"",c.data||""].filter(Boolean).join(" · ");
         return '<button type="button" data-i="'+i+'"><b>'+esc(nomeProprio(c.titular))+'</b><small>'+esc(linha)+'</small></button>'}).join("");
       lista.querySelectorAll("button").forEach(function(b){b.onclick=function(){preencher(cs[+b.dataset.i])}});
     });

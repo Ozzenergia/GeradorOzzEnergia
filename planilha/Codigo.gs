@@ -116,7 +116,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '5.2 (clientes da planilha de programação)';
+const VERSAO_SCRIPT = '5.3 (clientes da planilha de programação)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -276,7 +276,7 @@ function buscarClientes(q) {
   let aviso = '';
   try {
     lerClientesExternos_().forEach(c => {
-      if (!bate(c.titular, c.uc) && !(termo.length >= 3 && (norm(c.fantasia).indexOf(termo) >= 0 || norm(c.responsavel).indexOf(termo) >= 0))) return;
+      if (!bate(c.titular, c.uc) && !bate('', c.uc_antiga) && !(termo.length >= 3 && (norm(c.fantasia).indexOf(termo) >= 0 || norm(c.responsavel).indexOf(termo) >= 0))) return;
       junta(String(c.uc).replace(/\D/g, '') || norm(c.titular), c);
     });
   } catch (e) { aviso = 'não consegui ler a planilha de clientes: ' + e.message; console.error(aviso); }
@@ -322,10 +322,17 @@ function lerClientesExternos_(semCache) {
   const v = sh.getRange(1, 1, ult, cols).getValues();
   const up = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9/ ]/g, ' ').replace(/\s+/g, ' ').trim();
   const ehCliente = t => t === 'CLIENTE' || t === 'CLIENTES' || t === 'NOME' || t === 'NOME DO CLIENTE' || t === 'RAZAO SOCIAL';
-  const ehUC = t => t === 'UC' || /^(N|NO|NUMERO|COD|CODIGO)( DA| DO)? (UC|INSTALACAO)$/.test(t) || /^UC /.test(t);
+  const ehUC = t => t === 'UC' || /^(N|NO|NUMERO|COD|CODIGO)( DA| DO)? (UC|INSTALACAO)$/.test(t) || /^UC /.test(t) || /^(NOVA|ANTIGA|NOVO|ANTIGO) UC$/.test(t);
   // acha a linha do cabeçalho (a que tem CLIENTE e UC) e as colunas pelo nome, para não quebrar se mudarem de lugar
-  let h = -1;
-  for (let i = 0; i < Math.min(30, v.length); i++) { const r = v[i].map(up); if (r.some(ehCliente) && r.some(ehUC)) { h = i; break; } }
+  // pode haver mais de uma linha parecida com cabeçalho: fica com a que tem mais colunas conhecidas
+  const CONHECIDAS = ['RESPONSAVEL', 'CONTATO', 'FANTASIA', 'CIDADE', 'VENDEDOR', 'ENDERECO'];
+  let h = -1, melhor = -1;
+  for (let i = 0; i < Math.min(30, v.length); i++) {
+    const r = v[i].map(up);
+    if (!(r.some(ehCliente) && r.some(ehUC))) continue;
+    const pontos = CONHECIDAS.filter(n => r.indexOf(n) >= 0).length;
+    if (pontos > melhor) { melhor = pontos; h = i; }
+  }
   if (h < 0) {
     const vistos = [];
     for (let i = 0; i < Math.min(4, v.length); i++) {
@@ -338,20 +345,23 @@ function lerClientesExternos_(semCache) {
   const cab = v[h].map(up);
   const col = (n, f) => { let i = cab.indexOf(n); if (i < 0 && f) i = cab.findIndex(f); return i; };
   const C = { nome: col('CLIENTE', ehCliente), resp: col('RESPONSAVEL', t => /^RESPONSAVEL|^SOCIO/.test(t)), cont: col('CONTATO', t => /^(CONTATO|TELEFONE|CELULAR|FONE|WHATSAPP)/.test(t)),
-    fan: col('FANTASIA', t => /FANTASIA/.test(t)), cid: col('CIDADE', t => /^CIDADE/.test(t)), uc: col('UC', ehUC), vend: col('VENDEDOR', t => /^(VENDEDOR|CONSULTOR)/.test(t)) };
+    fan: col('FANTASIA', t => /FANTASIA/.test(t)), cid: col('CIDADE', t => /^CIDADE/.test(t)),
+    uc: col('NOVA UC', t => /^NOV[AO] UC$/.test(t)), ucAnt: col('ANTIGA UC', t => /^ANTIG[AO] UC$/.test(t)), ucGen: col('UC', ehUC), vend: col('VENDEDOR', t => /^(VENDEDOR|CONSULTOR)/.test(t)) };
   const out = [];
   for (let i = h + 1; i < v.length; i++) {
     const r = v[i], nome = String(r[C.nome] || '').replace(/\s+/g, ' ').trim();
     if (!nome) continue;
-    const uc = typeof r[C.uc] === 'number' ? String(Math.round(r[C.uc])) : String(r[C.uc] || '').trim();
+    const txt = i => i < 0 ? '' : (typeof r[i] === 'number' ? String(Math.round(r[i])) : String(r[i] || '').trim());
+    const ucNova = txt(C.uc), ucAntiga = txt(C.ucAnt);
+    const uc = ucNova || ucAntiga || txt(C.ucGen);
     const cont = C.cont >= 0 ? r[C.cont] : '';
     const cidTxt = C.cid >= 0 ? String(r[C.cid] || '').trim() : '';
     const cm = cidTxt.match(/^(.*?)\s*[-–\/]\s*([A-Za-z]{2})$/);
     out.push({
       titular: nome, responsavel: C.resp >= 0 ? String(r[C.resp] || '').trim() : '', fantasia: C.fan >= 0 ? String(r[C.fan] || '').trim() : '',
-      uc: uc, cidade: cm ? cm[1] : cidTxt, uf: cm ? cm[2].toUpperCase() : '',
+      uc: uc, uc_antiga: ucAntiga && ucAntiga !== uc ? ucAntiga : '', cidade: cm ? cm[1] : cidTxt, uf: cm ? cm[2].toUpperCase() : '',
       celular: telefone_(cont), email: (String(cont).match(/[\w.+-]+@[\w-]+\.[\w.]+/) || [''])[0],
-      distribuidora: /^(30|40)\d{8}$/.test(uc) ? 'RGE' : '', consultor: C.vend >= 0 ? String(r[C.vend] || '').trim() : '',
+      distribuidora: [uc, ucAntiga].some(u => /^(30|40)\d{8}$/.test(String(u).replace(/\D/g, ''))) ? 'RGE' : '', consultor: C.vend >= 0 ? String(r[C.vend] || '').trim() : '',
       origem: 'Clientes'
     });
   }
