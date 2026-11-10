@@ -271,9 +271,7 @@ body.locked{overflow:hidden}
       <div id="gOff" class="g-off">🔒 O login com Google ainda está em configuração.</div>
     </div>
     <div class="lg-msg" id="lgMsg" role="status"></div>
-    <div class="lg-or"><span>ou</span></div>
-    <button class="btn sec lg-btn" id="lgGuest" type="button">Entrar como visitante</button>
-    <p class="lg-foot" id="lgFoot">Como visitante você pode testar o portal, mas <b>nada é registrado</b> na planilha e as propostas saem com número <b>TESTE</b>.</p>
+    <p class="lg-foot" id="lgFoot">Acesso restrito à equipe OZZ. Entre com a conta Google cadastrada pelo administrador.</p>
     <p class="lg-legal"><a href="privacidade.html">Política de Privacidade</a></p>
   </div>
 </div>
@@ -900,7 +898,6 @@ function sairComMotivo(msg){
 function iniciarGoogle(){
   if(!LOGIN_ATIVO){
     $('gOff').classList.remove('hidden');$('gBtn').classList.add('hidden');
-    $('lgFoot').textContent='Enquanto o login não estiver ligado, todos entram como visitante e as propostas são registradas pelo código de sincronização de cada computador.';
     return}
   $('gOff').classList.add('hidden');$('gBtn').classList.remove('hidden');
   const sc=document.createElement('script');sc.src='https://accounts.google.com/gsi/client';sc.async=true;
@@ -912,7 +909,8 @@ function iniciarGoogle(){
   sc.onerror=()=>{$('gOff').classList.remove('hidden');$('gOff').textContent='⚠️ Não foi possível carregar o login do Google. Verifique a internet.'};
   document.head.appendChild(sc);
 }
-$('lgGuest').onclick=()=>{const v={tipo:'visitante',desde:new Date().toISOString()};sessaoMem=v;setSessao(v);aplicarSessao()};
+// sem acesso de visitante: quem tinha entrado como visitante volta para a tela de login
+(function(){const v=getSessao();if(v&&v.tipo!=='google')setSessao(null)})();
 $('lgOut').onclick=()=>{
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok')}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
