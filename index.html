@@ -680,7 +680,7 @@ body.locked{overflow:hidden}
 
   <div class="fx-sec">Mês a mês</div>
   <div class="fx-meses-wrap"><div class="ana-tabela fx-meses"><div class="ana-scroll"><table>
-    <thead><tr><th>Mês</th><th class="num">Entradas</th><th class="num">Contas RGE</th><th class="num">Repasses</th><th class="num">Custos fixos</th><th class="num">Saldo</th><th class="num">Acumulado</th></tr></thead>
+    <thead><tr><th>Mês</th><th class="num">Entradas</th><th class="num">Clientes (RGE)</th><th class="num">Investidores / Usinas</th><th class="num">Custos fixos</th><th class="num">Saldo</th><th class="num">Acumulado</th></tr></thead>
     <tbody id="fxMeses"></tbody><tfoot id="fxMesesTot"></tfoot>
   </table></div></div></div>
 
@@ -1338,12 +1338,12 @@ function fxRender(){
   nota.push('Repasses e custos fixos não têm dia definido: entram no último dia do mês.');
   // (as explicações ficam documentadas no Codigo.gs; a tela não mostra)
   // ---- lançamentos
-  const nomes={todos:'Todos',ent:'Entradas',rge:'Contas RGE',rep:'Repasses',cus:'Custos fixos'};
+  const nomes={todos:'Todos',ent:'Entradas',rge:'Clientes (RGE)',rep:'Investidores / Usinas',cus:'Custos fixos'};
   const base=todos.filter(x=>noPer(x.comp)&&(!real||x.ok)&&!(x.tipo==='cus'&&!custoMes));
   $('fxTipos').innerHTML=Object.entries(nomes).filter(([k])=>k!=='cus'||custoMes).map(([k,n])=>{const c=k==='todos'?base.length:base.filter(x=>x.tipo===k).length;return `<button type="button" data-t="${k}" class="${fx.tipo===k?'on':''}" aria-pressed="${fx.tipo===k}">${n} (${c})</button>`}).join('');
   $('fxTipos').querySelectorAll('button').forEach(b=>b.onclick=()=>{fx.tipo=b.dataset.t;fxRender()});
   const lista=base.filter(x=>fx.tipo==='todos'||x.tipo===fx.tipo).sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.tipo<b.tipo?-1:1);
-  const MAX=400,TIPO={ent:'Entrada',rge:'Conta RGE',rep:'Repasse investidor',cus:'Custo fixo'};
+  const MAX=400,TIPO={ent:'Entrada',rge:'Clientes (RGE)',rep:'Investidores / Usinas',cus:'Custo fixo'};
   $('fxCorpo').innerHTML=lista.length?lista.slice(0,MAX).map(x=>{const neg=x.tipo!=='ent';
     const pill=x.fora?'<span class="ana-pill">Pago pelo investidor</span>':x.est&&!x.ok?'<span class="ana-pill">Estimado</span>':x.ok?`<span class="ana-pill pago">${neg?'Pago':'Recebido'}</span>`:`<span class="ana-pill ${/ATRAS|INADIMP/.test(x.s)?'venc':''}">${anaEsc(x.s==='—'?'Previsto':x.s.charAt(0)+x.s.slice(1).toLowerCase())}</span>`;
     return `<tr${x.fora?' class="r-pago"':''}><td data-l="Data"><b>${x.semDia?fxMesNome(x.comp):anaDataBR(x.d)}</b></td><td>${anaEsc(x.desc)}<small>${anaEsc(x.det)}</small></td><td data-l="Tipo">${TIPO[x.tipo]}</td><td class="num ${neg?'fx-neg':'fx-pos'}" data-l="Valor">${neg?'−':'+'}${brl(x.v)}</td><td>${pill}</td></tr>`}).join('')
