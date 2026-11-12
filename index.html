@@ -1133,8 +1133,8 @@ async function anaCarregar(forcar){
   const anos=[...new Set(meses.map(m=>m.slice(0,4)))];
   if(ana.mes&&!meses.includes(ana.mes)&&!anos.includes(ana.mes))ana.mes='';
   $('anaMes').innerHTML='<option value="">Todos os vencimentos</option>'+
-    '<optgroup label="Ano inteiro">'+anos.map(a=>`<option value="${a}">Vencimento em ${a} (ano inteiro)</option>`).join('')+'</optgroup>'+
-    '<optgroup label="Mês">'+meses.map(m=>`<option value="${m}">Vencimento em ${m.slice(5)}/${m.slice(0,4)}</option>`).join('')+'</optgroup>';
+    '<optgroup label="Ano">'+anos.map(a=>`<option value="${a}">${a}</option>`).join('')+'</optgroup>'+
+    '<optgroup label="Mês">'+meses.map(m=>`<option value="${m}">${m.slice(5)}/${m.slice(0,4)}</option>`).join('')+'</optgroup>';
   $('anaMes').value=ana.mes;
   const usinas=[...new Set(r.contas.map(c=>c.usinaNome).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
   if(ana.usina&&!usinas.includes(ana.usina))ana.usina='';
