@@ -112,6 +112,32 @@ main.wide{max-width:1180px}
 .ana-rodape{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
 .ana-rodape b{color:var(--ink);font-variant-numeric:tabular-nums}
 .ana-vazio{padding:34px 16px;text-align:center;color:var(--muted)}
+.fx-kpis{grid-template-columns:repeat(3,1fr)}
+.ana-kpi.k-ent{border-left-color:var(--ok)}.ana-kpi.k-sai{border-left-color:var(--err)}.ana-kpi.k-sal{border-left-color:var(--primary-line)}
+.ana-kpi.neg b{color:var(--err)}
+.ana-filtros .fx-chk input{flex:none;min-width:0;flex-basis:auto;width:16px;height:16px;padding:0}
+.fx-chk{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer}
+.fx-sec{font-size:15px;font-weight:700;margin:22px 0 8px}
+.fx-meses td.num,.fx-meses th.num{text-align:right}
+.fx-meses tbody tr{cursor:pointer}
+.fx-meses tbody tr:hover td{background:var(--primary-soft)}
+.fx-meses tr.on td{background:var(--primary-soft);font-weight:700}
+.fx-meses td.sem{color:var(--muted);font-weight:400;font-size:12.5px}
+.fx-meses tfoot td{font-weight:700;border-top:2px solid var(--line)}
+.fx-pos{color:var(--ok)}.fx-neg{color:var(--err)}
+.fx-tipos{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.fx-tipos button{font:600 13px Outfit,sans-serif;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;cursor:pointer}
+.fx-tipos button.on{background:var(--primary);border-color:var(--primary);color:#fff}
+.fx-est{display:block;font-size:11px;font-weight:500;color:var(--muted)}
+.fx-nota{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.5}
+@media(max-width:760px){
+  .ana-kpis.fx-kpis{grid-template-columns:1fr}
+  .fx-meses-wrap .ana-tabela thead{display:table-header-group}
+  .fx-meses-wrap .ana-tabela table{display:table}.fx-meses-wrap .ana-tabela tbody{display:table-row-group}.fx-meses-wrap .ana-tabela tfoot{display:table-footer-group}
+  .fx-meses-wrap .ana-tabela tr{display:table-row;padding:0}.fx-meses-wrap .ana-tabela td{display:table-cell;width:auto;padding:8px 8px;border-bottom:1px solid var(--line)}
+  .fx-meses-wrap .ana-tabela td::before{content:none!important}
+  .fx-meses-wrap .ana-tabela{font-size:12.5px}
+}
 @media(max-width:760px){
   .ana-kpis{grid-template-columns:repeat(2,1fr)}.ana-kpi b{font-size:18px}
   .ana-filtros input{flex-basis:100%}.ana-filtros select{flex:1;min-width:0}
@@ -634,6 +660,41 @@ body.locked{overflow:hidden}
     <div class="ana-rodape" id="anaRodape"></div>
   </div>
 </section>
+
+<!-- =================== ANÁLISE · FLUXO DE CAIXA =================== -->
+<section id="tab-fluxo" class="hidden">
+  <div class="ana-top">
+    <div><h2>Fluxo de caixa</h2><p id="fxSub">Montado a partir das abas da planilha de controle (só leitura)</p></div>
+    <button class="btn sec sm" id="fxAtualizar" type="button">↻ Atualizar</button>
+  </div>
+  <div class="alert" id="fxErro"></div>
+  <div class="ana-filtros">
+    <select id="fxPeriodo" aria-label="Período"></select>
+    <select id="fxModo" aria-label="O que considerar">
+      <option value="tudo">Previsto + realizado</option>
+      <option value="real">Só o que já aconteceu</option>
+    </select>
+    <label class="fx-chk"><input type="checkbox" id="fxCustos" checked> <span id="fxCustosTxt">Custos fixos</span></label>
+  </div>
+  <div class="ana-kpis fx-kpis" id="fxKpis"></div>
+
+  <div class="fx-sec">Mês a mês</div>
+  <div class="fx-meses-wrap"><div class="ana-tabela fx-meses"><div class="ana-scroll"><table>
+    <thead><tr><th>Mês</th><th class="num">Entradas</th><th class="num">Contas RGE</th><th class="num">Repasses</th><th class="num">Custos fixos</th><th class="num">Saldo</th><th class="num">Acumulado</th></tr></thead>
+    <tbody id="fxMeses"></tbody><tfoot id="fxMesesTot"></tfoot>
+  </table></div></div></div>
+  <p class="fx-nota" id="fxNota"></p>
+
+  <div class="fx-sec" id="fxDetTit">Lançamentos</div>
+  <div class="fx-tipos" id="fxTipos"></div>
+  <div class="ana-tabela">
+    <div class="ana-scroll"><table>
+      <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th class="num">Valor</th><th>Situação</th></tr></thead>
+      <tbody id="fxCorpo"></tbody>
+    </table></div>
+    <div class="ana-rodape" id="fxRodape"></div>
+  </div>
+</section>
 </main>
 
 <!-- =================== PÓS-VENDA (app de visitas, aberto dentro do portal) =================== -->
@@ -1018,7 +1079,7 @@ function voltarSePedido(){
 }
 function sairComMotivo(msg){
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo');localStorage.removeItem('ozz_pv_salvos')}catch(e){}
-  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML=''}catch(e){}
+  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML='';fx.dados=null;['fxCorpo','fxKpis','fxMeses','fxMesesTot','fxRodape'].forEach(i=>$(i).innerHTML='')}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
   aplicarSessao();const m=$('lgMsg');m.className='lg-msg';m.textContent='⚠️ '+msg+'.';
 }
@@ -1040,7 +1101,7 @@ function iniciarGoogle(){
 (function(){const v=getSessao();if(v&&v.tipo!=='google')setSessao(null)})();
 $('lgOut').onclick=()=>{
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo');localStorage.removeItem('ozz_pv_salvos')}catch(e){}
-  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML=''}catch(e){}
+  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML='';fx.dados=null;['fxCorpo','fxKpis','fxMeses','fxMesesTot','fxRodape'].forEach(i=>$(i).innerHTML='')}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
   $('lgMsg').textContent='';aplicarSessao();
 };
@@ -1191,6 +1252,113 @@ $('anaCorpo').addEventListener('click',async e=>{const b=e.target.closest('butto
   try{await navigator.clipboard.writeText(b.dataset.pix);b.textContent='Copiado ✓'}catch(x){b.textContent='Não deu para copiar'}
   setTimeout(()=>{b.textContent='Copiar PIX'},1800)});
 
+/* ===== Análise · Fluxo de caixa ===== */
+const fx={dados:null,periodo:null,modo:'tudo',custos:true,tipo:'todos',carregando:false};
+const MESES_NOME=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const fxMesNome=c=>MESES_NOME[+c.slice(5,7)-1]+'/'+c.slice(0,4);
+async function fxCarregar(forcar){
+  if(fx.carregando)return;fx.carregando=true;
+  const bt=$('fxAtualizar');bt.disabled=true;bt.textContent='Carregando…';$('fxErro').style.display='none';
+  if(!fx.dados)$('fxCorpo').innerHTML='<tr><td colspan="5" class="ana-vazio">Lendo a planilha…</td></tr>';
+  const aviso=setTimeout(()=>{if(fx.carregando)bt.textContent='Lendo a planilha… (pode levar até 1 min)'},6000);
+  const r=await sheetApi('fluxo',{forcar:!!forcar},{espera:120000});clearTimeout(aviso);
+  fx.carregando=false;bt.disabled=false;bt.textContent='↻ Atualizar';
+  if(!r||!r.ok){
+    let e=(r&&r.erro)||'não foi possível ler a planilha';
+    if(/ação desconhecida/.test(e))e='a planilha do portal ainda está com o script antigo (atualize o Apps Script para a versão 8 e implante uma Nova versão)';
+    $('fxErro').textContent='⚠️ '+e;$('fxErro').style.display='block';
+    if(!fx.dados)$('fxCorpo').innerHTML='<tr><td colspan="5" class="ana-vazio">Sem dados para mostrar.</td></tr>';
+    return;
+  }
+  // tudo vira uma lista só de lançamentos: + entradas, − saídas
+  const L=[];
+  r.entradas.forEach(e=>L.push({tipo:'ent',d:e.d,comp:e.d.slice(0,7),v:e.v,desc:e.n,det:(e.vend?'Vendedor: '+e.vend:'')+(e.est?(e.vend?' · ':'')+'data estimada (sem data de cobrança)':''),s:e.s||'—',ok:e.ok}));
+  r.contas.forEach(c=>L.push({tipo:'rge',d:c.d,comp:c.d.slice(0,7),v:c.v,desc:c.n,det:(c.usina?'Conta da usina':'Conta do cliente')+(c.uc?' · UC '+c.uc:''),s:c.s,ok:c.ok,fora:c.fora}));
+  r.repasses.forEach(p=>L.push({tipo:'rep',d:p.d,comp:p.d.slice(0,7),v:p.v,desc:p.n,det:(p.cli?'Cliente: '+p.cli:'')+' · sem dia definido',s:p.s||'—',ok:p.ok,semDia:true}));
+  // meses em que a fonte oficial tem dados (PROGRAMAÇÃO para contas, PGTO INVEST. para repasses)
+  const cob={ent:new Set(),rge:new Set(),rep:new Set()};L.forEach(x=>{if(!x.fora)cob[x.tipo].add(x.comp)});
+  // nos outros meses, estima pela aba do mês: repasse = coluna INVESTIDOR; conta RGE = fatura − lucro − investidor
+  const est={rge:new Set(),rep:new Set()};
+  r.entradas.forEach(e=>{const m=e.d.slice(0,7);
+    if(!cob.rep.has(m)&&e.inv>0){L.push({tipo:'rep',d:e.d,comp:m,v:e.inv,desc:e.invNome||'Investidor',det:'Cliente: '+e.n+' · estimado pela aba do mês',s:'Estimado',ok:e.ok,est:true,semDia:true});est.rep.add(m)}
+    if(!cob.rge.has(m)&&e.lucro!=null&&e.inv!=null){const v=Math.round((e.v-e.lucro-e.inv)*100)/100;
+      if(v>0){L.push({tipo:'rge',d:e.d,comp:m,v,desc:e.n,det:'Conta do cliente · estimada pela aba do mês (fatura − lucro − investidor)',s:'Estimado',ok:e.rgeOk||e.ok,est:true});est.rge.add(m)}}
+  });
+  fx.dados=r;fx.L=L;fx.cob=cob;fx.est=est;fx.meses=[...new Set(L.map(x=>x.comp))].sort();
+  const anos=[...new Set(fx.meses.map(m=>m.slice(0,4)))].sort().reverse();
+  if(!fx.periodo){const a=r.hoje.slice(0,4);fx.periodo=anos.includes(a)?a:(anos[0]||'')}
+  $('fxPeriodo').innerHTML='<option value="">Todo o período</option><optgroup label="Ano">'+anos.map(a=>`<option value="${a}">${a}</option>`).join('')+
+    '</optgroup><optgroup label="Mês">'+fx.meses.slice().reverse().map(m=>`<option value="${m}">${m.slice(5)}/${m.slice(0,4)}</option>`).join('')+'</optgroup>';
+  $('fxPeriodo').value=fx.periodo;
+  $('fxCustosTxt').textContent=r.custoMensal?'Custos fixos ('+brl(r.custoMensal)+'/mês)':'Custos fixos (não encontrados)';
+  $('fxCustos').disabled=!r.custoMensal;
+  $('fxSub').textContent='Abas dos meses, PROGRAMAÇÃO, PGTO INVEST. e CUSTO OPERAÇÃO · lido em '+r.lidoEm;
+  if(r.avisos&&r.avisos.length){$('fxErro').textContent='⚠️ '+r.avisos.join(' · ');$('fxErro').style.display='block'}
+  fxRender();
+}
+function fxAbrir(){if(!fx.dados)fxCarregar();else fxRender()}
+function fxRender(){
+  if(!fx.dados)return;
+  const real=fx.modo==='real',P=fx.periodo,noPer=c=>!P||c.startsWith(P);
+  const custoMes=fx.custos&&fx.dados.custoMensal&&!real?fx.dados.custoMensal:0;
+  const vale=x=>!x.fora&&(!real||x.ok);
+  // lançamentos de custo fixo: um por mês que tem dados
+  const custos=custoMes?fx.meses.map(m=>{const fim=new Date(+m.slice(0,4),+m.slice(5,7),0);
+    return {tipo:'cus',d:m+'-'+String(fim.getDate()).padStart(2,'0'),comp:m,v:custoMes,desc:'Custos fixos do mês',det:'CUSTO OPERAÇÃO · média mensal',s:'Estimado',ok:false,semDia:true}}):[];
+  const todos=fx.L.concat(custos);
+  // ---- mês a mês (o acumulado começa no primeiro mês mostrado)
+  const meses=fx.meses.filter(noPer);
+  let acc=0;const linhas=meses.map(m=>{
+    const soma=t=>todos.filter(x=>x.comp===m&&x.tipo===t&&vale(x)).reduce((a,x)=>a+x.v,0);
+    const o={m,ent:soma('ent'),rge:soma('rge'),rep:soma('rep'),cus:custos.length?soma('cus'):0};
+    o.sal=o.ent-o.rge-o.rep-o.cus;acc+=o.sal;o.acc=acc;return o});
+  const cel=(m,t,v,neg)=>{const e=t!=='ent'&&fx.est[t].has(m)&&!fx.cob[t].has(m);
+    if(!e&&!fx.cob[t].has(m))return '<td class="num sem" title="Sem dados desta fonte neste mês">sem dados</td>';
+    return `<td class="num"${e?' title="Estimado pela aba do mês"':''}>${v?(neg?'−':'')+brl(v):'—'}${e?'<small class="fx-est">estimado</small>':''}</td>`};
+  $('fxMeses').innerHTML=linhas.length?linhas.map(o=>`<tr data-m="${o.m}" class="${P===o.m?'on':''}"><td>${fxMesNome(o.m)}</td>${cel(o.m,'ent',o.ent)}${cel(o.m,'rge',o.rge,1)}${cel(o.m,'rep',o.rep,1)}<td class="num">${o.cus?'−'+brl(o.cus):'—'}</td><td class="num ${o.sal<0?'fx-neg':'fx-pos'}">${brl(o.sal)}</td><td class="num ${o.acc<0?'fx-neg':''}">${brl(o.acc)}</td></tr>`).join('')
+    :'<tr><td colspan="7" class="ana-vazio">Nenhum mês nesse período.</td></tr>';
+  const T=k=>linhas.reduce((a,o)=>a+o[k],0);
+  $('fxMesesTot').innerHTML=linhas.length>1?`<tr><td>Total</td><td class="num">${brl(T('ent'))}</td><td class="num">−${brl(T('rge'))}</td><td class="num">−${brl(T('rep'))}</td><td class="num">${T('cus')?'−'+brl(T('cus')):'—'}</td><td class="num ${T('sal')<0?'fx-neg':'fx-pos'}">${brl(T('sal'))}</td><td></td></tr>`:'';
+  $('fxMeses').querySelectorAll('tr[data-m]').forEach(tr=>tr.onclick=()=>{fx.periodo=fx.periodo===tr.dataset.m?tr.dataset.m.slice(0,4):tr.dataset.m;$('fxPeriodo').value=fx.periodo;fxRender()});
+  // ---- cartões
+  const ent=todos.filter(x=>x.tipo==='ent'&&noPer(x.comp)&&!x.fora),sai=todos.filter(x=>x.tipo!=='ent'&&noPer(x.comp)&&!x.fora);
+  const sm=(l,f)=>l.filter(f||(()=>true)).reduce((a,x)=>a+x.v,0);
+  const eTot=real?sm(ent,x=>x.ok):sm(ent),sTot=real?sm(sai,x=>x.ok):sm(sai),sal=eTot-sTot;
+  $('fxKpis').innerHTML=`
+    <div class="ana-kpi k-ent"><small>Entradas</small><b>${brl(eTot)}</b><span>${real?'recebido':brl(sm(ent,x=>x.ok))+' recebido · '+brl(sm(ent,x=>!x.ok))+' a receber'}</span></div>
+    <div class="ana-kpi k-sai"><small>Saídas</small><b>${brl(sTot)}</b><span>${real?'pago':brl(sm(sai,x=>x.ok))+' pago · '+brl(sm(sai,x=>!x.ok))+' a pagar'}</span></div>
+    <div class="ana-kpi k-sal${sal<0?' neg':''}"><small>Saldo ${real?'realizado':'previsto'}</small><b>${brl(sal)}</b><span>entradas − saídas</span></div>`;
+  // ---- avisos sobre lacunas e exclusões
+  const nota=[];
+  const estM=meses.filter(m=>(fx.est.rge.has(m)&&!fx.cob.rge.has(m))||(fx.est.rep.has(m)&&!fx.cob.rep.has(m)));
+  if(estM.length)nota.push(`"Estimado": nos meses em que a PROGRAMAÇÃO (contas) ou a PGTO INVEST. (repasses) não têm dados, o valor vem da aba do mês: repasse = coluna INVESTIDOR e conta da RGE = fatura − lucro − investidor.`);
+  const falta=meses.filter(m=>(!fx.cob.rge.has(m)&&!fx.est.rge.has(m))||(!fx.cob.rep.has(m)&&!fx.est.rep.has(m)));
+  if(falta.length)nota.push(`Em ${falta.length} ${falta.length===1?'mês':'meses'} falta alguma saída ("sem dados"): o saldo desses meses fica maior que o real.`);
+  const fora=fx.L.filter(x=>x.fora&&noPer(x.comp));
+  if(fora.length)nota.push(`${fora.length} conta(s) de usina paga(s) pelo próprio investidor ficaram fora (${brl(sm(fora))}).`);
+  if(custoMes)nota.push(`Custos fixos: média mensal da aba CUSTO OPERAÇÃO, lançada em todo mês (estimativa).`);
+  nota.push('Repasses e custos fixos não têm dia definido: entram no último dia do mês.');
+  $('fxNota').innerHTML=nota.map(anaEsc).join('<br>');
+  // ---- lançamentos
+  const nomes={todos:'Todos',ent:'Entradas',rge:'Contas RGE',rep:'Repasses',cus:'Custos fixos'};
+  const base=todos.filter(x=>noPer(x.comp)&&(!real||x.ok)&&!(x.tipo==='cus'&&!custoMes));
+  $('fxTipos').innerHTML=Object.entries(nomes).filter(([k])=>k!=='cus'||custoMes).map(([k,n])=>{const c=k==='todos'?base.length:base.filter(x=>x.tipo===k).length;return `<button type="button" data-t="${k}" class="${fx.tipo===k?'on':''}" aria-pressed="${fx.tipo===k}">${n} (${c})</button>`}).join('');
+  $('fxTipos').querySelectorAll('button').forEach(b=>b.onclick=()=>{fx.tipo=b.dataset.t;fxRender()});
+  const lista=base.filter(x=>fx.tipo==='todos'||x.tipo===fx.tipo).sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.tipo<b.tipo?-1:1);
+  $('fxDetTit').textContent='Lançamentos '+(P?(P.length===4?'de '+P:'de '+fxMesNome(P)):'de todo o período');
+  const MAX=400,TIPO={ent:'Entrada',rge:'Conta RGE',rep:'Repasse investidor',cus:'Custo fixo'};
+  $('fxCorpo').innerHTML=lista.length?lista.slice(0,MAX).map(x=>{const neg=x.tipo!=='ent';
+    const pill=x.fora?'<span class="ana-pill">Pago pelo investidor</span>':x.est&&!x.ok?'<span class="ana-pill">Estimado</span>':x.ok?`<span class="ana-pill pago">${neg?'Pago':'Recebido'}</span>`:`<span class="ana-pill ${/ATRAS|INADIMP/.test(x.s)?'venc':''}">${anaEsc(x.s==='—'?'Previsto':x.s.charAt(0)+x.s.slice(1).toLowerCase())}</span>`;
+    return `<tr${x.fora?' class="r-pago"':''}><td data-l="Data"><b>${x.semDia?fxMesNome(x.comp):anaDataBR(x.d)}</b></td><td>${anaEsc(x.desc)}<small>${anaEsc(x.det)}</small></td><td data-l="Tipo">${TIPO[x.tipo]}</td><td class="num ${neg?'fx-neg':'fx-pos'}" data-l="Valor">${neg?'−':'+'}${brl(x.v)}</td><td>${pill}</td></tr>`}).join('')
+    :'<tr><td colspan="5" class="ana-vazio">Nenhum lançamento com esses filtros.</td></tr>';
+  const se=lista.filter(x=>x.tipo==='ent'&&!x.fora).reduce((a,x)=>a+x.v,0),ss=lista.filter(x=>x.tipo!=='ent'&&!x.fora).reduce((a,x)=>a+x.v,0);
+  $('fxRodape').innerHTML=`<span>${lista.length} lançamento${lista.length===1?'':'s'}${lista.length>MAX?' (mostrando os '+MAX+' primeiros; escolha um mês para ver todos)':''}</span><span>Entradas <b>${brl(se)}</b> · Saídas <b>${brl(ss)}</b> · Saldo <b>${brl(se-ss)}</b></span>`;
+}
+$('fxAtualizar').onclick=()=>fxCarregar(true);
+$('fxPeriodo').onchange=e=>{fx.periodo=e.target.value;fxRender()};
+$('fxModo').onchange=e=>{fx.modo=e.target.value;fxRender()};
+$('fxCustos').onchange=e=>{fx.custos=e.target.checked;if(!fx.custos&&fx.tipo==='cus')fx.tipo='todos';fxRender()};
+
 const MENU={
   ger:{nome:'📄 Geradores',itens:[
     {id:'prop',ic:'📊',nome:'Propostas',desc:'Fatura → proposta preenchida em segundos',sec:'tab-prop'},
@@ -1198,7 +1366,8 @@ const MENU={
   pos:{nome:'🤝 Pós-venda',itens:[
     {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
   ana:{nome:'📈 Análise',itens:[
-    {id:'prog',ic:'🗓️',nome:'Programação',desc:'Contas de energia a pagar: vencimentos, valores e usinas',sec:'tab-analise',largo:true,aoAbrir:()=>anaAbrir()}]}
+    {id:'prog',ic:'🗓️',nome:'Programação',desc:'Contas de energia a pagar: vencimentos, valores e usinas',sec:'tab-analise',largo:true,aoAbrir:()=>anaAbrir()},
+    {id:'fluxo',ic:'💰',nome:'Fluxo de caixa',desc:'Entradas, saídas e saldo mês a mês',sec:'tab-fluxo',largo:true,aoAbrir:()=>fxAbrir()}]}
 };
 const nav=document.querySelector('nav.nwrap');
 nav.innerHTML=Object.entries(MENU).map(([c,v])=>`<div class="mcat" data-cat="${c}">
