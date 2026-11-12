@@ -623,7 +623,7 @@ body.locked{overflow:hidden}
   <div class="ana-kpis" id="anaKpis"></div>
   <div class="ana-filtros">
     <input type="search" id="anaBusca" placeholder="Buscar por titular, UC, cidade ou usina" autocomplete="off" aria-label="Buscar contas">
-    <select id="anaMes" aria-label="Mês de vencimento"></select>
+    <select id="anaMes" aria-label="Ano ou mês de vencimento"></select>
     <select id="anaUsina" aria-label="Usina"></select>
   </div>
   <div class="ana-tabela">
@@ -1130,8 +1130,11 @@ async function anaCarregar(forcar){
   r.contas.forEach(c=>{c.dias=anaDias(c.venc,r.hoje);c.mesVenc=c.venc?c.venc.slice(0,7):''});
   ana.dados=r;
   const meses=[...new Set(r.contas.map(c=>c.mesVenc).filter(Boolean))].sort().reverse();
-  if(ana.mes&&!meses.includes(ana.mes))ana.mes='';
-  $('anaMes').innerHTML='<option value="">Todos os meses de vencimento</option>'+meses.map(m=>`<option value="${m}">Vencimento em ${m.slice(5)}/${m.slice(0,4)}</option>`).join('');
+  const anos=[...new Set(meses.map(m=>m.slice(0,4)))];
+  if(ana.mes&&!meses.includes(ana.mes)&&!anos.includes(ana.mes))ana.mes='';
+  $('anaMes').innerHTML='<option value="">Todos os vencimentos</option>'+
+    '<optgroup label="Ano inteiro">'+anos.map(a=>`<option value="${a}">Vencimento em ${a} (ano inteiro)</option>`).join('')+'</optgroup>'+
+    '<optgroup label="Mês">'+meses.map(m=>`<option value="${m}">Vencimento em ${m.slice(5)}/${m.slice(0,4)}</option>`).join('')+'</optgroup>';
   $('anaMes').value=ana.mes;
   const usinas=[...new Set(r.contas.map(c=>c.usinaNome).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
   if(ana.usina&&!usinas.includes(ana.usina))ana.usina='';
@@ -1146,7 +1149,7 @@ function anaRender(){
   const sem=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const q=sem(ana.busca),qd=ana.busca.replace(/\D/g,'');
   // mês, usina e busca valem para tudo; os cartões escolhem a situação
-  const base=ana.dados.contas.filter(c=>(!ana.mes||c.mesVenc===ana.mes)&&(!ana.usina||c.usinaNome===ana.usina)&&
+  const base=ana.dados.contas.filter(c=>(!ana.mes||c.mesVenc.startsWith(ana.mes))&&(!ana.usina||c.usinaNome===ana.usina)&&
     (!q||sem(c.nome+' '+c.cidade+' '+c.usinaNome+' '+c.usinaCod).includes(q)||(qd.length>=4&&(c.uc+c.ucAntiga).replace(/\D/g,'').includes(qd))));
   const grupos={
     venc:c=>c.situacao!=='PAGO'&&c.dias!=null&&c.dias<0,
