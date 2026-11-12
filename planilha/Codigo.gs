@@ -417,6 +417,17 @@ function lerClientesExternos_(semCache) {
  *   Repasses: aba PGTO INVEST. (valor do investidor, mês do REF PGTO); pago se PGTO = PAGO
  *   Custos fixos: CUSTO OPERAÇÃO (CUSTO MÉDIO MENSAL)
  *   Contas das usinas que o próprio investidor paga ("Ele paga" etc. na FATURAS GERADOR) ficam de fora.
+ *
+ *   Regras da tela (o portal não mostra estes avisos; ficam registrados aqui):
+ *   - "Estimado": nos meses em que a PROGRAMAÇÃO (contas) ou a PGTO INVEST. (repasses) não têm dados,
+ *     o valor vem da aba do mês: repasse = coluna INVESTIDOR e conta da RGE = fatura − lucro − investidor
+ *     (resultado negativo é ignorado). "sem dados" = nem fonte oficial nem estimativa.
+ *   - Contas de usina pagas pelo próprio investidor não entram nas saídas.
+ *   - Custos fixos: média mensal da CUSTO OPERAÇÃO (CUSTO MÉDIO MENSAL), lançada em todo mês (estimativa).
+ *   - Repasses e custos fixos não têm dia definido: entram no último dia do mês.
+ *   - Entradas são por data de caixa: dia da COBRANÇA; sem data válida, dia 15 do mês da aba.
+ *   - Repasse sem REF PGTO fica no mês da maioria das linhas do mesmo bloco da PGTO INVEST.
+ *   - Num mês em que a fonte oficial já tem algum dado, ele não é estimado (pode ficar incompleto).
  * ========================================================= */
 const CACHE_FLUXO_ = 'fluxo_v1';
 const MESES_ = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
