@@ -13,10 +13,10 @@
 
   function buscar(q){
     var p=portal();
-    if(p)return p.sheetApi("clientes",{q:q});
+    if(p)return p.sheetApi("clientes",{q:q},{espera:60000});
     var t=tokenDaAba();
     if(!t)return Promise.resolve({ok:false,relogin:true,erro:"para buscar clientes, abra o pós-venda pelo Portal (o login desta aba expirou)"});
-    var ctl=new AbortController(),to=setTimeout(function(){ctl.abort()},20000);
+    var ctl=new AbortController(),to=setTimeout(function(){ctl.abort()},60000);
     return fetch(urlPlanilha(),{method:"POST",body:JSON.stringify({acao:"clientes",q:q,idToken:t}),signal:ctl.signal})
       .then(function(r){return r.json()})
       .catch(function(e){return {ok:false,erro:e.name==="AbortError"?"a planilha demorou para responder":"sem conexão com a planilha"}})

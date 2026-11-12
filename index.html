@@ -1067,7 +1067,7 @@ async function sheetApi(acao,payload,opts){
   }else{
     if(!sheetCode())return {ok:false,erro:'falta o código de sincronização neste computador (configurar numeração → Código de sincronização)'};
   }
-  const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),20000);
+  const ctl=new AbortController();const t=setTimeout(()=>ctl.abort(),(opts&&opts.espera)||20000);
   try{
     // text/plain evita a pré-verificação de CORS, que o Apps Script não responde
     const r=await fetch(url,{method:'POST',body:JSON.stringify(body),signal:ctl.signal});
@@ -1113,11 +1113,12 @@ function anaRotulo(c){
   if(c.dias<=7)return 'Vence em '+c.dias+(c.dias===1?' dia':' dias');
   return 'Agendado';
 }
-async function anaCarregar(){
+async function anaCarregar(forcar){
   if(ana.carregando)return;ana.carregando=true;
   const bt=$('anaAtualizar');bt.disabled=true;bt.textContent='Carregando…';$('anaErro').style.display='none';
   if(!ana.dados)$('anaCorpo').innerHTML='<tr><td colspan="8" class="ana-vazio">Lendo a planilha…</td></tr>';
-  const r=await sheetApi('programacao',{});
+  const aviso=setTimeout(()=>{if(ana.carregando)bt.textContent='Lendo a planilha… (pode levar até 1 min)'},6000);
+  const r=await sheetApi('programacao',{forcar:!!forcar},{espera:90000});clearTimeout(aviso);
   ana.carregando=false;bt.disabled=false;bt.textContent='↻ Atualizar';
   if(!r||!r.ok){
     let e=(r&&r.erro)||'não foi possível ler a planilha';
@@ -1136,7 +1137,7 @@ async function anaCarregar(){
   if(ana.usina&&!usinas.includes(ana.usina))ana.usina='';
   $('anaUsina').innerHTML='<option value="">Todas as usinas</option>'+usinas.map(u=>`<option value="${anaEsc(u)}">${anaEsc(u)}</option>`).join('');
   $('anaUsina').value=ana.usina;$('anaUsina').classList.toggle('hidden',!usinas.length);
-  $('anaSub').textContent='Aba PROGRAMAÇÃO da planilha de controle · lido em '+r.lidoEm+' · '+r.contas.length+' contas';
+  $('anaSub').textContent='Aba PROGRAMAÇÃO da planilha de controle · lido em '+r.lidoEm+' · '+r.contas.length+' contas'+(r.doCache?' · ↻ Atualizar lê de novo agora':'');
   anaRender();
 }
 function anaAbrir(){if(!ana.dados)anaCarregar();else anaRender()}
@@ -1178,7 +1179,7 @@ function anaRender(){
   $('anaRodape').innerHTML=`<span>${lista.length} conta${lista.length===1?'':'s'} ${nomes[ana.filtro]}${ana.filtro!=='todas'?' · <a href="#" id="anaTodas">ver todas</a>':''}</span><span>Soma: <b>${brl(soma(lista))}</b></span>`;
   const t=$('anaTodas');if(t)t.onclick=e=>{e.preventDefault();ana.filtro='todas';anaRender()};
 }
-$('anaAtualizar').onclick=anaCarregar;
+$('anaAtualizar').onclick=()=>anaCarregar(true);
 $('anaBusca').oninput=e=>{ana.busca=e.target.value.trim();anaRender()};
 $('anaMes').onchange=e=>{ana.mes=e.target.value;anaRender()};
 $('anaUsina').onchange=e=>{ana.usina=e.target.value;anaRender()};
