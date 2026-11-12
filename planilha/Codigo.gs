@@ -32,7 +32,7 @@ const PERFIS_ = {
   administrativo: { nome: 'Administrativo', areas: ['ger'] },
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos'] }
 };
-const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana' };
+const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise' };
 const ABA_PROGRAMACAO_EXT = 'PROGRAMAÇÃO';   // aba de contas a pagar da planilha de controle (a mesma de Config!B4)
 
@@ -146,7 +146,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '7.1 (análise mais rápida)';
+const VERSAO_SCRIPT = '8 (fluxo de caixa)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -176,6 +176,10 @@ function doPost(e) {
     if (req.acao === 'programacao') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
       return json(programacaoComCache_(!!req.forcar));
+    }
+    if (req.acao === 'fluxo') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
+      return json(fluxoComCache_(!!req.forcar));
     }
     if (req.acao === 'clientes') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para buscar clientes', auth: true });
@@ -406,6 +410,160 @@ function lerClientesExternos_(semCache) {
   return out;
 }
 
+/* =========================================================
+ * FLUXO DE CAIXA — só LÊ a planilha de controle (não escreve nada nela)
+ *   Entradas: abas dos meses (JANEIRO…DEZEMBRO): FATURA, na data da COBRANÇA; recebida se STATUS = PAGO
+ *   Contas RGE: aba PROGRAMAÇÃO (clientes e usinas), pelo vencimento; paga se SITUAÇÃO = PAGO
+ *   Repasses: aba PGTO INVEST. (valor do investidor, mês do REF PGTO); pago se PGTO = PAGO
+ *   Custos fixos: CUSTO OPERAÇÃO (CUSTO MÉDIO MENSAL)
+ *   Contas das usinas que o próprio investidor paga ("Ele paga" etc. na FATURAS GERADOR) ficam de fora.
+ * ========================================================= */
+const CACHE_FLUXO_ = 'fluxo_v1';
+const MESES_ = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
+
+function fluxoComCache_(forcar) {
+  if (!forcar) { const c = lerCacheGrande_(CACHE_FLUXO_); if (c) { c.doCache = true; return c; } }
+  const r = lerFluxo();
+  if (r.ok) gravarCacheGrande_(CACHE_FLUXO_, r);
+  return r;
+}
+
+function lerFluxo() {
+  const id = idPlanilhaControle_();
+  if (!id) return { ok: false, erro: 'a planilha de controle não está configurada (Config!B4)' };
+  let ss;
+  try { ss = SpreadsheetApp.openById(id); } catch (e) { return { ok: false, erro: 'não consegui abrir a planilha de controle: ' + e.message }; }
+  const tz = ss.getSpreadsheetTimeZone(), agora = new Date();
+  const N = x => String(x == null ? '' : x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const dig = x => String(x == null ? '' : x).replace(/\.0+$/, '').replace(/\D/g, '');
+  const iso = d => Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+  const num = x => typeof x === 'number' && isFinite(x) ? Math.round(x * 100) / 100 : null;
+  const avisos = [];
+  const abas = {}; ss.getSheets().forEach(a => { abas[N(a.getName())] = a; });
+  const anoPara = mes => { const cm = agora.getMonth(), cy = agora.getFullYear(); return mes > cm + 1 ? cy - 1 : cy; };
+
+  // --- usinas cujo investidor paga a própria conta (só leitura da FATURAS GERADOR)
+  const ucsUsina = new Set(), ucsInvPaga = new Set();
+  const fg = abas['FATURAS GERADOR'];
+  if (fg) {
+    const v = fg.getDataRange().getValues();
+    const h = v.slice(0, 10).findIndex(r => r.map(N).indexOf('NOVA UC') >= 0);
+    if (h >= 0) {
+      const cab = v[h].map(N), cN = cab.indexOf('NOVA UC'), cU = cab.indexOf('UC');
+      for (let i = h + 1; i < v.length; i++) {
+        const ucs = [cN, cU].filter(c => c >= 0).map(c => dig(v[i][c])).filter(d => d.length >= 7);
+        if (!ucs.length) continue;
+        ucs.forEach(d => ucsUsina.add(d));
+        const invPaga = v[i].some(x => typeof x === 'string' && (/\bPAGA\b/.test(N(x)) || /PAGO PELO INVEST/.test(N(x))));
+        if (invPaga) ucsInvPaga.add(ucs[0]), ucs.forEach(d => ucsInvPaga.add(d));
+      }
+    }
+  } else avisos.push('aba FATURAS GERADOR não encontrada');
+  const bateUC = (set, ...us) => us.map(dig).some(d => d.length >= 7 && (set.has(d) || set.has(d.slice(0, -2)) || [...set].some(k => k.length === d.length + 2 && k.indexOf(d) === 0)));
+
+  // --- entradas: abas dos meses
+  const entradas = [], meses = [];
+  MESES_.forEach((nomeMes, mi) => {
+    const sh = abas[nomeMes];
+    if (!sh) return;
+    const v = sh.getDataRange().getValues();
+    const h = v.slice(0, 6).findIndex(r => r.map(N).indexOf('CLIENTE') >= 0);
+    if (h < 0) { avisos.push('aba ' + sh.getName() + ': sem cabeçalho CLIENTE'); return; }
+    const cab = v[h].map(N), c = n => cab.indexOf(n);
+    const C = { cli: c('CLIENTE'), fat: c('FATURA'), cob: c('COBRANCA'), st: c('STATUS'), uc: c('NOVA UC'), ucA: c('UC'), vend: c('VENDEDOR'),
+      lucro: c('LUCRO'), rge: c('RGE') };
+    // valor do investidor: a coluna INVESTIDOR que vem depois de INJETADO (a primeira INVESTIDOR é o nome)
+    const invs = cab.map((x, k) => x === 'INVESTIDOR' ? k : -1).filter(k => k >= 0), inj = c('INJETADO');
+    C.inv = inj >= 0 ? (invs.find(k => k > inj) !== undefined ? invs.find(k => k > inj) : -1) : (invs.length > 1 ? invs[1] : -1);
+    if (C.fat < 0) { avisos.push('aba ' + sh.getName() + ': sem coluna FATURA'); return; }
+    // ano da aba: pelas datas de cobrança (a aba DEZEMBRO pode ser do ano passado)
+    const votos = {};
+    for (let i = h + 1; i < v.length; i++) { const d = C.cob >= 0 ? v[i][C.cob] : null;
+      if (d instanceof Date) { const y = d.getFullYear() + (d.getMonth() - mi > 6 ? 1 : d.getMonth() - mi < -6 ? -1 : 0); votos[y] = (votos[y] || 0) + 1; } }
+    const anos = Object.keys(votos).sort((a, b) => votos[b] - votos[a]);
+    const ano = anos.length ? Number(anos[0]) : anoPara(mi);
+    const ini = new Date(ano, mi, 1, 12), fim = new Date(ano, mi + 1, 0, 12);
+    const comp = ano + '-' + String(mi + 1).padStart(2, '0');
+    meses.push(comp);
+    for (let i = h + 1; i < v.length; i++) {
+      const r = v[i], valor = num(r[C.fat]), cli = String(r[C.cli] || '').trim();
+      if (!cli || !valor || valor <= 0 || /^(SUB ?)?TOTA/.test(N(cli))) continue;   // linha de total da aba
+      let d = C.cob >= 0 ? r[C.cob] : null, estimada = false;
+      if (!(d instanceof Date) || d < new Date(ini.getTime() - 20 * 864e5) || d > new Date(fim.getTime() + 45 * 864e5)) { d = new Date(ano, mi, 15, 12); estimada = true; }
+      const st = N(C.st >= 0 ? r[C.st] : '');
+      const inv = C.inv >= 0 ? num(r[C.inv]) : null, lucro = C.lucro >= 0 ? num(r[C.lucro]) : null;
+      entradas.push({ d: iso(d), est: estimada, comp: comp, v: valor, n: cli, s: st || '', ok: st === 'PAGO', vend: C.vend >= 0 ? String(r[C.vend] || '').trim() : '',
+        inv: inv, lucro: lucro, rgeOk: C.rge >= 0 && N(r[C.rge]) === 'PAGO', invNome: C.inv >= 0 && invs[0] >= 0 ? limparNome(r[invs[0]]) : '' });
+    }
+  });
+
+  // --- contas RGE: PROGRAMAÇÃO
+  const prog = lerProgramacao(ss), contas = [];
+  if (!prog.ok) avisos.push(prog.erro);
+  else prog.contas.forEach(c => {
+    if (!c.venc || c.valor == null) return;
+    const invPaga = N(c.situacao) === 'PAGO PELO INVESTIDOR' || bateUC(ucsInvPaga, c.uc, c.ucAntiga);
+    contas.push({ d: c.venc, v: c.valor, n: c.nome, s: c.situacao, ok: N(c.situacao) === 'PAGO', usina: bateUC(ucsUsina, c.uc, c.ucAntiga),
+      fora: invPaga, uc: c.uc || c.ucAntiga, us: c.usinaNome || '' });
+  });
+
+  // --- repasses: PGTO INVEST. (vários blocos, um por mês de pagamento)
+  const repasses = [];
+  const pg = abas['PGTO INVEST'];
+  if (pg) {
+    const v = pg.getDataRange().getValues();
+    // cada bloco começa num cabeçalho e termina na linha TOTAL; linha sem REF PGTO fica no mês do bloco
+    let C = null, bloco = [];
+    const fechaBloco = () => {
+      const votos = {}; bloco.forEach(b => { if (b.mi >= 0) votos[b.mi] = (votos[b.mi] || 0) + 1; });
+      const dom = Object.keys(votos).sort((a, b) => votos[b] - votos[a])[0];
+      bloco.forEach(b => {
+        const mi = b.mi >= 0 ? b.mi : (dom !== undefined ? Number(dom) : -1);
+        if (mi < 0) return;
+        const ano = anoPara(mi);
+        repasses.push({ d: iso(new Date(ano, mi + 1, 0, 12)), semDia: true, comp: ano + '-' + String(mi + 1).padStart(2, '0'),
+          v: b.v, n: b.n, cli: b.cli, s: b.s, ok: b.s === 'PAGO', semRef: b.mi < 0 });
+      });
+      bloco = [];
+    };
+    for (let i = 0; i < v.length; i++) {
+      const r = v[i], nr = r.map(N);
+      if (nr.indexOf('REF PGTO') >= 0 && nr.indexOf('CLIENTE') >= 0) {   // cabeçalho de um bloco
+        fechaBloco();
+        const invs = nr.map((x, k) => x === 'INVESTIDOR' ? k : -1).filter(k => k >= 0), inj = nr.indexOf('INJETADO');
+        C = { nome: invs[0], valor: invs.find(k => k > inj) !== undefined ? invs.find(k => k > inj) : invs[1], pg: nr.indexOf('PGTO'), ref: nr.indexOf('REF PGTO'), cli: nr.indexOf('CLIENTE') };
+        continue;
+      }
+      if (!C) continue;
+      if (N(r[C.cli]) === 'TOTAL') { fechaBloco(); C = null; continue; }   // fim do bloco (o resumo embaixo não entra)
+      const valor = num(r[C.valor]), nome = String(r[C.nome] || '').trim();
+      if (!valor || valor <= 0 || !nome) continue;
+      bloco.push({ v: valor, mi: MESES_.indexOf(N(r[C.ref])), n: limparNome(nome) || nome, cli: String(r[C.cli] || '').trim(), s: N(r[C.pg]) });
+    }
+    fechaBloco();
+  } else avisos.push('aba PGTO INVEST. não encontrada');
+
+  // --- custos fixos
+  let custo = null;
+  const co = abas['CUSTO OPERACAO'];
+  if (co) {
+    const v = co.getDataRange().getValues();
+    for (let i = 0; i < v.length && custo === null; i++) {
+      const k = v[i].findIndex(x => /^CUSTO MEDIO MENSAL/.test(N(x)));
+      if (k >= 0) { const n = v[i].slice(k + 1).find(x => typeof x === 'number'); if (n) custo = num(n); }
+    }
+  }
+
+  return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'),
+    entradas: entradas, contas: contas, repasses: repasses, custoMensal: custo, mesesAbas: meses, avisos: avisos };
+}
+
+/** Tira do nome os números soltos de CPF/CNPJ ("60.897.570 FLAVIO" → "FLAVIO"). */
+function limparNome(nome) {
+  return String(nome == null ? '' : nome).replace(/(^|\s)[\d.\/\-]*\d[\d.\/\-]*(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ').replace(/^[\s\-–—:,.]+|[\s\-–—:,.]+$/g, '').trim();
+}
+
 /** ID da planilha de controle (Config!B4; sem a linha 4, a padrão). '' = não usar. */
 function idPlanilhaControle_() {
   const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
@@ -434,6 +592,7 @@ function atualizarCacheProgramacao() {
   try { lerClientesExternos_(true); } catch (e) { Logger.log('Clientes: ' + e.message); }   // a busca do pós-venda também fica pronta
   const r = lerProgramacao();
   if (r.ok) gravarCacheGrande_(CACHE_PROG_, r); else Logger.log('Programação: ' + r.erro);
+  try { const f = lerFluxo(); if (f.ok) gravarCacheGrande_(CACHE_FLUXO_, f); else Logger.log('Fluxo: ' + f.erro); } catch (e) { Logger.log('Fluxo: ' + e.message); }
 }
 
 /** Guarda um objeto grande no cache, em pedaços de 90 KB (25 min: sobra tempo entre uma renovação e outra). */
@@ -462,12 +621,14 @@ function lerCacheGrande_(base) {
  * Contas da aba PROGRAMAÇÃO da planilha de controle, para a tela Análise do portal (só TI e Admin).
  * Lê as colunas pelo nome do cabeçalho; não devolve CPF/CNPJ.
  */
-function lerProgramacao() {
-  const id = idPlanilhaControle_();
-  if (!id) return { ok: false, erro: 'a planilha de controle não está configurada (Config!B4)' };
-  let ss, sh;
-  try { ss = SpreadsheetApp.openById(id); sh = ss.getSheetByName(ABA_PROGRAMACAO_EXT); }
-  catch (e) { return { ok: false, erro: 'não consegui abrir a planilha de controle: ' + e.message }; }
+function lerProgramacao(ssAberta) {
+  let ss = ssAberta, sh;
+  if (!ss) {
+    const id = idPlanilhaControle_();
+    if (!id) return { ok: false, erro: 'a planilha de controle não está configurada (Config!B4)' };
+    try { ss = SpreadsheetApp.openById(id); } catch (e) { return { ok: false, erro: 'não consegui abrir a planilha de controle: ' + e.message }; }
+  }
+  sh = ss.getSheetByName(ABA_PROGRAMACAO_EXT);
   if (!sh) return { ok: false, erro: 'aba ' + ABA_PROGRAMACAO_EXT + ' não encontrada na planilha de controle' };
   const ult = sh.getLastRow(), cols = sh.getLastColumn();
   const tz = ss.getSpreadsheetTimeZone();
