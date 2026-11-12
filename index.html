@@ -664,7 +664,7 @@ body.locked{overflow:hidden}
 <!-- =================== ANÁLISE · FLUXO DE CAIXA =================== -->
 <section id="tab-fluxo" class="hidden">
   <div class="ana-top">
-    <div><h2>Fluxo de caixa</h2><p id="fxSub">Montado a partir das abas da planilha de controle (só leitura)</p></div>
+    <div><h2>Fluxo de caixa</h2></div>
     <button class="btn sec sm" id="fxAtualizar" type="button">↻ Atualizar</button>
   </div>
   <div class="alert" id="fxErro"></div>
@@ -683,9 +683,8 @@ body.locked{overflow:hidden}
     <thead><tr><th>Mês</th><th class="num">Entradas</th><th class="num">Contas RGE</th><th class="num">Repasses</th><th class="num">Custos fixos</th><th class="num">Saldo</th><th class="num">Acumulado</th></tr></thead>
     <tbody id="fxMeses"></tbody><tfoot id="fxMesesTot"></tfoot>
   </table></div></div></div>
-  <p class="fx-nota" id="fxNota"></p>
 
-  <div class="fx-sec" id="fxDetTit">Lançamentos</div>
+  <div class="fx-sec"></div>
   <div class="fx-tipos" id="fxTipos"></div>
   <div class="ana-tabela">
     <div class="ana-scroll"><table>
@@ -1292,7 +1291,6 @@ async function fxCarregar(forcar){
   $('fxPeriodo').value=fx.periodo;
   $('fxCustosTxt').textContent=r.custoMensal?'Custos fixos ('+brl(r.custoMensal)+'/mês)':'Custos fixos (não encontrados)';
   $('fxCustos').disabled=!r.custoMensal;
-  $('fxSub').textContent='Abas dos meses, PROGRAMAÇÃO, PGTO INVEST. e CUSTO OPERAÇÃO · lido em '+r.lidoEm;
   if(r.avisos&&r.avisos.length){$('fxErro').textContent='⚠️ '+r.avisos.join(' · ');$('fxErro').style.display='block'}
   fxRender();
 }
@@ -1338,14 +1336,13 @@ function fxRender(){
   if(fora.length)nota.push(`${fora.length} conta(s) de usina paga(s) pelo próprio investidor ficaram fora (${brl(sm(fora))}).`);
   if(custoMes)nota.push(`Custos fixos: média mensal da aba CUSTO OPERAÇÃO, lançada em todo mês (estimativa).`);
   nota.push('Repasses e custos fixos não têm dia definido: entram no último dia do mês.');
-  $('fxNota').innerHTML=nota.map(anaEsc).join('<br>');
+  // (as explicações ficam documentadas no Codigo.gs; a tela não mostra)
   // ---- lançamentos
   const nomes={todos:'Todos',ent:'Entradas',rge:'Contas RGE',rep:'Repasses',cus:'Custos fixos'};
   const base=todos.filter(x=>noPer(x.comp)&&(!real||x.ok)&&!(x.tipo==='cus'&&!custoMes));
   $('fxTipos').innerHTML=Object.entries(nomes).filter(([k])=>k!=='cus'||custoMes).map(([k,n])=>{const c=k==='todos'?base.length:base.filter(x=>x.tipo===k).length;return `<button type="button" data-t="${k}" class="${fx.tipo===k?'on':''}" aria-pressed="${fx.tipo===k}">${n} (${c})</button>`}).join('');
   $('fxTipos').querySelectorAll('button').forEach(b=>b.onclick=()=>{fx.tipo=b.dataset.t;fxRender()});
   const lista=base.filter(x=>fx.tipo==='todos'||x.tipo===fx.tipo).sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:a.tipo<b.tipo?-1:1);
-  $('fxDetTit').textContent='Lançamentos '+(P?(P.length===4?'de '+P:'de '+fxMesNome(P)):'de todo o período');
   const MAX=400,TIPO={ent:'Entrada',rge:'Conta RGE',rep:'Repasse investidor',cus:'Custo fixo'};
   $('fxCorpo').innerHTML=lista.length?lista.slice(0,MAX).map(x=>{const neg=x.tipo!=='ent';
     const pill=x.fora?'<span class="ana-pill">Pago pelo investidor</span>':x.est&&!x.ok?'<span class="ana-pill">Estimado</span>':x.ok?`<span class="ana-pill pago">${neg?'Pago':'Recebido'}</span>`:`<span class="ana-pill ${/ATRAS|INADIMP/.test(x.s)?'venc':''}">${anaEsc(x.s==='—'?'Previsto':x.s.charAt(0)+x.s.slice(1).toLowerCase())}</span>`;
