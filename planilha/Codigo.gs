@@ -111,6 +111,12 @@ function configurar() {
     cfg.getRange('C4').setValue('← ID ou link da planilha com a aba CLIENTES (busca do pós-venda). Vazio = não usa');
   }
   try { lerClientesExternos_(true); } catch (e) { Logger.log('Planilha de clientes: ' + e.message); } // pede a autorização de leitura já agora
+  // deixa a Análise rápida: lê a PROGRAMAÇÃO agora e de 10 em 10 minutos
+  try {
+    if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'atualizarCacheProgramacao'))
+      ScriptApp.newTrigger('atualizarCacheProgramacao').timeBased().everyMinutes(10).create();
+    atualizarCacheProgramacao();
+  } catch (e) { Logger.log('Acionador da programação: ' + e.message); }
   if (!codigo_()) gerarCodigo_();
   try {
     SpreadsheetApp.getUi().alert('Planilha configurada',
@@ -140,7 +146,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '7 (análise da programação)';
+const VERSAO_SCRIPT = '7.1 (análise mais rápida)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -169,7 +175,7 @@ function doPost(e) {
     if (req.acao === 'buscar') return json(buscarPorUC(req.uc));
     if (req.acao === 'programacao') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
-      return json(lerProgramacao());
+      return json(programacaoComCache_(!!req.forcar));
     }
     if (req.acao === 'clientes') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para buscar clientes', auth: true });
@@ -345,7 +351,7 @@ function lerClientesExternos_(semCache) {
   if (!ref) return [];
   const m = ref.match(/\/d\/([a-zA-Z0-9_-]{20,})/); if (m) ref = m[1];
   const cache = CacheService.getScriptCache(), chave = 'cli_ext_' + ref;
-  if (!semCache) { const c = cache.get(chave); if (c) return JSON.parse(c); }
+  if (!semCache) { const c = lerCacheGrande_(chave); if (c) return c; }
   const sh = SpreadsheetApp.openById(ref).getSheetByName(ABA_CLIENTES_EXT);
   if (!sh) throw new Error('aba ' + ABA_CLIENTES_EXT + ' não encontrada');
   const ult = sh.getLastRow(), cols = sh.getLastColumn();
@@ -396,7 +402,7 @@ function lerClientesExternos_(semCache) {
       origem: 'Clientes'
     });
   }
-  try { cache.put(chave, JSON.stringify(out), 300); } catch (e) {}
+  gravarCacheGrande_(chave, out);
   return out;
 }
 
@@ -407,6 +413,49 @@ function idPlanilhaControle_() {
   if (cfg && String(cfg.getRange('A4').getValue() || '').trim()) ref = String(cfg.getRange('B4').getValue() || '').trim();
   const m = ref.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
   return m ? m[1] : ref;
+}
+
+/* A planilha de controle é grande e abrir ela leva vários segundos. A leitura fica guardada (em pedaços,
+   porque o cache aceita até 100 KB por item) e é renovada a cada 10 minutos por um acionador. */
+const CACHE_PROG_ = 'prog_v1';
+
+function programacaoComCache_(forcar) {
+  if (!forcar) {
+    const c = lerCacheGrande_(CACHE_PROG_);
+    if (c) { c.doCache = true; return c; }
+  }
+  const r = lerProgramacao();
+  if (r.ok) gravarCacheGrande_(CACHE_PROG_, r);
+  return r;
+}
+
+/** Acionador de 10 em 10 minutos (criado pelo "Configurar planilha"): deixa a leitura pronta. */
+function atualizarCacheProgramacao() {
+  try { lerClientesExternos_(true); } catch (e) { Logger.log('Clientes: ' + e.message); }   // a busca do pós-venda também fica pronta
+  const r = lerProgramacao();
+  if (r.ok) gravarCacheGrande_(CACHE_PROG_, r); else Logger.log('Programação: ' + r.erro);
+}
+
+/** Guarda um objeto grande no cache, em pedaços de 90 KB (25 min: sobra tempo entre uma renovação e outra). */
+function gravarCacheGrande_(base, obj) {
+  try {
+    const txt = JSON.stringify(obj), cache = CacheService.getScriptCache(), TAM = 90000, partes = {};
+    const n = Math.max(1, Math.ceil(txt.length / TAM));
+    for (let i = 0; i < n; i++) partes[base + '_' + i] = txt.slice(i * TAM, (i + 1) * TAM);
+    partes[base + '_n'] = String(n);
+    cache.putAll(partes, 1500);
+  } catch (e) { Logger.log('Cache ' + base + ': ' + e.message); }
+}
+
+function lerCacheGrande_(base) {
+  try {
+    const cache = CacheService.getScriptCache(), n = Number(cache.get(base + '_n') || 0);
+    if (!n) return null;
+    const chaves = []; for (let i = 0; i < n; i++) chaves.push(base + '_' + i);
+    const got = cache.getAll(chaves);
+    if (chaves.some(k => !got[k])) return null;
+    return JSON.parse(chaves.map(k => got[k]).join(''));
+  } catch (e) { return null; }
 }
 
 /**
