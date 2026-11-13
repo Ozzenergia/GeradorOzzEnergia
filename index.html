@@ -892,13 +892,13 @@ async function ocrFatura(src,prog){
     const completo=rows.length===13;histOk=completo&&rows.filter(x=>x.ok).length>=9;
   if(histOk){
     d.consumo_te=String(rows[0].v);if(!rows[0].ok||!completo)incertos.add('consumo_te');
-    const prev=rows.slice(1);while(prev.length<12)prev.push({v:NaN,ok:false});
+    const prev=rows.slice(0,12);while(prev.length<12)prev.push({v:NaN,ok:false});   // inclui o mês da fatura
     d.hist=prev.map(x=>x.v).reverse();
     prev.slice().reverse().forEach((x,i)=>{if(!x.ok||!completo)incertos.add('h'+i)});
-    if(d._ref)d.histMes=mesesHist(d._ref).slice(1).reverse();
+    if(d._ref)d.histMes=mesesHist(d._ref).slice(0,12).reverse();
   }}
   if(!histOk){delete d.hist;delete d.consumo_te;for(let i=0;i<12;i++)incertos.add('h'+i);incertos.add('consumo_te');
-    if(d._ref)d.histMes=mesesHist(d._ref).slice(1).reverse();d._histIlegivel=true}
+    if(d._ref)d.histMes=mesesHist(d._ref).slice(0,12).reverse();d._histIlegivel=true}
   ['titular','endereco','cep','cidade','uf','distribuidora'].forEach(k=>{if(!d[k])incertos.add(k)});
   if(!d.cpf&&!d.cnpj){incertos.add('cpf');incertos.add('cnpj')}
   delete d._ref;const ileg=!!d._histIlegivel;delete d._histIlegivel;
@@ -1637,10 +1637,10 @@ function parseCPFL(t){
   const hist=[],hm=[];const re=new RegExp('^('+MES3+') (\\d{2}) [l ]*?(\\d+) (\\d{1,2})$');
   L.forEach(s=>{const m=s.match(re);if(m){hist.push(+m[3]);hm.push(m[1]+'/'+m[2])}});
   if(hist.length){
-    // monta os 12 meses anteriores ao mês da fatura pelo calendário; mês que a fatura não traz fica vazio
+    // monta os 12 meses pelo calendário, terminando no mês da fatura (ele entra na média); mês que a fatura não traz fica vazio
     const rf=t.match(new RegExp('\\b('+MES3+')\\/\\d{2}(\\d{2})\\s+\\d{2}\\/\\d{2}\\/\\d{4}\\s+R\\$','i'));
     const ref=rf?[rf[1].toUpperCase(),+rf[2]]:[hm[0].slice(0,3),+hm[0].slice(4)];
-    const meses=mesesHist(ref).slice(1).reverse(),porMes={};
+    const meses=mesesHist(ref).slice(0,12).reverse(),porMes={};
     hm.forEach((mm,i)=>{if(!(mm in porMes))porMes[mm]=hist[i]});
     d.hist=meses.map(mm=>mm in porMes?porMes[mm]:null);d.histMes=meses;
     const faltam=d.hist.filter(v=>v==null).length;
