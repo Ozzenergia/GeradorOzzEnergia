@@ -1683,18 +1683,15 @@ function openReview(d,warn,leitura){
   for(const[k,m]of Object.entries(KNOWN))if(m.def&&!propData[k])propData[k]=m.def;
   refreshNumBadge();
   FX.forEach(k=>{const el=$('fx_'+k);el.value=propData[k]||''});
-  // fatura com histórico curto: completa os meses que faltam com o consumo do mês (regra da média de 12 meses)
-  const teMes=num(d.consumo_te),completados=[];
-  if(d._histFaltam&&isFinite(teMes)&&teMes>0&&d.hist){d.hist=d.hist.map((v,i)=>{if(v==null){completados.push(i);return teMes}return v})}
-  if(completados.length){const nota=`A fatura só traz ${12-completados.length} ${12-completados.length===1?'mês':'meses'} de histórico: os outros ${completados.length} foram preenchidos com o consumo do mês (${fmtBR(Math.round(teMes))} kWh), em amarelo. Confira antes de gerar.`;warn=warn?warn+' · '+nota:nota}
+  // fatura com histórico curto: os meses que ela não traz ficam em branco e não entram na média
+  if(d._histFaltam&&d._histFaltam<12){const n=12-d._histFaltam,nota=`A fatura só traz ${n} ${n===1?'mês':'meses'} de histórico: os outros ficaram em branco e não entram na média.`;warn=warn?warn+' · '+nota:nota}
   for(let i=0;i<12;i++)$('h'+i).value=d.hist&&d.hist[i]!=null?String(d.hist[i]):'';
   propData.histMes=(d.histMes&&d.histMes.length===12)?d.histMes:null;
-  for(let i=0;i<12;i++)$('h'+i).previousElementSibling.textContent=propData.histMes?propData.histMes[i]:'Mês '+(i+1);
+  for(let i=0;i<12;i++)$('h'+i).previousElementSibling.textContent=propData.histMes?String(propData.histMes[i]).slice(0,3):'Mês '+(i+1);   // só o mês (sem o ano)
   document.querySelectorAll('#pp2 .f input,#pp2 .f select').forEach(el=>{el.classList.toggle('empty',!el.value.trim());el.classList.remove('unsure')});
   // leitura por foto: destaca o que precisa conferir e mostra o recorte do histórico
   const inc=(leitura&&leitura.incertos)||new Set();
   inc.forEach(k=>{const el=/^h\d+$/.test(k)?$(k):$('fx_'+k);if(el)el.classList.add('unsure')});
-  completados.forEach(i=>$('h'+i).classList.add('unsure'));
   for(let i=0;i<12;i++){const el=$('h'+i);if(el.value==='NaN')el.value=''}
   const hb=$('histImgBox');hb.classList.toggle('hidden',!(leitura&&leitura.histImg));if(leitura&&leitura.histImg)$('histImg').src=leitura.histImg;
   planSel=-1;
@@ -1726,7 +1723,7 @@ function recompute(auto){
   if(okH.length){
     const soma=okH.reduce((a,b)=>a+b,0);media=soma/okH.length;
     $('method').textContent='📊 Método: média do histórico';
-    $('sumBox').innerHTML=`Soma dos ${okH.length} meses: ${fmtBR(soma)} kWh<br>÷ ${okH.length} ${okH.length>1?'meses':'mês'}<hr><b>= Consumo médio: ${fmtBR(Math.round(media))} kWh</b>`;
+    $('sumBox').innerHTML=`Soma ${okH.length===1?'de 1 mês':'dos '+okH.length+' meses'}: ${fmtBR(soma)} kWh<br>÷ ${okH.length} ${okH.length>1?'meses':'mês'}<hr><b>= Consumo médio: ${fmtBR(Math.round(media))} kWh</b>`;
   }else if(isFinite(te)){
     media=te;
     $('method').textContent='📄 Método: consumo do mês (sem histórico)';
