@@ -1613,11 +1613,13 @@ function parseCPFL(t){
   }
   // 2º bloco: endereço com vírgula, documento e UC
   let end2Glob='';
-  const di=L.findIndex(s=>/^(CPF|CNPJ):/i.test(s));
+  // o documento pode vir sozinho na linha ("CNPJ: …") ou depois da inscrição estadual ("INSC.EST: … / CNPJ: …")
+  const reDoc=/(?:^|INSC\.?\s*EST[^\/]*\/\s*)(?:CPF|CNPJ):\s*([\d.\/\-*]+)/i;
+  const di=L.findIndex(s=>reDoc.test(s));
   if(di>=0){
-    const doc=L[di].replace(/^(CPF|CNPJ):\s*/i,'');
+    const doc=L[di].match(reDoc)[1];
     if(!/\*/.test(doc)){if(doc.replace(/\D/g,'').length===14)d.cnpj=doc;else d.cpf=doc}
-    for(let k=di+1;k<Math.min(L.length,di+4);k++){const u=L[k].match(/^(\d{8,12}|\d{3}\.\d{3}\.\d{3}-\d{2})$/);/* formato antigo e o novo (REN ANEEL 1095/24) */if(u){d.codigo_uc=u[1];break}}
+    for(let k=di+1;k<Math.min(L.length,di+4);k++){const u=L[k].match(/^(\d{8,12}|\d{1,3}(?:\.\d{3}){3}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2})$/);/* formato antigo e o novo (REN ANEEL 1095/24: 1.609.379.001-25) */if(u){d.codigo_uc=u[1];break}}
     const end2=L.slice(Math.max(0,di-5),di).find(s=>/,\s*\d/.test(s));end2Glob=end2||d._end1;
     d.endereco=[end2||d._end1,d.bairro].filter(Boolean).join(', ');
   }
@@ -1634,7 +1636,16 @@ function parseCPFL(t){
   // Histórico: "FEV 26 llll 1423 32" (mais recente primeiro; 1ª linha = mês da fatura)
   const hist=[],hm=[];const re=new RegExp('^('+MES3+') (\\d{2}) [l ]*?(\\d+) (\\d{1,2})$');
   L.forEach(s=>{const m=s.match(re);if(m){hist.push(+m[3]);hm.push(m[1]+'/'+m[2])}});
-  if(hist.length>1){d.hist=hist.slice(1,13).reverse();d.histMes=hm.slice(1,13).reverse()}
+  if(hist.length){
+    // monta os 12 meses anteriores ao mês da fatura pelo calendário; mês que a fatura não traz fica vazio
+    const rf=t.match(new RegExp('\\b('+MES3+')\\/\\d{2}(\\d{2})\\s+\\d{2}\\/\\d{2}\\/\\d{4}\\s+R\\$','i'));
+    const ref=rf?[rf[1].toUpperCase(),+rf[2]]:[hm[0].slice(0,3),+hm[0].slice(4)];
+    const meses=mesesHist(ref).slice(1).reverse(),porMes={};
+    hm.forEach((mm,i)=>{if(!(mm in porMes))porMes[mm]=hist[i]});
+    d.hist=meses.map(mm=>mm in porMes?porMes[mm]:null);d.histMes=meses;
+    const faltam=d.hist.filter(v=>v==null).length;
+    if(faltam&&faltam<12||(faltam===12&&hist.length))d._histFaltam=faltam;   // fatura com histórico curto (cliente novo)
+  }
   return d;
 }
 function extractFatura(t){
@@ -1672,6 +1683,10 @@ function openReview(d,warn,leitura){
   for(const[k,m]of Object.entries(KNOWN))if(m.def&&!propData[k])propData[k]=m.def;
   refreshNumBadge();
   FX.forEach(k=>{const el=$('fx_'+k);el.value=propData[k]||''});
+  // fatura com histórico curto: completa os meses que faltam com o consumo do mês (regra da média de 12 meses)
+  const teMes=num(d.consumo_te),completados=[];
+  if(d._histFaltam&&isFinite(teMes)&&teMes>0&&d.hist){d.hist=d.hist.map((v,i)=>{if(v==null){completados.push(i);return teMes}return v})}
+  if(completados.length){const nota=`A fatura só traz ${12-completados.length} ${12-completados.length===1?'mês':'meses'} de histórico: os outros ${completados.length} foram preenchidos com o consumo do mês (${fmtBR(Math.round(teMes))} kWh), em amarelo. Confira antes de gerar.`;warn=warn?warn+' · '+nota:nota}
   for(let i=0;i<12;i++)$('h'+i).value=d.hist&&d.hist[i]!=null?String(d.hist[i]):'';
   propData.histMes=(d.histMes&&d.histMes.length===12)?d.histMes:null;
   for(let i=0;i<12;i++)$('h'+i).previousElementSibling.textContent=propData.histMes?propData.histMes[i]:'Mês '+(i+1);
@@ -1679,6 +1694,7 @@ function openReview(d,warn,leitura){
   // leitura por foto: destaca o que precisa conferir e mostra o recorte do histórico
   const inc=(leitura&&leitura.incertos)||new Set();
   inc.forEach(k=>{const el=/^h\d+$/.test(k)?$(k):$('fx_'+k);if(el)el.classList.add('unsure')});
+  completados.forEach(i=>$('h'+i).classList.add('unsure'));
   for(let i=0;i<12;i++){const el=$('h'+i);if(el.value==='NaN')el.value=''}
   const hb=$('histImgBox');hb.classList.toggle('hidden',!(leitura&&leitura.histImg));if(leitura&&leitura.histImg)$('histImg').src=leitura.histImg;
   planSel=-1;
