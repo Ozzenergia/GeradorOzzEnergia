@@ -124,6 +124,10 @@ main.wide{max-width:1180px}
 .cli-grid .f{margin:0}.cli-grid .c2{grid-column:span 2}.cli-grid .c3{grid-column:span 3}.cli-grid .c4{grid-column:span 4}.cli-grid .c1{grid-column:span 1}
 .cli-grid .f input.err,.cli-grid .f select.err{border-color:var(--err)}
 .cli-grid .f small{display:block;color:var(--err);font-size:12px;margin-top:3px;min-height:0}
+.cli-fatura{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px;font-size:13px;color:var(--muted)}
+.cli-fatura span{flex:1;min-width:200px;line-height:1.45}
+.cli-fatura span.ok{color:var(--ink)}.cli-fatura span.err{color:var(--err)}
+.cli-grid .f input.da-fatura,.cli-grid .f select.da-fatura{background:var(--primary-soft);border-color:var(--primary-line)}
 .cli-acoes{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}
 .cli-acoes .st{font-size:13.5px;color:var(--muted)}
 .cli-acoes .st.err{color:var(--err)}
@@ -689,6 +693,11 @@ body.locked{overflow:hidden}
 
   <form class="cli-form hidden" id="cliForm" novalidate autocomplete="off">
     <h3 id="cliFormTit">Novo cliente</h3>
+    <div class="cli-fatura">
+      <button class="btn sec sm" id="cliFatBtn" type="button">📄 Preencher pela fatura</button>
+      <input type="file" id="cliFatFile" accept=".pdf,image/*" hidden>
+      <span id="cliFatSt" aria-live="polite">PDF ou foto da conta de energia: preenche nome, documento, endereço, UC e distribuidora.</span>
+    </div>
     <div class="cli-grid">
       <div class="f c4"><label for="cl_nome">Nome ou razão social *</label><input id="cl_nome" maxlength="200"><small></small></div>
       <div class="f c2"><label for="cl_doc">CPF ou CNPJ</label><input id="cl_doc" inputmode="numeric" maxlength="18" placeholder="000.000.000-00"><small></small></div>
@@ -1370,7 +1379,8 @@ function cliErroCampo(k,msg){const el=$('cl_'+k);el.classList.toggle('err',!!msg
 function cliEditar(c){
   cli.editando=c?c.id:null;
   $('cliFormTit').textContent=c?'Alterar cliente':'Novo cliente';
-  CLI_CAMPOS.forEach(k=>{$('cl_'+k).value=c?(c[k]||''):'';cliErroCampo(k,'')});
+  CLI_CAMPOS.forEach(k=>{$('cl_'+k).value=c?(c[k]||''):'';cliErroCampo(k,'');$('cl_'+k).classList.remove('da-fatura','unsure')});
+  $('cliFatSt').textContent='PDF ou foto da conta de energia: preenche nome, documento, endereço, UC e distribuidora.';$('cliFatSt').className='';
   if(c&&c.plano&&![...$('cl_plano').options].some(o=>o.value===c.plano)){const o=document.createElement('option');o.textContent=c.plano;$('cl_plano').append(o);$('cl_plano').value=c.plano}
   if(!c){try{$('cl_vendedor').value=consultorAtual()||''}catch(e){}}
   $('cliMeta').textContent=c?`Cadastrado em ${c.criadoEm}${c.criadoPor?' por '+c.criadoPor:''}${c.atualizadoEm?' · alterado em '+c.atualizadoEm+(c.atualizadoPor?' por '+c.atualizadoPor:''):''}`:'';
@@ -1407,6 +1417,37 @@ $('cliForm').addEventListener('submit',async e=>{
   if(i>=0)cli.lista[i]=r.cliente;else(cli.lista=cli.lista||[]).push(r.cliente);
   cliFechar();cliRender();
   $('cliSub').textContent=(r.criado?'✓ Cliente cadastrado: ':'✓ Cliente alterado: ')+r.cliente.nome;
+});
+/* Preencher o cadastro pela fatura (mesmo leitor do gerador de propostas: PDF ou foto) */
+$('cliFatBtn').onclick=()=>$('cliFatFile').click();
+$('cliFatFile').addEventListener('change',async e=>{
+  const file=e.target.files[0];e.target.value='';if(!file)return;
+  const st=$('cliFatSt'),bt=$('cliFatBtn');bt.disabled=true;st.className='';st.textContent='Lendo a fatura…';
+  let r;
+  try{r=await lerFatura(file,m=>{st.textContent=m})}
+  catch(err){bt.disabled=false;st.className='err';st.textContent='⚠️ Não consegui ler esse arquivo'+(err&&err.message?' ('+err.message+')':'')+'. Tente o PDF da conta ou uma foto mais nítida.';return}
+  bt.disabled=false;
+  const d=(r&&r.d)||{},inc=(r&&r.incertos)||new Set();
+  const docBruto=String(d.cnpj||d.cpf||''),docOk=!/\*/.test(docBruto)&&[11,14].includes(soDig(docBruto).length);
+  let dist=String(d.distribuidora||'').split('/')[0].trim();if(/^RGE/i.test(dist))dist='RGE';
+  const achados={nome:d.titular||'',doc:docOk?mascDoc(docBruto):'',endereco:d.endereco||'',cep:d.cep?mascCep(d.cep):'',cidade:d.cidade||'',uf:(d.uf||'').toUpperCase(),uc:d.codigo_uc||'',distribuidora:dist};
+  const ROT={nome:'nome',doc:'CPF/CNPJ',endereco:'endereço',cep:'CEP',cidade:'cidade',uf:'UF',uc:'UC',distribuidora:'distribuidora'};
+  const CHAVE_INC={nome:'titular',doc:d.cnpj?'cnpj':'cpf',uc:'codigo_uc'};
+  const pos=[],dif=[],falta=[];
+  Object.keys(achados).forEach(k=>{
+    const el=$('cl_'+k),novo=String(achados[k]).replace(/\s+/g,' ').trim(),atual=el.value.trim();
+    if(!novo){falta.push(ROT[k]);return}
+    if(!atual){el.value=novo;el.classList.add('da-fatura');el.classList.toggle('unsure',inc.has(CHAVE_INC[k]||k));cliErroCampo(k,'');pos.push(ROT[k])}
+    else if(soDig(atual)!==soDig(novo)||(!soDig(novo)&&atual.toLowerCase()!==novo.toLowerCase()))dif.push(`${ROT[k]} (na fatura: ${novo})`);
+  });
+  const partes=[];
+  if(pos.length)partes.push('✓ Preenchi pela fatura: '+pos.join(', ')+'.');
+  if(dif.length)partes.push('Mantive o que já estava em: '+dif.join('; ')+'.');
+  if(falta.length)partes.push('Não achei na fatura: '+falta.join(', ')+(falta.includes('CPF/CNPJ')&&/\*/.test(docBruto)?' (o CPF vem escondido na conta)':'')+'.');
+  if(r&&r.origem&&r.origem!=='pdf'&&pos.length)partes.push('Os dados vieram de uma foto: confira tudo antes de salvar'+([...inc].length?', principalmente os campos em amarelo':'')+'.');
+  partes.push('Telefone, e-mail, plano e vendedor não vêm na fatura.');
+  st.className=pos.length?'ok':'err';
+  st.textContent=pos.length||dif.length?partes.join(' '):'⚠️ Não reconheci os dados nessa fatura. Preencha à mão ou tente outro arquivo.';
 });
 $('cliNovo').onclick=()=>cliEditar(null);
 $('cliCancelar').onclick=cliFechar;
