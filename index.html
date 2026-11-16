@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<script>/* tema escolhido no portal (Automático / Claro / Escuro), aplicado antes de desenhar a página */try{var t=localStorage.getItem("ozz_tema");if(t==="claro")document.documentElement.setAttribute("data-theme","light");else if(t==="escuro")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OZZ Energia – Portal Interno</title>
@@ -15,16 +16,19 @@
   --p1:#1e0b4f; --p2:#3a0a8c; --p3:#1f4b8a; --primary:#4c1d95; --primary-soft:#f3eefe; --primary-line:#4c1d95;
   --accent:#f59e0b; --ok:#16a34a; --ok-soft:#e8f7ee; --warn:#b45309; --warn-soft:#fff3cd; --err:#c0392b; --err-soft:#fdecea;
   --radius:18px;
+  color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#0f0d1a; --card:#1a1729; --ink:#ece9f5; --muted:#a19cb5; --line:#2d2842;
     --primary:#c4b5fd; --primary-soft:#251d40; --primary-line:#8b5cf6; --ok-soft:#12301f; --warn-soft:#3a2f10; --err-soft:#3a1714;
+    color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --bg:#0f0d1a; --card:#1a1729; --ink:#ece9f5; --muted:#a19cb5; --line:#2d2842;
   --primary:#c4b5fd; --primary-soft:#251d40; --primary-line:#8b5cf6; --ok-soft:#12301f; --warn-soft:#3a2f10; --err-soft:#3a1714;
+  color-scheme:dark;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Outfit,system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5;min-height:100vh}
@@ -338,6 +342,12 @@ main.wide{max-width:1180px}
 .lg-legal{text-align:center;font-size:12px;margin-top:10px}.lg-legal a{color:var(--muted)}
 .lg-foot{font-size:12.5px;color:var(--muted);text-align:center;margin-top:18px;line-height:1.45}
 .hd-right{display:flex;align-items:center;gap:10px}
+.tema-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);color:#fff;
+  font:600 13px Outfit,sans-serif;padding:6px 12px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.tema-btn:hover{background:rgba(255,255,255,.18)}
+.tema-btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.tema-btn .ic{font-size:15px;line-height:1}
+@media(max-width:640px){.tema-btn .tx{display:none}.tema-btn{padding:6px 9px}}
 .user-chip{display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);padding:4px 4px 4px 14px;border-radius:999px;font-size:14px}
 .user-chip button{border:none;background:rgba(255,255,255,.16);color:#fff;font:600 13px Outfit,sans-serif;padding:5px 12px;border-radius:999px;cursor:pointer}
 .user-chip button:hover{background:rgba(255,255,255,.28)}
@@ -395,6 +405,7 @@ body.locked{overflow:hidden}
       <div class="sub-h">Portal Interno · Energia Certa Consórcio</div>
     </div>
     <div class="hd-right">
+      <button class="tema-btn" id="temaBtn" type="button"><span class="ic" aria-hidden="true">🌓</span><span class="tx">Automático</span></button>
       <div class="badge-int"><i>⚡</i>Uso interno</div>
       <label class="ver-como hidden" id="verComoBox" title="Só muda o que aparece na tela; as permissões da planilha continuam as suas"><span>👁 Ver como</span><select id="verComo"></select></label>
       <div class="user-chip hidden" id="userChip"><span id="userName">👤 Visitante</span><span class="perfil-tag" id="perfilTag"></span><button id="lgOut" type="button">Sair</button></div>
@@ -1106,7 +1117,7 @@ function aplicarPerfil(){
     const ok=areasPermitidas();
     document.querySelectorAll('.mcat').forEach(m=>m.classList.toggle('sem-acesso',!ok.includes(m.dataset.cat)));
     if(!ok.includes(catAtual))abrir(ok[0]);
-    else{const it=MENU[catAtual].itens.find(i=>i.id===ultimoItem[catAtual]);if(it&&it.aoAbrir&&sessao())it.aoAbrir()}
+    else{const it=MENU[catAtual].itens.find(i=>i.id===ultimoItem[catAtual]);if(it&&it.aoAbrir&&sessao())setTimeout(it.aoAbrir,0)}
   }catch(e){} // o menu ainda não foi montado
 }
 function verComo(p){try{p===perfilReal()?sessionStorage.removeItem('ozz_vercomo'):sessionStorage.setItem('ozz_vercomo',p)}catch(e){}aplicarPerfil()}
@@ -1321,6 +1332,21 @@ document.querySelectorAll('#tab-analise th[data-ord]').forEach(th=>th.onclick=()
 $('anaCorpo').addEventListener('click',async e=>{const b=e.target.closest('button[data-pix]');if(!b)return;
   try{await navigator.clipboard.writeText(b.dataset.pix);b.textContent='Copiado ✓'}catch(x){b.textContent='Não deu para copiar'}
   setTimeout(()=>{b.textContent='Copiar PIX'},1800)});
+
+/* ===== Tema: Automático (segue o aparelho) → Claro → Escuro; vale também para o pós-venda e a privacidade ===== */
+const TEMAS={auto:{ic:'🌓',nome:'Automático',dica:'Tema automático (segue o aparelho). Clique para claro.'},
+  claro:{ic:'☀️',nome:'Claro',dica:'Tema claro. Clique para escuro.'},escuro:{ic:'🌙',nome:'Escuro',dica:'Tema escuro. Clique para automático.'}};
+function temaAtual(){try{const t=localStorage.getItem('ozz_tema');return TEMAS[t]?t:'auto'}catch(e){return 'auto'}}
+function aplicarTemaEm(doc,t){const el=doc.documentElement;if(t==='claro')el.setAttribute('data-theme','light');else if(t==='escuro')el.setAttribute('data-theme','dark');else el.removeAttribute('data-theme')}
+function aplicarTema(t){
+  aplicarTemaEm(document,t);
+  document.querySelectorAll('iframe').forEach(f=>{try{if(f.contentDocument)aplicarTemaEm(f.contentDocument,t)}catch(e){}});   // pós-venda embutido
+  const b=$('temaBtn'),o=TEMAS[t];b.querySelector('.ic').textContent=o.ic;b.querySelector('.tx').textContent=o.nome;b.title=o.dica;b.setAttribute('aria-label',o.dica);
+}
+$('temaBtn').onclick=()=>{const ordem=['auto','claro','escuro'],t=ordem[(ordem.indexOf(temaAtual())+1)%3];
+  try{t==='auto'?localStorage.removeItem('ozz_tema'):localStorage.setItem('ozz_tema',t)}catch(e){}aplicarTema(t)};
+window.addEventListener('storage',e=>{if(e.key==='ozz_tema')aplicarTema(temaAtual())});
+aplicarTema(temaAtual());
 
 /* ===== Clientes · Cadastro (aba "Clientes" da planilha do portal) ===== */
 const cli={lista:null,busca:'',ord:'nome',desc:false,editando:null,carregando:false,salvando:false};
@@ -1605,7 +1631,7 @@ function abrir(cat,item,semHash){
   Object.values(MENU).forEach(c=>c.itens.forEach(i=>$(i.sec).classList.toggle('hidden',i!==item)));
   $('mainArea').classList.toggle('hidden',!!item.iframe);
   $('mainArea').classList.toggle('wide',!!item.largo);
-  if(item.aoAbrir&&sessao())item.aoAbrir();
+  if(item.aoAbrir&&sessao())setTimeout(item.aoAbrir,0);   // depois que a página terminou de carregar
   if(item.iframe){const fr=$('fr'+item.id[0].toUpperCase()+item.id.slice(1));if(fr&&!fr.src)fr.src=item.iframe}
   if(!semHash)history.replaceState(null,'','#'+cat+'/'+item.id);
   try{localStorage.setItem('ozz_aba',cat+'/'+item.id)}catch(e){}
