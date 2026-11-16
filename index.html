@@ -61,7 +61,12 @@ body{font-family:Outfit,system-ui,sans-serif;background:var(--bg);color:var(--in
 .drop-menu b{display:block;font-size:15px;font-weight:600}
 .drop-menu small{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
 .drop-menu button.on b:after{content:" ✓";color:var(--primary-line);font-weight:700}
-@media(max-width:700px){.drop-menu{min-width:260px}.mcat:last-child .drop-menu{left:auto;right:0}}
+@media(max-width:700px){
+  /* no celular o menu aberto ocupa a largura da tela, seja qual for a categoria */
+  .nwrap{position:relative;gap:2px}.mcat{position:static}
+  .drop-menu{min-width:0;left:6px;right:6px}.mcat:last-child .drop-menu{left:6px;right:6px}
+}
+@media(max-width:520px){.tab-ic{display:none}.mcat>.tab{gap:4px;padding:12px 7px;font-size:13px}}
 .full-panel{display:flex;flex-direction:column;height:calc(100vh - 150px);height:calc(100dvh - 150px);min-height:520px;margin:14px 16px 16px}
 .full-panel.hidden{display:none!important}
 .panel-bar{display:flex;justify-content:flex-end;font-size:13px;padding:0 4px 6px;color:var(--muted)}
@@ -112,6 +117,19 @@ main.wide{max-width:1180px}
 .ana-rodape{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
 .ana-rodape b{color:var(--ink);font-variant-numeric:tabular-nums}
 .ana-vazio{padding:34px 16px;text-align:center;color:var(--muted)}
+/* ===== Clientes · Cadastro ===== */
+.cli-form{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px}
+.cli-form h3{font-size:18px;margin-bottom:14px}
+.cli-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.cli-grid .f{margin:0}.cli-grid .c2{grid-column:span 2}.cli-grid .c3{grid-column:span 3}.cli-grid .c4{grid-column:span 4}.cli-grid .c1{grid-column:span 1}
+.cli-grid .f input.err,.cli-grid .f select.err{border-color:var(--err)}
+.cli-grid .f small{display:block;color:var(--err);font-size:12px;margin-top:3px;min-height:0}
+.cli-acoes{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}
+.cli-acoes .st{font-size:13.5px;color:var(--muted)}
+.cli-acoes .st.err{color:var(--err)}
+.cli-meta{font-size:12.5px;color:var(--muted);margin-top:10px}
+.ana-acoes button.perigo{color:var(--err);background:var(--err-soft)}
+@media(max-width:760px){.cli-grid{grid-template-columns:1fr 1fr}.cli-grid .c1,.cli-grid .c2{grid-column:span 1}.cli-grid .c3,.cli-grid .c4{grid-column:span 2}}
 .fx-kpis{grid-template-columns:repeat(3,1fr)}
 .ana-kpi.k-ent{border-left-color:var(--ok)}.ana-kpi.k-sai{border-left-color:var(--err)}.ana-kpi.k-sal{border-left-color:var(--primary-line)}
 .ana-kpi.neg b{color:var(--err)}
@@ -661,6 +679,50 @@ body.locked{overflow:hidden}
   </div>
 </section>
 
+<!-- =================== CLIENTES · CADASTRO =================== -->
+<section id="tab-clientes" class="hidden">
+  <div class="ana-top">
+    <div><h2>Cadastro de clientes</h2><p id="cliSub">Clientes cadastrados pelo portal</p></div>
+    <div style="display:flex;gap:8px"><button class="btn sec sm" id="cliAtualizar" type="button">↻ Atualizar</button><button class="btn pri sm" id="cliNovo" type="button">＋ Novo cliente</button></div>
+  </div>
+  <div class="alert" id="cliErro"></div>
+
+  <form class="cli-form hidden" id="cliForm" novalidate autocomplete="off">
+    <h3 id="cliFormTit">Novo cliente</h3>
+    <div class="cli-grid">
+      <div class="f c4"><label for="cl_nome">Nome ou razão social *</label><input id="cl_nome" maxlength="200"><small></small></div>
+      <div class="f c2"><label for="cl_doc">CPF ou CNPJ</label><input id="cl_doc" inputmode="numeric" maxlength="18" placeholder="000.000.000-00"><small></small></div>
+      <div class="f c2"><label for="cl_telefone">Telefone</label><input id="cl_telefone" type="tel" inputmode="tel" maxlength="16" placeholder="(55) 99999-9999"><small></small></div>
+      <div class="f c4"><label for="cl_email">E-mail</label><input id="cl_email" type="email" maxlength="200" placeholder="cliente@exemplo.com"><small></small></div>
+      <div class="f c4"><label for="cl_endereco">Endereço</label><input id="cl_endereco" maxlength="300" placeholder="Rua, número, complemento, bairro"><small></small></div>
+      <div class="f c2"><label for="cl_cep">CEP</label><input id="cl_cep" inputmode="numeric" maxlength="9" placeholder="00000-000"><small></small></div>
+      <div class="f c3"><label for="cl_cidade">Cidade</label><input id="cl_cidade" maxlength="100"><small></small></div>
+      <div class="f c1"><label for="cl_uf">UF</label><input id="cl_uf" maxlength="2" style="text-transform:uppercase"><small></small></div>
+      <div class="f c2"><label for="cl_uc">UC (unidade consumidora)</label><input id="cl_uc" maxlength="20" placeholder="1.234.567.001-00"><small></small></div>
+      <div class="f c2"><label for="cl_distribuidora">Distribuidora</label><input id="cl_distribuidora" list="cliDists" maxlength="60"><datalist id="cliDists"><option>RGE</option><option>CPFL</option><option>CEEE Equatorial</option><option>CELESC</option></datalist><small></small></div>
+      <div class="f c2"><label for="cl_plano">Plano</label><select id="cl_plano"></select><small></small></div>
+      <div class="f c2"><label for="cl_vendedor">Vendedor</label><input id="cl_vendedor" maxlength="100"><small></small></div>
+    </div>
+    <div class="cli-acoes">
+      <button class="btn pri" id="cliSalvar" type="submit">Salvar cliente</button>
+      <button class="btn sec" id="cliCancelar" type="button">Cancelar</button>
+      <span class="st" id="cliSt" aria-live="polite"></span>
+    </div>
+    <div class="cli-meta" id="cliMeta"></div>
+  </form>
+
+  <div class="ana-filtros">
+    <input type="search" id="cliBusca" placeholder="Buscar por nome, CPF/CNPJ, UC, cidade, telefone ou vendedor" autocomplete="off" aria-label="Buscar clientes">
+  </div>
+  <div class="ana-tabela">
+    <div class="ana-scroll"><table>
+      <thead><tr><th data-ord="nome">Cliente</th><th data-ord="telefone">Contato</th><th data-ord="cidade">Cidade</th><th data-ord="uc">UC</th><th data-ord="plano">Plano</th><th data-ord="vendedor">Vendedor</th><th></th></tr></thead>
+      <tbody id="cliCorpo"></tbody>
+    </table></div>
+    <div class="ana-rodape" id="cliRodape"></div>
+  </div>
+</section>
+
 <!-- =================== ANÁLISE · FLUXO DE CAIXA =================== -->
 <section id="tab-fluxo" class="hidden">
   <div class="ana-top">
@@ -1011,17 +1073,17 @@ async function finishLogin(pl){
 }
 /* ===== Perfis (coluna Perfil da aba Usuários) — o mesmo quadro está no script da planilha ===== */
 const PERFIS={
-  ti:{nome:'TI',areas:['ger','pos','ana'],verComo:true},
-  admin:{nome:'Admin',areas:['ger','pos','ana']},
-  administrativo:{nome:'Administrativo',areas:['ger']},
-  vendedor:{nome:'Vendedor',areas:['ger','pos']}
+  ti:{nome:'TI',areas:['ger','pos','ana','cli'],verComo:true},
+  admin:{nome:'Admin',areas:['ger','pos','ana','cli']},
+  administrativo:{nome:'Administrativo',areas:['ger','cli']},
+  vendedor:{nome:'Vendedor',areas:['ger','pos','cli']}
 };
 function normPerfil(p){const t=String(p||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z ]/g,'').trim();
   if(/^ti$|^ti |^tecnologia/.test(t))return 'ti';if(/^administrativ/.test(t))return 'administrativo';if(/^admin/.test(t))return 'admin';return 'vendedor'}
 function perfilReal(){const s=sessao();return s?normPerfil(s.perfil):null}
 // TI pode simular outro perfil (só a tela; a planilha continua conferindo o perfil verdadeiro)
 function perfilVisto(){const r=perfilReal();if(r!=='ti')return r;let v='';try{v=sessionStorage.getItem('ozz_vercomo')||''}catch(e){}return PERFIS[v]?v:r}
-function areasPermitidas(){const p=perfilVisto();return p?PERFIS[p].areas:['ger','pos','ana']}   // sem login a tela de entrada cobre tudo; o perfil é aplicado ao entrar
+function areasPermitidas(){const p=perfilVisto();return p?PERFIS[p].areas:['ger','pos','ana','cli']}   // sem login a tela de entrada cobre tudo; o perfil é aplicado ao entrar
 function aplicarPerfil(){
   const r=perfilReal(),v=perfilVisto();
   $('perfilTag').textContent=r?PERFIS[r].nome:'';$('perfilTag').classList.toggle('hidden',!r);
@@ -1078,7 +1140,7 @@ function voltarSePedido(){
 }
 function sairComMotivo(msg){
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo');localStorage.removeItem('ozz_pv_salvos')}catch(e){}
-  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML='';fx.dados=null;['fxCorpo','fxKpis','fxMeses','fxMesesTot','fxRodape'].forEach(i=>$(i).innerHTML='')}catch(e){}
+  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML='';fx.dados=null;['fxCorpo','fxKpis','fxMeses','fxMesesTot','fxRodape'].forEach(i=>$(i).innerHTML='');cli.lista=null;$('cliCorpo').innerHTML='';$('cliRodape').innerHTML='';cliFechar()}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
   aplicarSessao();const m=$('lgMsg');m.className='lg-msg';m.textContent='⚠️ '+msg+'.';
 }
@@ -1100,7 +1162,7 @@ function iniciarGoogle(){
 (function(){const v=getSessao();if(v&&v.tipo!=='google')setSessao(null)})();
 $('lgOut').onclick=()=>{
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo');localStorage.removeItem('ozz_pv_salvos')}catch(e){}
-  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML='';fx.dados=null;['fxCorpo','fxKpis','fxMeses','fxMesesTot','fxRodape'].forEach(i=>$(i).innerHTML='')}catch(e){}
+  try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML='';fx.dados=null;['fxCorpo','fxKpis','fxMeses','fxMesesTot','fxRodape'].forEach(i=>$(i).innerHTML='');cli.lista=null;$('cliCorpo').innerHTML='';$('cliRodape').innerHTML='';cliFechar()}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
   $('lgMsg').textContent='';aplicarSessao();
 };
@@ -1251,6 +1313,123 @@ $('anaCorpo').addEventListener('click',async e=>{const b=e.target.closest('butto
   try{await navigator.clipboard.writeText(b.dataset.pix);b.textContent='Copiado ✓'}catch(x){b.textContent='Não deu para copiar'}
   setTimeout(()=>{b.textContent='Copiar PIX'},1800)});
 
+/* ===== Clientes · Cadastro (aba "Clientes" da planilha do portal) ===== */
+const cli={lista:null,busca:'',ord:'nome',desc:false,editando:null,carregando:false,salvando:false};
+const CLI_CAMPOS=['nome','doc','telefone','email','endereco','cep','cidade','uf','uc','distribuidora','plano','vendedor'];
+const soDig=s=>String(s||'').replace(/\D/g,'');
+function mascDoc(v){const d=soDig(v).slice(0,14);
+  if(d.length<=11)return d.replace(/^(\d{3})(\d)/,'$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d{1,2})$/,'.$1-$2');
+  return d.replace(/^(\d{2})(\d)/,'$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1/$2').replace(/(\d{4})(\d{1,2})$/,'$1-$2')}
+function mascTel(v){const d=soDig(v).slice(0,11);if(d.length<3)return d;
+  if(d.length<=6)return '('+d.slice(0,2)+') '+d.slice(2);
+  return d.length<=10?'('+d.slice(0,2)+') '+d.slice(2,6)+'-'+d.slice(6):'('+d.slice(0,2)+') '+d.slice(2,7)+'-'+d.slice(7)}
+function mascCep(v){const d=soDig(v).slice(0,8);return d.length>5?d.slice(0,5)+'-'+d.slice(5):d}
+function docValido(v){const d=soDig(v);
+  if(d.length===11){if(/^(\d)\1{10}$/.test(d))return false;
+    for(let t=9;t<11;t++){let s=0;for(let i=0;i<t;i++)s+=+d[i]*(t+1-i);if(((s*10)%11)%10!==+d[t])return false}return true}
+  if(d.length===14){if(/^(\d)\1{13}$/.test(d))return false;
+    for(let t=12;t<14;t++){let s=0,p=t-7;for(let i=0;i<t;i++){s+=+d[i]*p;p=p===2?9:p-1}const r=s%11<2?0:11-s%11;if(r!==+d[t])return false}return true}
+  return false}
+async function cliCarregar(){
+  if(cli.carregando)return;cli.carregando=true;
+  const bt=$('cliAtualizar');bt.disabled=true;bt.textContent='Carregando…';$('cliErro').style.display='none';
+  if(!cli.lista)$('cliCorpo').innerHTML='<tr><td colspan="7" class="ana-vazio">Lendo a planilha…</td></tr>';
+  const r=await sheetApi('cli_listar',{},{espera:60000});
+  cli.carregando=false;bt.disabled=false;bt.textContent='↻ Atualizar';
+  if(!r||!r.ok){
+    let e=(r&&r.erro)||'não foi possível ler a planilha';
+    if(/ação desconhecida/.test(e))e='a planilha do portal ainda está com o script antigo (atualize o Apps Script para a versão 9 e implante uma Nova versão)';
+    $('cliErro').textContent='⚠️ '+e;$('cliErro').style.display='block';
+    if(!cli.lista)$('cliCorpo').innerHTML='<tr><td colspan="7" class="ana-vazio">Sem dados para mostrar.</td></tr>';
+    return}
+  cli.lista=r.clientes;cliRender();
+}
+function cliAbrir(){
+  const sel=$('cl_plano');if(!sel.options.length)sel.innerHTML='<option value="">—</option>'+cfg.planos.map(p=>`<option>${anaEsc(p.nome)}</option>`).join('');
+  if(!cli.lista)cliCarregar();else cliRender()}
+function cliRender(){
+  if(!cli.lista)return;
+  const sem=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const q=sem(cli.busca),qd=soDig(cli.busca);
+  const lista=cli.lista.filter(c=>!q||sem([c.nome,c.cidade,c.vendedor,c.email,c.plano,c.distribuidora].join(' ')).includes(q)||(qd.length>=3&&(soDig(c.doc)+' '+soDig(c.uc)+' '+soDig(c.telefone)).includes(qd)));
+  lista.sort((a,b)=>sem(a[cli.ord]).localeCompare(sem(b[cli.ord]),'pt-BR')*(cli.desc?-1:1)||sem(a.nome).localeCompare(sem(b.nome),'pt-BR'));
+  document.querySelectorAll('#tab-clientes th[data-ord]').forEach(th=>{const on=th.dataset.ord===cli.ord;th.setAttribute('aria-sort',on?(cli.desc?'descending':'ascending'):'none');
+    th.textContent=th.textContent.replace(/ [▲▼]$/,'')+(on?(cli.desc?' ▼':' ▲'):'')});
+  $('cliCorpo').innerHTML=lista.length?lista.map(c=>`<tr data-id="${anaEsc(c.id)}">
+      <td><b>${anaEsc(c.nome)}</b><small>${anaEsc(c.doc)}</small></td>
+      <td data-l="Contato">${anaEsc(c.telefone)}${c.email?`<small>${anaEsc(c.email)}</small>`:''}</td>
+      <td data-l="Cidade">${anaEsc(c.cidade)}${c.uf?'/'+anaEsc(c.uf):''}</td>
+      <td class="uc" data-l="UC">${anaEsc(c.uc)}${c.distribuidora?`<small>${anaEsc(c.distribuidora)}</small>`:''}</td>
+      <td data-l="Plano">${anaEsc(c.plano)}</td>
+      <td data-l="Vendedor">${anaEsc(c.vendedor)}</td>
+      <td><div class="ana-acoes"><button type="button" data-ed="${anaEsc(c.id)}">Editar</button><button type="button" class="perigo" data-ex="${anaEsc(c.id)}">Excluir</button></div></td>
+    </tr>`).join(''):`<tr><td colspan="7" class="ana-vazio">${cli.lista.length?'Nenhum cliente com essa busca.':'Nenhum cliente cadastrado ainda. Clique em “＋ Novo cliente”.'}</td></tr>`;
+  $('cliRodape').innerHTML=`<span>${lista.length} de ${cli.lista.length} cliente${cli.lista.length===1?'':'s'}</span><span></span>`;
+}
+function cliErroCampo(k,msg){const el=$('cl_'+k);el.classList.toggle('err',!!msg);el.setAttribute('aria-invalid',msg?'true':'false');el.parentElement.querySelector('small').textContent=msg||''}
+function cliEditar(c){
+  cli.editando=c?c.id:null;
+  $('cliFormTit').textContent=c?'Alterar cliente':'Novo cliente';
+  CLI_CAMPOS.forEach(k=>{$('cl_'+k).value=c?(c[k]||''):'';cliErroCampo(k,'')});
+  if(c&&c.plano&&![...$('cl_plano').options].some(o=>o.value===c.plano)){const o=document.createElement('option');o.textContent=c.plano;$('cl_plano').append(o);$('cl_plano').value=c.plano}
+  if(!c){try{$('cl_vendedor').value=consultorAtual()||''}catch(e){}}
+  $('cliMeta').textContent=c?`Cadastrado em ${c.criadoEm}${c.criadoPor?' por '+c.criadoPor:''}${c.atualizadoEm?' · alterado em '+c.atualizadoEm+(c.atualizadoPor?' por '+c.atualizadoPor:''):''}`:'';
+  $('cliSt').textContent='';$('cliSt').className='st';
+  $('cliForm').classList.remove('hidden');$('cliForm').scrollIntoView({behavior:'smooth',block:'start'});$('cl_nome').focus({preventScroll:true});
+}
+function cliFechar(){cli.editando=null;$('cliForm').classList.add('hidden')}
+function cliValidar(){
+  const d={};CLI_CAMPOS.forEach(k=>{d[k]=$('cl_'+k).value.replace(/\s+/g,' ').trim();cliErroCampo(k,'')});
+  d.uf=d.uf.toUpperCase();let ok=true;const erro=(k,m)=>{cliErroCampo(k,m);if(ok)$('cl_'+k).focus();ok=false};
+  if(d.nome.length<3)erro('nome','Informe o nome do cliente.');
+  if(d.doc&&!docValido(d.doc))erro('doc',soDig(d.doc).length===11||soDig(d.doc).length===14?'Esse número não é um CPF/CNPJ válido. Confira os dígitos.':'O CPF tem 11 dígitos e o CNPJ, 14.');
+  if(d.telefone&&soDig(d.telefone).length<10)erro('telefone','Telefone com DDD: 10 ou 11 dígitos.');
+  if(d.email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email))erro('email','O e-mail parece incompleto.');
+  if(d.cep&&soDig(d.cep).length!==8)erro('cep','O CEP tem 8 dígitos.');
+  if(d.uf&&!/^[A-Z]{2}$/.test(d.uf))erro('uf','Duas letras, ex.: RS.');
+  if(d.uc&&soDig(d.uc).length<7)erro('uc','A UC parece incompleta.');
+  return ok?d:null;
+}
+$('cliForm').addEventListener('submit',async e=>{
+  e.preventDefault();if(cli.salvando)return;
+  const d=cliValidar(),st=$('cliSt');
+  if(!d){st.textContent='Confira os campos em vermelho.';st.className='st err';return}
+  cli.salvando=true;$('cliSalvar').disabled=true;st.textContent='Salvando…';st.className='st';
+  const r=await sheetApi('cli_salvar',{dados:Object.assign({id:cli.editando||''},d)},{espera:60000});
+  cli.salvando=false;$('cliSalvar').disabled=false;
+  if(!r||!r.ok){
+    let m=(r&&r.erro)||'não foi possível salvar';
+    if(/ação desconhecida/.test(m))m='a planilha do portal ainda está com o script antigo (versão 9 ainda não implantada)';
+    st.textContent='⚠️ '+m.charAt(0).toUpperCase()+m.slice(1)+'.';st.className='st err';
+    if(r&&r.duplicado)cliErroCampo(soDig(d.uc).length>=7?'uc':'doc','Já cadastrado.');
+    return}
+  const i=(cli.lista||[]).findIndex(c=>c.id===r.cliente.id);
+  if(i>=0)cli.lista[i]=r.cliente;else(cli.lista=cli.lista||[]).push(r.cliente);
+  cliFechar();cliRender();
+  $('cliSub').textContent=(r.criado?'✓ Cliente cadastrado: ':'✓ Cliente alterado: ')+r.cliente.nome;
+});
+$('cliNovo').onclick=()=>cliEditar(null);
+$('cliCancelar').onclick=cliFechar;
+$('cliAtualizar').onclick=cliCarregar;
+$('cliBusca').oninput=e=>{cli.busca=e.target.value.trim();cliRender()};
+$('cl_doc').addEventListener('input',e=>{e.target.value=mascDoc(e.target.value)});
+$('cl_telefone').addEventListener('input',e=>{e.target.value=mascTel(e.target.value)});
+$('cl_cep').addEventListener('input',e=>{e.target.value=mascCep(e.target.value)});
+document.querySelectorAll('#tab-clientes th[data-ord]').forEach(th=>th.onclick=()=>{if(cli.ord===th.dataset.ord)cli.desc=!cli.desc;else{cli.ord=th.dataset.ord;cli.desc=false}cliRender()});
+$('cliCorpo').addEventListener('click',async e=>{
+  const ed=e.target.closest('button[data-ed]'),ex=e.target.closest('button[data-ex]');
+  if(ed){const c=cli.lista.find(x=>x.id===ed.dataset.ed);if(c)cliEditar(c);return}
+  if(!ex)return;
+  const c=cli.lista.find(x=>x.id===ex.dataset.ex);if(!c)return;
+  // confirmação em dois toques no próprio botão (sem janela do navegador)
+  if(!ex.dataset.conf){ex.dataset.conf='1';ex.textContent='Confirmar exclusão';setTimeout(()=>{if(ex.isConnected){delete ex.dataset.conf;ex.textContent='Excluir'}},4000);return}
+  ex.disabled=true;ex.textContent='Excluindo…';
+  const r=await sheetApi('cli_excluir',{id:c.id},{espera:60000});
+  if(!r||!r.ok){ex.disabled=false;ex.textContent='Excluir';delete ex.dataset.conf;$('cliErro').textContent='⚠️ '+((r&&r.erro)||'não foi possível excluir');$('cliErro').style.display='block';return}
+  cli.lista=cli.lista.filter(x=>x.id!==c.id);if(cli.editando===c.id)cliFechar();cliRender();
+  $('cliSub').textContent='✓ Cliente excluído: '+c.nome;
+});
+
 /* ===== Análise · Fluxo de caixa ===== */
 const fx={dados:null,periodo:null,modo:'tudo',custos:true,tipo:'todos',carregando:false};
 const MESES_NOME=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -1360,6 +1539,8 @@ const MENU={
   ger:{nome:'📄 Geradores',itens:[
     {id:'prop',ic:'📊',nome:'Propostas',desc:'Fatura → proposta preenchida em segundos',sec:'tab-prop'},
     {id:'termo',ic:'📄',nome:'Termo de Adesão',desc:'Termo preenchido a partir da proposta ou da fatura',sec:'tab-termo'}]},
+  cli:{nome:'👥 Clientes',itens:[
+    {id:'cad',ic:'🗂️',nome:'Cadastro de clientes',desc:'Cadastrar, consultar e alterar os dados dos clientes',sec:'tab-clientes',largo:true,aoAbrir:()=>cliAbrir()}]},
   pos:{nome:'🤝 Pós-venda',itens:[
     {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
   ana:{nome:'📈 Análise',itens:[
@@ -1368,7 +1549,7 @@ const MENU={
 };
 const nav=document.querySelector('nav.nwrap');
 nav.innerHTML=Object.entries(MENU).map(([c,v])=>`<div class="mcat" data-cat="${c}">
-  <button class="tab" type="button" aria-haspopup="true" aria-expanded="false">${v.nome} <span class="chev">▾</span></button>
+  <button class="tab" type="button" aria-haspopup="true" aria-expanded="false">${v.nome.replace(/^(\S+)\s/,'<span class="tab-ic" aria-hidden="true">$1</span> ')} <span class="chev">▾</span></button>
   <div class="drop-menu" role="menu">${v.itens.map(i=>`<button type="button" role="menuitem" data-item="${i.id}"><span class="ic">${i.ic}</span><span><b>${i.nome}</b><small>${i.desc}</small></span></button>`).join('')}</div>
 </div>`).join('');
 const ultimoItem={};let catAtual='ger';

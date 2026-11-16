@@ -27,13 +27,20 @@ const COLS_USUARIOS = ['E-mail', 'Nome', 'Perfil', 'Ativo'];
 /* Perfis (coluna Perfil da aba Usuários) e as áreas do portal que cada um usa.
    ger = Geradores (propostas e termos) · pos = Pós-venda. O TI ainda pode "ver como" outro perfil no portal. */
 const PERFIS_ = {
-  ti:             { nome: 'TI',             areas: ['ger', 'pos', 'ana'] },
-  admin:          { nome: 'Admin',          areas: ['ger', 'pos', 'ana'] },
-  administrativo: { nome: 'Administrativo', areas: ['ger'] },
-  vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos'] }
+  ti:             { nome: 'TI',             areas: ['ger', 'pos', 'ana', 'cli'] },
+  admin:          { nome: 'Admin',          areas: ['ger', 'pos', 'ana', 'cli'] },
+  administrativo: { nome: 'Administrativo', areas: ['ger', 'cli'] },
+  vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos', 'cli'] }
 };
-const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana' };
-const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise' };
+const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli' };
+const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes' };
+
+/* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
+const ABA_CADASTRO = 'Clientes';
+const COLS_CADASTRO = ['ID', 'Cadastrado em', 'Cadastrado por', 'Nome', 'CPF/CNPJ', 'Telefone', 'E-mail', 'Endereço', 'Cidade', 'UF', 'CEP',
+  'UC', 'Distribuidora', 'Plano', 'Vendedor', 'Atualizado em', 'Atualizado por'];
+const CAMPOS_CADASTRO = ['nome', 'doc', 'telefone', 'email', 'endereco', 'cidade', 'uf', 'cep', 'uc', 'distribuidora', 'plano', 'vendedor'];   // colunas D a O
 const ABA_PROGRAMACAO_EXT = 'PROGRAMAÇÃO';   // aba de contas a pagar da planilha de controle (a mesma de Config!B4)
 
 /** "Administrador", "T.I.", "Vendedores", "consultor"… → ti | admin | administrativo | vendedor. Vazio ou desconhecido = vendedor. */
@@ -85,6 +92,7 @@ function configurar() {
     return sh;
   };
   cria(ABA_PROPOSTAS, COLS_PROPOSTAS);
+  abaCadastro_();
   completaCabecalho_(cria(ABA_TERMOS, COLS_TERMOS), COLS_TERMOS);
   const us = cria(ABA_USUARIOS, COLS_USUARIOS);
   us.getRange(2, 3, Math.max(us.getMaxRows() - 1, 1), 1).setDataValidation(SpreadsheetApp.newDataValidation()
@@ -146,7 +154,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '8 (fluxo de caixa)';
+const VERSAO_SCRIPT = '9 (cadastro de clientes)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -176,6 +184,12 @@ function doPost(e) {
     if (req.acao === 'programacao') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
       return json(programacaoComCache_(!!req.forcar));
+    }
+    if (/^cli_/.test(req.acao)) {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para usar o cadastro de clientes', auth: true });
+      if (req.acao === 'cli_listar') return json(cadastroListar());
+      if (req.acao === 'cli_salvar') return json(cadastroSalvar(req.dados || {}, usuario));
+      if (req.acao === 'cli_excluir') return json(cadastroExcluir(req.id, usuario));
     }
     if (req.acao === 'fluxo') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
@@ -321,6 +335,15 @@ function buscarClientes(q) {
       junta(String(c.uc).replace(/\D/g, '') || norm(c.titular), c);
     });
   } catch (e) { aviso = 'não consegui ler a planilha de clientes: ' + e.message; console.error(aviso); }
+  // o cadastro de clientes do próprio portal (aba Clientes)
+  try {
+    const shC = ss.getSheetByName(ABA_CADASTRO);
+    if (shC) cadastroLinhas_(shC).forEach(r => {
+      if (!String(r[0]).trim() || !bate(r[3], r[11])) return;
+      junta(String(r[11]).replace(/\D/g, '') || norm(r[3]), { titular: r[3], uc: r[11], cidade: r[8], uf: r[9], distribuidora: r[12],
+        consultor: r[14], celular: r[5], email: r[6], plano: r[13], origem: 'Cadastro' });
+    });
+  } catch (e) { console.error('Cadastro: ' + e.message); }
   // depois os termos (mais recentes no fim): têm telefone e o contrato fechado
   const st = ss.getSheetByName(ABA_TERMOS);
   if (st && st.getLastRow() > 1) {
@@ -567,6 +590,97 @@ function lerFluxo() {
 
   return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'),
     entradas: entradas, contas: contas, repasses: repasses, custoMensal: custo, mesesAbas: meses, avisos: avisos };
+}
+
+/* =========================================================
+ * CADASTRO DE CLIENTES (aba "Clientes" desta planilha)
+ * ========================================================= */
+function abaCadastro_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(ABA_CADASTRO);
+  if (!sh) sh = ss.insertSheet(ABA_CADASTRO);
+  if (sh.getLastRow() === 0) {
+    sh.appendRow(COLS_CADASTRO);
+    sh.getRange(1, 1, 1, COLS_CADASTRO.length).setFontWeight('bold').setBackground('#3a0a8c').setFontColor('#ffffff');
+    sh.setFrozenRows(1);
+    // documento, telefone, CEP e UC como TEXTO, para não perder zeros nem virar número
+    sh.getRange(2, 4, sh.getMaxRows() - 1, 12).setNumberFormat('@');
+  }
+  return sh;
+}
+
+function cadastroLinhas_(sh) {
+  const n = sh.getLastRow() - 1;
+  return n < 1 ? [] : sh.getRange(2, 1, n, COLS_CADASTRO.length).getValues();
+}
+
+function cadastroObj_(r) {
+  const d = v => v instanceof Date ? Utilities.formatDate(v, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm') : String(v || '');
+  const o = { id: String(r[0]), criadoEm: d(r[1]), criadoPor: String(r[2] || ''), atualizadoEm: d(r[15]), atualizadoPor: String(r[16] || '') };
+  CAMPOS_CADASTRO.forEach((c, i) => { o[c] = String(r[3 + i] == null ? '' : r[3 + i]).trim(); });
+  return o;
+}
+
+function cadastroListar() {
+  const linhas = cadastroLinhas_(abaCadastro_()).filter(r => String(r[0]).trim() && String(r[3]).trim());
+  return { ok: true, clientes: linhas.map(cadastroObj_) };
+}
+
+/** Cria (sem id) ou altera (com id) um cliente. Não deixa repetir a mesma UC (ou, sem UC, o mesmo documento). */
+function cadastroSalvar(d, usuario) {
+  const txt = (v, max) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max || 200);
+  const dig = v => String(v == null ? '' : v).replace(/\D/g, '');
+  const novo = {};
+  CAMPOS_CADASTRO.forEach(c => { novo[c] = txt(d[c], c === 'endereco' ? 300 : 200); });
+  novo.uf = novo.uf.toUpperCase().slice(0, 2);
+  novo.email = novo.email.toLowerCase();
+  if (novo.nome.length < 3) return { ok: false, erro: 'informe o nome do cliente' };
+  const nd = dig(novo.doc);
+  if (nd && nd.length !== 11 && nd.length !== 14) return { ok: false, erro: 'o CPF precisa ter 11 dígitos e o CNPJ, 14' };
+  if (novo.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(novo.email)) return { ok: false, erro: 'o e-mail parece incompleto' };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = abaCadastro_(), linhas = cadastroLinhas_(sh), id = txt(d.id, 40);
+    const iAtual = id ? linhas.findIndex(r => String(r[0]) === id) : -1;
+    if (id && iAtual < 0) return { ok: false, erro: 'esse cliente não existe mais (alguém pode ter excluído). Atualize a lista.' };
+    // repetido: mesma UC; ou, sem UC, mesmo documento e mesmo nome
+    const nu = dig(novo.uc), nomeN = novo.nome.toUpperCase();
+    const rep = linhas.find((r, i) => i !== iAtual && String(r[0]).trim() && (
+      (nu.length >= 7 && dig(r[11]) === nu) || (nu.length < 7 && nd && dig(r[4]) === nd && dig(r[11]).length < 7 && String(r[3]).trim().toUpperCase() === nomeN)));
+    if (rep) return { ok: false, erro: (nu.length >= 7 ? 'essa UC já está cadastrada para ' : 'esse cliente já está cadastrado: ') + String(rep[3]), duplicado: String(rep[0]) };
+
+    const agora = new Date(), quem = usuario.nome || usuario.email;
+    const valores = CAMPOS_CADASTRO.map(c => limpa(novo[c]));
+    let linha, saida;
+    if (iAtual >= 0) {
+      linha = iAtual + 2;
+      sh.getRange(linha, 4, 1, 12).setNumberFormat('@').setValues([valores]);
+      sh.getRange(linha, 16, 1, 2).setValues([[agora, quem]]);
+    } else {
+      linha = sh.getLastRow() + 1;
+      const novoId = 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 9).toUpperCase();
+      sh.getRange(linha, 4, 1, 12).setNumberFormat('@');
+      sh.getRange(linha, 1, 1, COLS_CADASTRO.length).setValues([[novoId, agora, quem].concat(valores).concat(['', ''])]);
+    }
+    saida = cadastroObj_(sh.getRange(linha, 1, 1, COLS_CADASTRO.length).getValues()[0]);
+    return { ok: true, cliente: saida, criado: iAtual < 0 };
+  } finally { lock.releaseLock(); }
+}
+
+function cadastroExcluir(id, usuario) {
+  id = String(id || '').trim();
+  if (!id) return { ok: false, erro: 'faltou dizer qual cliente' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = abaCadastro_(), i = cadastroLinhas_(sh).findIndex(r => String(r[0]) === id);
+    if (i < 0) return { ok: true, jaNaoExistia: true };
+    console.log('Cliente excluído do cadastro: ' + id + ' por ' + (usuario.email || '?'));
+    sh.deleteRow(i + 2);
+    return { ok: true };
+  } finally { lock.releaseLock(); }
 }
 
 /** Tira do nome os números soltos de CPF/CNPJ ("60.897.570 FLAVIO" → "FLAVIO"). */

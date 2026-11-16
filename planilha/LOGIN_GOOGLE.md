@@ -41,10 +41,10 @@ decide quem pode registrar: só e-mails **ativos** na aba **Usuários**.
 
    | Perfil | O que acessa |
    |---|---|
-   | `ti` | tudo (geradores, pós-venda e análise), e ainda pode **ver como** outro perfil (só muda a tela; a planilha continua usando o perfil verdadeiro) |
-   | `admin` | tudo (geradores, pós-venda e análise) |
-   | `administrativo` | só os geradores (propostas e termos) |
-   | `vendedor` | geradores e pós-venda |
+   | `ti` | tudo (geradores, clientes, pós-venda e análise), e ainda pode **ver como** outro perfil (só muda a tela; a planilha continua usando o perfil verdadeiro) |
+   | `admin` | tudo (geradores, clientes, pós-venda e análise) |
+   | `administrativo` | geradores (propostas e termos) e cadastro de clientes |
+   | `vendedor` | geradores, cadastro de clientes e pós-venda |
 
    Perfil vazio ou diferente desses (por exemplo o antigo `consultor`) vale como **vendedor**.
    A planilha também confere o perfil: um administrativo não consegue buscar clientes do pós-venda
