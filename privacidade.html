@@ -1,13 +1,15 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
+<script>/* tema escolhido no portal (Automático / Claro / Escuro), aplicado antes de desenhar a página */try{var t=localStorage.getItem("ozz_tema");if(t==="claro")document.documentElement.setAttribute("data-theme","light");else if(t==="escuro")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Política de Privacidade – Portal OZZ Energia</title>
 <meta name="description" content="Como o Portal Interno da OZZ Energia trata os dados pessoais.">
 <style>
 :root{--bg:#f1f3f8;--card:#fff;--ink:#111827;--muted:#5b6170;--line:#e5e7eb;--p1:#1e0b4f;--p2:#3a0a8c;--p3:#1f4b8a;--link:#4c1d95}
-@media (prefers-color-scheme:dark){:root{--bg:#0f0d1a;--card:#1a1729;--ink:#ece9f5;--muted:#a19cb5;--line:#2d2842;--link:#c4b5fd}}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f0d1a;--card:#1a1729;--ink:#ece9f5;--muted:#a19cb5;--line:#2d2842;--link:#c4b5fd;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f0d1a;--card:#1a1729;--ink:#ece9f5;--muted:#a19cb5;--line:#2d2842;--link:#c4b5fd;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
 header{background:linear-gradient(100deg,var(--p1),var(--p2) 55%,var(--p3));color:#fff;padding:22px 16px}

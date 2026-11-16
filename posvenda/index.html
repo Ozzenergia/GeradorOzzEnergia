@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
+<script>/* tema escolhido no portal (Automático / Claro / Escuro), aplicado antes de desenhar a página */try{var t=localStorage.getItem("ozz_tema");if(t==="claro")document.documentElement.setAttribute("data-theme","light");else if(t==="escuro")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>OZZ Portal – Pós-venda</title>
@@ -175,6 +176,10 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
 .to-portal{color:inherit;opacity:.85;text-decoration:none;font-size:13px;font-weight:600;border:1px solid currentColor;border-radius:999px;padding:3px 10px;margin-right:10px;white-space:nowrap}
 .to-portal:hover{opacity:1}
 .embutido .to-portal{display:none}
+.tema-btn{background:rgba(255,255,255,.1);border:0;color:var(--brand-fg);font:600 14px var(--body);padding:8px 12px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.tema-btn:hover{background:rgba(255,255,255,.2)}
+.tema-btn:focus-visible{outline:2px solid var(--brand-fg);outline-offset:2px}
+.embutido .tema-btn{display:none}   /* dentro do portal, o botão do portal manda */
 .busca-cli{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:0 0 18px}
 .busca-cli input{width:100%}
 .bc-msg{font-size:13px;color:var(--muted);margin-top:8px;min-height:1px}
@@ -238,6 +243,7 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
       <button id="tab-lista" data-view="lista">Visitas</button>
       <button id="tab-ajustes" data-view="ajustes">Ajustes</button>
     </nav>
+    <button class="tema-btn" id="temaBtn" type="button">🌓</button>
   </div>
 </header>
 
@@ -510,5 +516,15 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
 <script src="lib/qrcode.js"></script>
 <script src="app.js"></script>
 <script src="busca-cliente.js"></script>
+<script>/* tema: o mesmo botão do portal (Automático → Claro → Escuro), guardado no aparelho */
+(function(){var b=document.getElementById("temaBtn");if(!b)return;
+  var T={auto:["🌓","Tema automático (segue o aparelho). Toque para claro."],claro:["☀️","Tema claro. Toque para escuro."],escuro:["🌙","Tema escuro. Toque para automático."]};
+  function atual(){try{var t=localStorage.getItem("ozz_tema");return T[t]?t:"auto"}catch(e){return "auto"}}
+  function aplicar(t){var el=document.documentElement;if(t==="claro")el.setAttribute("data-theme","light");else if(t==="escuro")el.setAttribute("data-theme","dark");else el.removeAttribute("data-theme");
+    b.textContent=T[t][0];b.title=T[t][1];b.setAttribute("aria-label",T[t][1])}
+  b.addEventListener("click",function(){var o=["auto","claro","escuro"],t=o[(o.indexOf(atual())+1)%3];try{t==="auto"?localStorage.removeItem("ozz_tema"):localStorage.setItem("ozz_tema",t)}catch(e){}aplicar(t)});
+  window.addEventListener("storage",function(e){if(e.key==="ozz_tema")aplicar(atual())});
+  aplicar(atual());
+})();</script>
 </body>
 </html>
