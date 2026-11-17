@@ -132,6 +132,16 @@ main.wide{max-width:1180px}
 .cli-fatura span{flex:1;min-width:200px;line-height:1.45}
 .cli-fatura span.ok{color:var(--ink)}.cli-fatura span.err{color:var(--err)}
 .cli-grid .f input.da-fatura,.cli-grid .f select.da-fatura{background:var(--primary-soft);border-color:var(--primary-line)}
+.cli-pick{background:var(--primary-soft);border:1px solid var(--primary-line);border-radius:12px;padding:12px 14px;margin:0 0 14px}
+.cli-pick label{display:block;font-weight:600;font-size:14px;margin-bottom:6px;color:var(--ink)}
+.cli-pick input{width:100%;font:inherit;font-size:14px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.cli-pick-lista{display:grid;gap:6px;margin-top:8px}.cli-pick-lista:empty{display:none}
+.cli-pick-lista button{text-align:left;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font:inherit;cursor:pointer}
+.cli-pick-lista button:hover,.cli-pick-lista button:focus-visible{border-color:var(--primary-line)}
+.cli-pick-lista small{display:block;color:var(--muted);font-size:12.5px}
+.cli-pick-st{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.45}.cli-pick-st:empty{display:none}
+.cli-pick-st.ok{color:var(--ink)}
+.do-cadastro{box-shadow:inset 0 0 0 2px var(--primary-line)!important}
 .cli-acoes{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}
 .cli-acoes .st{font-size:13.5px;color:var(--muted)}
 .cli-acoes .st.err{color:var(--err)}
@@ -452,7 +462,7 @@ body.locked{overflow:hidden}
         <div class="loading" id="fatLoad"><div class="spin"></div><strong>Lendo a fatura...</strong><p id="fatProg">Extraindo dados do cliente, da UC e do consumo</p></div>
         <div class="alert" id="fatErr"></div>
       </div>
-      <div class="actions" style="justify-content:center"><button class="linkbtn" id="skipFat">ou preencher manualmente sem fatura</button></div>
+      <div class="actions" style="justify-content:center;gap:18px;flex-wrap:wrap"><button class="linkbtn" id="skipFat">ou preencher manualmente sem fatura</button><button class="linkbtn" id="ppComCliente">👥 começar por um cliente cadastrado</button></div>
     </div>
 
     <div id="pp2" class="hidden">
@@ -461,6 +471,12 @@ body.locked{overflow:hidden}
         <div class="alert warn" id="minWarn"></div>
 
         <div class="sec-t">Dados do cliente</div>
+        <div class="cli-pick" id="ppPick">
+          <label for="ppPickQ">👥 Usar cliente cadastrado</label>
+          <input type="search" id="ppPickQ" placeholder="Buscar por nome, CPF/CNPJ ou UC" autocomplete="off">
+          <div class="cli-pick-lista" id="ppPickLista"></div>
+          <div class="cli-pick-st" id="ppPickSt" aria-live="polite"></div>
+        </div>
         <div class="g2">
           <div class="f wide"><label>Nome completo</label><input id="fx_titular"></div>
           <div class="f"><label>CPF</label><input id="fx_cpf" inputmode="numeric"></div>
@@ -611,7 +627,7 @@ body.locked{overflow:hidden}
       <div class="loading" id="load1"><div class="spin"></div><strong id="loadT">Analisando a proposta...</strong><p id="load1Prog">Extraindo dados do cliente e da unidade consumidora</p></div>
       <div class="alert" id="err1"></div>
     </div>
-    <div class="actions" style="justify-content:center"><button class="linkbtn" id="termoManual">ou preencher manualmente</button></div>
+    <div class="actions" style="justify-content:center;gap:18px;flex-wrap:wrap"><button class="linkbtn" id="termoManual">ou preencher manualmente</button><button class="linkbtn" id="tmComCliente">👥 começar por um cliente cadastrado</button></div>
   </div>
 
   <div id="p2" class="hidden">
@@ -627,6 +643,12 @@ body.locked{overflow:hidden}
     </div>
     <div class="card">
       <h3 id="extTitle">🔍 Dados extraídos da proposta</h3>
+      <div class="cli-pick" id="tmPick">
+          <label for="tmPickQ">👥 Usar cliente cadastrado</label>
+          <input type="search" id="tmPickQ" placeholder="Buscar por nome, CPF/CNPJ ou UC" autocomplete="off">
+          <div class="cli-pick-lista" id="tmPickLista"></div>
+          <div class="cli-pick-st" id="tmPickSt" aria-live="polite"></div>
+        </div>
       <div class="legend">
         <span><i style="background:var(--ok-soft);border:1px solid var(--ok)"></i><b>Preenchido automaticamente</b> do documento enviado</span>
         <span><i style="background:var(--warn-soft);border:1px solid var(--warn)"></i><b>Preencher manualmente</b> (ficará em amarelo no Word)</span>
@@ -1515,6 +1537,73 @@ $('cliCorpo').addEventListener('click',async e=>{
   $('cliSub').textContent='✓ Cliente excluído: '+c.nome;
 });
 
+/* ===== Escolher um cliente do cadastro nos geradores ===== */
+async function cliGarantirLista(){
+  if(cli.lista)return cli.lista;
+  const r=await sheetApi('cli_listar',{},{espera:60000});
+  if(r&&r.ok){cli.lista=r.clientes;return cli.lista}
+  throw new Error((r&&r.erro)||'não foi possível ler o cadastro');
+}
+/** Liga uma caixa de busca do cadastro a um formulário. preencher(c) devolve {pos:[...], dif:[...]} */
+function seletorCliente(pre,preencher){
+  const q=$(pre+'PickQ'),lista=$(pre+'PickLista'),st=$(pre+'PickSt');
+  const sem=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  let vez=0;
+  const buscar=async()=>{
+    const t=q.value.trim(),tn=sem(t),td=soDig(t),minha=++vez;lista.innerHTML='';
+    if(tn.length<2&&td.length<3){st.textContent='';st.className='cli-pick-st';return}
+    st.className='cli-pick-st';st.textContent='Buscando…';
+    let todos;try{todos=await cliGarantirLista()}catch(e){if(minha===vez)st.textContent='⚠️ '+e.message;return}
+    if(minha!==vez)return;
+    const ach=todos.filter(c=>sem(c.nome).includes(tn)||(td.length>=3&&(soDig(c.doc).includes(td)||soDig(c.uc).includes(td)))).slice(0,8);
+    st.textContent=ach.length?'':'Nenhum cliente cadastrado com “'+t+'”.';
+    lista.innerHTML=ach.map((c,i)=>`<button type="button" data-i="${i}"><b>${anaEsc(c.nome)}</b><small>${anaEsc([c.doc,c.uc?'UC '+c.uc:'',c.cidade?(c.cidade+(c.uf?'/'+c.uf:'')):''].filter(Boolean).join(' · '))}</small></button>`).join('');
+    lista.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+      const c=ach[+b.dataset.i],r=preencher(c);lista.innerHTML='';q.value='';
+      const partes=[];
+      partes.push(r.pos.length?'✓ '+c.nome+': preenchi '+r.pos.join(', ')+'.':'✓ '+c.nome+': os campos já estavam preenchidos.');
+      if(r.dif.length)partes.push('Mantive o que já estava em: '+r.dif.join('; ')+'.');
+      st.className='cli-pick-st ok';st.textContent=partes.join(' ');
+    });
+  };
+  let tm=null;q.addEventListener('input',()=>{clearTimeout(tm);tm=setTimeout(buscar,250)});
+  q.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();clearTimeout(tm);buscar()}});
+  return {limpar(){q.value='';lista.innerHTML='';st.textContent='';st.className='cli-pick-st'},focar(){q.focus()}};
+}
+/** Coloca os valores só nos campos vazios; o que já está preenchido fica e entra na lista de diferenças. */
+function preencherCampos(mapa){
+  const pos=[],dif=[];
+  mapa.forEach(([el,valor,rot,aoMudar])=>{
+    if(!el)return;const v=String(valor||'').trim();if(!v)return;
+    const atual=el.value.trim();
+    if(!atual){el.value=v;el.classList.add('do-cadastro');el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));if(aoMudar)aoMudar(el);pos.push(rot)}
+    else if(soDig(atual)!==soDig(v)||(!soDig(v)&&sem2(atual)!==sem2(v)))dif.push(`${rot} (no cadastro: ${v})`);
+  });
+  return {pos,dif};
+}
+const sem2=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+// Proposta
+const pickProp=seletorCliente('pp',c=>{
+  const doc=soDig(c.doc);
+  return preencherCampos([
+    [$('fx_titular'),c.nome,'nome'],
+    [doc.length===11?$('fx_cpf'):null,c.doc,'CPF'],[doc.length===14?$('fx_cnpj'):null,c.doc,'CNPJ'],
+    [$('fx_endereco'),c.endereco,'endereço'],[$('fx_cep'),c.cep,'CEP'],[$('fx_cidade'),c.cidade,'cidade'],[$('fx_uf'),c.uf,'UF'],
+    [$('fx_codigo_uc'),c.uc,'UC'],[$('fx_distribuidora'),c.distribuidora,'distribuidora']]);
+});
+// Termo
+const pickTermo=seletorCliente('tm',c=>{
+  const ma=el=>el.classList.toggle('empty',!el.value.trim());
+  return preencherCampos([
+    [$(tid('titular')),c.nome,'nome',ma],[$(tid('documento')),c.doc,'CPF/CNPJ',ma],
+    [$(tid('endereco')),c.endereco,'endereço',ma],[$(tid('cep')),c.cep,'CEP',ma],
+    [$(tid('cidade')),c.cidade?(c.cidade+(c.uf?'/'+c.uf:'')):'','cidade/UF',ma],
+    [$(tid('codigo_uc')),c.uc,'UC',ma],[$(tid('distribuidora')),c.distribuidora,'distribuidora',ma],
+    [$(tid('celular')),c.telefone,'celular',ma],[$(tid('email')),c.email,'e-mail',ma]]);
+});
+$('ppComCliente').onclick=()=>{$('skipFat').click();setTimeout(()=>pickProp.focar(),50)};
+$('tmComCliente').onclick=()=>{$('termoManual').click();setTimeout(()=>pickTermo.focar(),50)};
+
 /* ===== Análise · Fluxo de caixa ===== */
 const fx={dados:null,periodo:null,modo:'tudo',custos:true,tipo:'todos',carregando:false};
 const MESES_NOME=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -1945,6 +2034,7 @@ function bindMark(el,cb){const mk=()=>el.classList.toggle('empty',!el.value.trim
   el.addEventListener('input',()=>{mk();cb&&cb()});el.addEventListener('change',()=>{mk();cb&&cb()})}
 
 function openReview(d,warn,leitura){
+  try{pickProp.limpar();document.querySelectorAll('#pp2 .do-cadastro').forEach(e=>e.classList.remove('do-cadastro'))}catch(e){}
   propData={...d};
   propData.numero_proposta=fmtNum(cfg.next);
   for(const[k,m]of Object.entries(KNOWN))if(m.def&&!propData[k])propData[k]=m.def;
@@ -2305,6 +2395,7 @@ async function lookupProposta(){
   }
 }
 function openTermo(d,src,warn,srcMap){
+  try{pickTermo.limpar();document.querySelectorAll('.do-cadastro').forEach(e=>e.classList.remove('do-cadastro'))}catch(e){}
   tagSources(srcMap||null);
   setTimeout(lookupProposta,0);
   d.data_assinatura=d.data_assinatura||isoHoje();
@@ -2377,8 +2468,9 @@ $('btnGen').onclick=async()=>{
     const V=termoValues();
     const reg=await sheetApi('termo',{dados:{num_proposta:V.num_proposta,consultor:consultorAtual(),titular:V.titular,documento:V.documento,codigo_uc:V.codigo_uc,
       distribuidora:V.distribuidora,classe_uc:V.classe_uc,endereco:V.endereco,cidade:V.cidade,consumo:V.consumo,modalidade:V.modalidade,
-      data_assinatura:dataBR(V.data_assinatura),rep_nome:V.rep_nome,celular:V.celular||'',email:V.email||''}});
-    sheetStatus('termoSheetSt',reg,'✅ Registrado na planilha.');
+      data_assinatura:dataBR(V.data_assinatura),rep_nome:V.rep_nome,celular:V.celular||'',email:V.email||'',cep:V.cep||'',bairro:V.bairro||''}});
+    sheetStatus('termoSheetSt',reg,'✅ Registrado na planilha.'+({criado:' Cliente adicionado ao cadastro.',completado:' Cadastro do cliente completado.',igual:' Cliente já estava no cadastro.'}[reg&&reg.cadastro]||''));
+    if(reg&&(reg.cadastro==='criado'||reg.cadastro==='completado'))cli.lista=null;   // a Tabela de clientes relê na próxima vez
     $('load3').style.display='none';$('done').classList.remove('hidden');
   }catch(e){$('load3').style.display='none';$('err3').textContent='⚠️ Erro ao gerar o documento: '+e.message;$('err3').style.display='block'}
 };

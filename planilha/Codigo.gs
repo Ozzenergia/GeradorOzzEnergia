@@ -154,7 +154,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '9 (cadastro de clientes)';
+const VERSAO_SCRIPT = '10 (termo entra no cadastro)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -179,7 +179,12 @@ function doPost(e) {
       return json({ ok: false, erro: 'o perfil ' + PERFIS_[usuario.perfil].nome + ' não tem acesso a ' + NOME_AREA_[area], perfil: true });
     if (usuario.nome && req.dados) req.dados.consultor = usuario.nome; // o nome vem do login, não do navegador
     if (req.acao === 'proposta') return json(registrarProposta(req.dados || {}));
-    if (req.acao === 'termo') return json(registrarTermo(req.dados || {}));
+    if (req.acao === 'termo') {
+      const r = registrarTermo(req.dados || {});
+      // o cliente do termo entra sozinho no cadastro (nunca impede o registro do termo)
+      try { r.cadastro = cadastroDoTermo_(req.dados || {}, usuario); } catch (e) { console.error('Cadastro pelo termo: ' + e.message); r.cadastro = 'erro'; }
+      return json(r);
+    }
     if (req.acao === 'buscar') return json(buscarPorUC(req.uc));
     if (req.acao === 'programacao') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
@@ -595,6 +600,62 @@ function lerFluxo() {
 /* =========================================================
  * CADASTRO DE CLIENTES (aba "Clientes" desta planilha)
  * ========================================================= */
+
+/**
+ * Cliente de um termo gerado → cadastro. Procura pela UC (ou, sem UC, pelo documento + nome).
+ * Já cadastrado: só completa os campos vazios (não apaga o que alguém editou). Novo: cria.
+ * Devolve 'criado' | 'completado' | 'igual' | 'sem dados'.
+ */
+function cadastroDoTermo_(d, usuario) {
+  const txt = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  const dig = v => String(v == null ? '' : v).replace(/\D/g, '');
+  const nome = txt(d.titular);
+  if (nome.length < 3) return 'sem dados';
+  let doc = txt(d.documento);
+  if (/\*/.test(doc) || [11, 14].indexOf(dig(doc).length) < 0) doc = '';   // CPF escondido da fatura (******.080-**) não serve
+  const cu = txt(d.cidade).split('/');
+  let dist = txt(d.distribuidora).split('/')[0].trim();
+  if (/^RGE/i.test(dist)) dist = 'RGE';
+  const endereco = [txt(d.endereco), txt(d.bairro)].filter(Boolean).join(', ');
+  // o plano vem da proposta (pelo número dela)
+  let plano = '';
+  try {
+    const np = txt(d.num_proposta), sp = SpreadsheetApp.getActive().getSheetByName(ABA_PROPOSTAS);
+    if (np && sp && sp.getLastRow() > 1) {
+      const v = sp.getRange(2, 1, sp.getLastRow() - 1, 15).getValues();
+      for (let i = v.length - 1; i >= 0; i--) if (String(v[i][1]).trim() === np) { plano = txt(v[i][14]); break; }
+    }
+  } catch (e) {}
+  const novo = { nome: nome, doc: doc, telefone: txt(d.celular), email: txt(d.email).toLowerCase(), endereco: endereco,
+    cidade: txt(cu[0]), uf: txt(cu[1]).toUpperCase().slice(0, 2), cep: txt(d.cep), uc: txt(d.codigo_uc), distribuidora: dist,
+    plano: plano, vendedor: txt(d.consultor) };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = abaCadastro_(), linhas = cadastroLinhas_(sh), nu = dig(novo.uc), nd = dig(novo.doc);
+    const i = linhas.findIndex(r => String(r[0]).trim() && (
+      (nu.length >= 7 && dig(r[11]) === nu) || (nu.length < 7 && nd && dig(r[4]) === nd && String(r[3]).trim().toUpperCase() === nome.toUpperCase())));
+    const quem = (usuario.nome || usuario.email || '') + ' (termo)', agora = new Date();
+    if (i < 0) {
+      const novoId = 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 9).toUpperCase(), linha = sh.getLastRow() + 1;
+      sh.getRange(linha, 4, 1, 12).setNumberFormat('@');
+      sh.getRange(linha, 1, 1, COLS_CADASTRO.length).setValues([[novoId, agora, quem].concat(CAMPOS_CADASTRO.map(c => limpa(novo[c]))).concat(['', ''])]);
+      return 'criado';
+    }
+    const atual = linhas[i];
+    let mudou = false;
+    const valores = CAMPOS_CADASTRO.map((c, k) => {
+      const v = atual[3 + k];
+      if (String(v == null ? '' : v).trim() === '' && novo[c]) { mudou = true; return limpa(novo[c]); }
+      return v;
+    });
+    if (!mudou) return 'igual';
+    sh.getRange(i + 2, 4, 1, 12).setNumberFormat('@').setValues([valores]);
+    sh.getRange(i + 2, 16, 1, 2).setValues([[agora, quem]]);
+    return 'completado';
+  } finally { lock.releaseLock(); }
+}
 function abaCadastro_() {
   const ss = SpreadsheetApp.getActive();
   let sh = ss.getSheetByName(ABA_CADASTRO);
