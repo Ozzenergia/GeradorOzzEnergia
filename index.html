@@ -394,7 +394,7 @@ main.wide{max-width:1180px}
 .ver-como select option{color:#111}
 .vendo-como{background:#fff4d6;color:#5b4300;border-bottom:1px solid #f0d58a;font-size:14px;text-align:center;padding:8px 16px}
 .vendo-como button{margin-left:8px;border:1px solid #c9a227;background:#fff;color:#5b4300;font:600 13px Outfit,sans-serif;border-radius:999px;padding:3px 12px;cursor:pointer}
-.mcat.sem-acesso{display:none}
+.mcat.sem-acesso,.drop-menu button.sem-acesso{display:none}
 @media(max-width:640px){.ver-como span{display:none}.perfil-tag{display:none}.ver-como select{max-width:120px}
   .hd-right{flex-wrap:wrap;justify-content:flex-end;gap:6px}
   .user-chip #userName{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
@@ -724,7 +724,7 @@ body.locked{overflow:hidden}
 <!-- =================== ANÁLISE · PROGRAMAÇÃO =================== -->
 <section id="tab-analise" class="hidden">
   <div class="ana-top">
-    <div><h2>Programação de contas</h2><p id="anaSub">Contas de energia da aba PROGRAMAÇÃO da planilha de controle</p></div>
+    <div><h2>Contas a pagar</h2><p id="anaSub">Contas de energia da aba PROGRAMAÇÃO da planilha de controle</p></div>
     <button class="btn sec sm" id="anaAtualizar" type="button">↻ Atualizar</button>
   </div>
   <div class="alert" id="anaErro"></div>
@@ -1183,7 +1183,9 @@ function aplicarPerfil(){
   try{
     const ok=areasPermitidas();
     document.querySelectorAll('.mcat').forEach(m=>m.classList.toggle('sem-acesso',!ok.includes(m.dataset.cat)));
-    if(!ok.includes(catAtual))abrir(ok[0]);
+    document.querySelectorAll('.drop-menu button[data-area]').forEach(b=>b.classList.toggle('sem-acesso',!ok.includes(b.dataset.area)));
+    const atual=MENU[catAtual]&&MENU[catAtual].itens.find(i=>i.id===ultimoItem[catAtual]);
+    if(!ok.includes(catAtual)||(atual&&atual.area&&!ok.includes(atual.area)))abrir(ok.includes(catAtual)?catAtual:ok[0],ok.includes(catAtual)?MENU[catAtual].itens[0].id:null);
     else{const it=MENU[catAtual].itens.find(i=>i.id===ultimoItem[catAtual]);if(it&&it.aoAbrir&&sessao())setTimeout(it.aoAbrir,0)}
   }catch(e){} // o menu ainda não foi montado
 }
@@ -1842,25 +1844,27 @@ const MENU={
     {id:'termo',ic:'📄',nome:'Termo de Adesão',desc:'Termo preenchido a partir da proposta ou da fatura',sec:'tab-termo'}]},
   cli:{nome:'👥 Clientes',itens:[
     {id:'tabela',ic:'🗂️',nome:'Tabela de clientes',desc:'Consultar, buscar, alterar e excluir clientes',sec:'tab-clientes',largo:true,aoAbrir:()=>cliAbrir()},
-    {id:'registrar',ic:'➕',nome:'Registrar cliente',desc:'Cadastrar um cliente novo (dá para preencher pela fatura)',sec:'tab-cli-reg',largo:true,aoAbrir:()=>cliAbrirRegistro()}]},
+    {id:'registrar',ic:'➕',nome:'Registrar cliente',desc:'Cadastrar um cliente novo (dá para preencher pela fatura)',sec:'tab-cli-reg',largo:true,aoAbrir:()=>cliAbrirRegistro()},
+    // area: só aparece para quem tem acesso à Análise (TI e Admin), porque mostra valores da empresa
+    {id:'contas',ic:'🗓️',nome:'Contas a pagar',desc:'Contas de energia: vencimentos, valores e usinas',sec:'tab-analise',largo:true,area:'ana',aoAbrir:()=>anaAbrir()}]},
   pos:{nome:'🤝 Pós-venda',itens:[
     {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
   ana:{nome:'📈 Análise',itens:[
-    {id:'prog',ic:'🗓️',nome:'Programação',desc:'Contas de energia a pagar: vencimentos, valores e usinas',sec:'tab-analise',largo:true,aoAbrir:()=>anaAbrir()},
     {id:'fluxo',ic:'💰',nome:'Fluxo de caixa',desc:'Entradas, saídas e saldo mês a mês',sec:'tab-fluxo',largo:true,aoAbrir:()=>fxAbrir()}]}
 };
 const nav=document.querySelector('nav.nwrap');
 nav.innerHTML=Object.entries(MENU).map(([c,v])=>`<div class="mcat" data-cat="${c}">
   <button class="tab" type="button" aria-haspopup="true" aria-expanded="false">${v.nome.replace(/^(\S+)\s/,'<span class="tab-ic" aria-hidden="true">$1</span> ')} <span class="chev">▾</span></button>
-  <div class="drop-menu" role="menu">${v.itens.map(i=>`<button type="button" role="menuitem" data-item="${i.id}"><span class="ic">${i.ic}</span><span><b>${i.nome}</b><small>${i.desc}</small></span></button>`).join('')}</div>
+  <div class="drop-menu" role="menu">${v.itens.map(i=>`<button type="button" role="menuitem" data-item="${i.id}"${i.area?` data-area="${i.area}"`:''}><span class="ic">${i.ic}</span><span><b>${i.nome}</b><small>${i.desc}</small></span></button>`).join('')}</div>
 </div>`).join('');
 const ultimoItem={};let catAtual='ger';
 function fecharMenus(){document.querySelectorAll('.mcat.open').forEach(m=>{m.classList.remove('open');m.querySelector('.tab').setAttribute('aria-expanded','false')})}
 function abrir(cat,item,semHash){
   fichaFechar();
+  if(cat==='ana'&&item==='prog'){cat='cli';item='contas'}   // endereço antigo da Programação
   if(!MENU[cat])cat='ger';
   const pode=areasPermitidas();if(!pode.includes(cat)){cat=pode[0];item=null}
-  const itens=MENU[cat].itens;item=itens.find(i=>i.id===item)||itens.find(i=>i.id===ultimoItem[cat])||itens[0];
+  const itens=MENU[cat].itens.filter(i=>!i.area||pode.includes(i.area));item=itens.find(i=>i.id===item)||itens.find(i=>i.id===ultimoItem[cat])||itens[0];
   ultimoItem[cat]=item.id;catAtual=cat;
   document.querySelectorAll('.mcat').forEach(m=>m.querySelector('.tab').classList.toggle('active',m.dataset.cat===cat));
   document.querySelectorAll('.drop-menu button[data-item]').forEach(b=>b.classList.toggle('on',b.dataset.item===item.id));
