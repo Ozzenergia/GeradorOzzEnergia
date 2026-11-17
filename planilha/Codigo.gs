@@ -33,7 +33,7 @@ const PERFIS_ = {
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos', 'cli'] }
 };
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -118,6 +118,11 @@ function configurar() {
     cfg.getRange('B4').setValue(PLANILHA_CLIENTES_PADRAO);
     cfg.getRange('C4').setValue('← ID ou link da planilha com a aba CLIENTES (busca do pós-venda). Vazio = não usa');
   }
+  if (!String(cfg.getRange('A5').getValue())) {
+    cfg.getRange('A5:A6').setValues([['Importador: endereço'], ['Importador: chave']]).setFontWeight('bold');
+    cfg.getRange('C5').setValue('← URL do App da Web da planilha de controle (arquivo PortalImportar)');
+    cfg.getRange('C6').setValue('← chave que a função configurarPortal mostrou na planilha de controle');
+  }
   try { lerClientesExternos_(true); } catch (e) { Logger.log('Planilha de clientes: ' + e.message); } // pede a autorização de leitura já agora
   // deixa a Análise rápida: lê a PROGRAMAÇÃO agora e de 10 em 10 minutos
   try {
@@ -154,7 +159,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '11 (ficha do cliente)';
+const VERSAO_SCRIPT = '12 (importar contas pelo portal)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -196,6 +201,10 @@ function doPost(e) {
       if (req.acao === 'cli_salvar') return json(cadastroSalvar(req.dados || {}, usuario));
       if (req.acao === 'cli_excluir') return json(cadastroExcluir(req.id, usuario));
       if (req.acao === 'cli_ficha') return json(cadastroFicha(req.id, usuario));
+    }
+    if (req.acao === 'importar_contas' || req.acao === 'importar_status') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para importar as contas', auth: true });
+      return json(importador_(req.acao === 'importar_contas' ? 'importar' : 'status', usuario));
     }
     if (req.acao === 'fluxo') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
@@ -812,6 +821,39 @@ function cadastroFicha(id, usuario) {
     }
   }
   return out;
+}
+
+/**
+ * Botão "Importar contas do e-mail": pede à planilha de controle (arquivo PortalImportar, publicado como App da Web)
+ * para rodar o importador da CPFL. A chave fica em Config!B6 e nunca vai para o navegador.
+ * A importação roda em segundo plano lá; o portal só pergunta como está.
+ */
+function importador_(acao, usuario) {
+  const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
+  const url = cfg ? String(cfg.getRange('B5').getValue() || '').trim() : '';
+  const chave = cfg ? String(cfg.getRange('B6').getValue() || '').trim() : '';
+  if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url) || !chave)
+    return { ok: false, naoConfigurado: true, erro: 'o botão ainda não foi ligado: falta o endereço (Config!B5) ou a chave (Config!B6) do importador na planilha do portal' };
+  let r;
+  try {
+    const resp = UrlFetchApp.fetch(url, { method: 'post', contentType: 'text/plain', muteHttpExceptions: true, followRedirects: true,
+      payload: JSON.stringify({ acao: acao, chave: chave, quem: usuario.nome || usuario.email }) });
+    r = JSON.parse(resp.getContentText());
+  } catch (e) {
+    return { ok: false, erro: 'a planilha de controle não respondeu (confira se o App da Web está implantado com acesso "Qualquer pessoa")' };
+  }
+  if (!r || !r.ok) return { ok: false, erro: (r && r.erro) || 'resposta inválida da planilha de controle' };
+  const est = r.estado || {};
+  // terminou com contas novas: lê a PROGRAMAÇÃO de novo para Contas a pagar e a ficha já mostrarem
+  if (est.estado === 'pronto' && est.importadas > 0) {
+    const props = PropertiesService.getScriptProperties();
+    if (String(props.getProperty('IMPORT_CACHE_FIM') || '') !== String(est.fimEm)) {
+      props.setProperty('IMPORT_CACHE_FIM', String(est.fimEm));
+      try { programacaoComCache_(true); } catch (e) { console.error('Cache após importar: ' + e.message); }
+    }
+  }
+  if (acao === 'importar') console.log('Importação de contas pedida pelo portal por ' + (usuario.email || '?'));
+  return { ok: true, estado: est, jaEmAndamento: !!r.jaEmAndamento };
 }
 
 /** Tira do nome os números soltos de CPF/CNPJ ("60.897.570 FLAVIO" → "FLAVIO"). */
