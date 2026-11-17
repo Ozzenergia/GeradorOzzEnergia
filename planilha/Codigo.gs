@@ -159,7 +159,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '13 (marcar conta paga pelo site)';
+const VERSAO_SCRIPT = '14 (data de pagamento)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -818,7 +818,7 @@ function cadastroFicha(id, usuario) {
       if (!p.ok) out.avisos.push('não consegui ler a PROGRAMAÇÃO: ' + p.erro);
       else out.contas = { hoje: p.hoje, lidoEm: p.lidoEm, lista: p.contas.filter(k => ucs[dig(k.uc)] || ucs[dig(k.ucAntiga)])
         .sort((a, b) => (b.venc || '').localeCompare(a.venc || '')).slice(0, 36)
-        .map(k => ({ linha: k.linha, nome: k.nome, mes: k.mes, venc: k.venc, valor: k.valor, situacao: k.situacao, usinaCod: k.usinaCod, usinaNome: k.usinaNome, link: k.link, pix: k.pix, uc: k.uc })) };
+        .map(k => ({ linha: k.linha, nome: k.nome, mes: k.mes, venc: k.venc, valor: k.valor, situacao: k.situacao, pagoEm: k.pagoEm, usinaCod: k.usinaCod, usinaNome: k.usinaNome, link: k.link, pix: k.pix, uc: k.uc })) };
     }
   }
   return out;
@@ -940,7 +940,7 @@ function lerProgramacao(ssAberta) {
   const cab = v[0].map(up), col = n => cab.indexOf(n);
   const C = { nome: col('NOME DO TITULAR'), uc: col('NUMERO DA UC'), ucAnt: col('UC ANTIGA'), cidade: col('CIDADE'), mes: col('MES DE REFERENCIA'),
     venc: col('DATA DE VENCIMENTO'), valor: col('VALOR DA CONTA'), email: col('DATA DO E MAIL'), link: col('LINK DE ACESSO A CONTA'),
-    pix: col('PIX COPIA E COLA'), sit: col('SITUACAO'), usCod: col('CODIGO USINA'), usNome: col('NOME USINA') };
+    pix: col('PIX COPIA E COLA'), sit: col('SITUACAO'), usCod: col('CODIGO USINA'), usNome: col('NOME USINA'), pago: col('DATA DE PAGAMENTO') };
   if (C.nome < 0 || C.venc < 0) return { ok: false, erro: 'não achei as colunas NOME DO TITULAR e DATA DE VENCIMENTO na aba ' + ABA_PROGRAMACAO_EXT };
   const txt = (r, i) => i < 0 ? '' : (r[i] instanceof Date ? Utilities.formatDate(r[i], tz, 'dd/MM/yyyy') : String(r[i] == null ? '' : r[i]).trim());
   const dataISO = x => x instanceof Date ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : (String(x || '').match(/^(\d{2})\/(\d{2})\/(\d{4})/) ? String(x).replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1') : '');
@@ -952,14 +952,16 @@ function lerProgramacao(ssAberta) {
     base.contas.push({ linha: i + 1, nome: nome, uc: txt(r, C.uc), ucAntiga: txt(r, C.ucAnt), cidade: txt(r, C.cidade), mes: mes,
       venc: dataISO(r[C.venc]), valor: C.valor >= 0 && typeof r[C.valor] === 'number' ? r[C.valor] : null,
       link: /^https:\/\//i.test(link) ? link : '', pix: txt(r, C.pix),
-      situacao: (txt(r, C.sit) || 'AGENDADO').toUpperCase(), usinaCod: txt(r, C.usCod).replace(/\.0+$/, ''), usinaNome: txt(r, C.usNome) });
+      situacao: (txt(r, C.sit) || 'AGENDADO').toUpperCase(), usinaCod: txt(r, C.usCod).replace(/\.0+$/, ''), usinaNome: txt(r, C.usNome), pagoEm: txt(r, C.pago) });
   }
   return base;
 }
 
 /**
  * Marca uma conta da PROGRAMAÇÃO como PAGO (ou volta para AGENDADO) pelo site — é a ÚNICA escrita na planilha de controle.
- * Grava só a célula SITUAÇÃO daquela conta e deixa uma nota nela com quem marcou e quando.
+ * Grava a SITUAÇÃO daquela conta (com uma nota de quem marcou e quando) e a DATA DE PAGAMENTO
+ * (dia em que pagamos a RGE = dia em que marcou PAGO; desmarcar apaga). Se a coluna DATA DE PAGAMENTO
+ * não existir, ela é criada no fim da aba.
  * Confere se a linha ainda é a mesma conta (alguém pode ter ordenado a aba); se não for, procura a conta pelo nome/vencimento/link/PIX.
  * A conta que implantou o script do portal precisa ter permissão de EDIÇÃO na planilha de controle.
  */
@@ -994,10 +996,21 @@ function programacaoSituacao(req, usuario) {
     }
     if (!linha) return { ok: false, erro: 'não achei esta conta na PROGRAMAÇÃO (pode ter sido apagada ou alterada). Clique em Atualizar.' };
     const cel = sh.getRange(linha, C.sit + 1);
+    const agora = new Date();
+    const pagoEm = sit === 'PAGO' ? Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy') : '';
     try {
       cel.setValue(sit);
-      const quando = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm');
+      const quando = Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm');
       cel.setNote((sit === 'PAGO' ? 'Marcado PAGO' : 'Voltou para AGENDADO') + ' pelo portal por ' + (usuario.nome || usuario.email) + ' em ' + quando);
+      let cPago = cab.indexOf('DATA DE PAGAMENTO');
+      if (cPago < 0) {   // primeira vez: cria a coluna no fim, sem mexer nas outras
+        cPago = larg;
+        sh.getRange(1, cPago + 1).setValue('DATA DE PAGAMENTO').setFontWeight('bold');
+        sh.getRange(2, cPago + 1, Math.max(sh.getMaxRows() - 1, 1), 1).setNumberFormat('dd/MM/yyyy');
+      }
+      const cd = sh.getRange(linha, cPago + 1);
+      if (sit === 'PAGO') cd.setValue(Utilities.parseDate(pagoEm + ' 12:00', 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm')).setNumberFormat('dd/MM/yyyy');
+      else cd.clearContent();
     } catch (e) {
       return { ok: false, erro: 'sem permissão para editar a planilha de controle: compartilhe ela como Editor com a conta que implantou o script do portal' };
     }
@@ -1006,11 +1019,11 @@ function programacaoSituacao(req, usuario) {
       const c = lerCacheGrande_(CACHE_PROG_);
       if (c && c.contas) {
         const it = c.contas.find(x => x.linha === linha && up(x.nome) === up(k.nome)) || c.contas.find(x => up(x.nome) === up(k.nome) && x.venc === k.venc);
-        if (it) { it.situacao = sit; delete c.doCache; gravarCacheGrande_(CACHE_PROG_, c); }
+        if (it) { it.situacao = sit; it.pagoEm = pagoEm; delete c.doCache; gravarCacheGrande_(CACHE_PROG_, c); }
       }
     } catch (e) {}
     console.log('Situação ' + sit + ' na linha ' + linha + ' da PROGRAMAÇÃO por ' + usuario.email);
-    return { ok: true, linha: linha, situacao: sit };
+    return { ok: true, linha: linha, situacao: sit, pagoEm: pagoEm };
   } finally { lock.releaseLock(); }
 }
 

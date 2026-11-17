@@ -1342,7 +1342,7 @@ function anaClasse(c){   // mesma regra das cores da planilha
   return c.dias<0?'venc':c.dias<=3?'p3':c.dias<=7?'p7':'';
 }
 function anaRotulo(c){
-  if(c.situacao==='PAGO')return 'Pago';
+  if(c.situacao==='PAGO')return c.pagoEm?'Pago em '+c.pagoEm.slice(0,5):'Pago';
   if(c.dias==null)return c.situacao||'Agendado';
   if(c.dias<0)return 'Vencida há '+(-c.dias)+(c.dias===-1?' dia':' dias');
   if(c.dias===0)return 'Vence hoje';
@@ -1438,9 +1438,10 @@ async function pagoAlternar(inp,lista,onde){
   if(!r||!r.ok){inp.checked=!inp.checked;pagoErro(onde,(r&&r.erro)||'não foi possível gravar na planilha');return}
   // atualiza as duas telas (Contas a pagar e a ficha) com o que foi gravado
   const igual=x=>x.nome===c.nome&&x.venc===c.venc&&(x.linha===c.linha||x.link===c.link);
-  if(ana.dados)ana.dados.contas.filter(igual).forEach(x=>{x.situacao=r.situacao;x.linha=r.linha;ana.fixas.add(x)});
-  Object.values(ficha.cache).forEach(f=>f.contas&&f.contas.lista.filter(igual).forEach(x=>{x.situacao=r.situacao;x.linha=r.linha}));
-  c.situacao=r.situacao;c.linha=r.linha;
+  const pe=r.pagoEm||'';
+  if(ana.dados)ana.dados.contas.filter(igual).forEach(x=>{x.situacao=r.situacao;x.pagoEm=pe;x.linha=r.linha;ana.fixas.add(x)});
+  Object.values(ficha.cache).forEach(f=>f.contas&&f.contas.lista.filter(igual).forEach(x=>{x.situacao=r.situacao;x.pagoEm=pe;x.linha=r.linha}));
+  c.situacao=r.situacao;c.pagoEm=pe;c.linha=r.linha;
   if(ana.dados&&!$('tab-analise').classList.contains('hidden'))anaRender();
   if(ficha.id&&ficha.cache[ficha.id])fichaRender(ficha.cache[ficha.id]);
 }
