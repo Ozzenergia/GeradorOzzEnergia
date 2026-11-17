@@ -121,6 +121,28 @@ main.wide{max-width:1180px}
 .ana-rodape{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
 .ana-rodape b{color:var(--ink);font-variant-numeric:tabular-nums}
 .ana-vazio{padding:34px 16px;text-align:center;color:var(--muted)}
+/* ===== Rateio de créditos ===== */
+.rat-beta{font-size:12px;font-weight:600;color:var(--warn);background:var(--warn-soft);border-radius:999px;padding:3px 9px;vertical-align:middle;margin-left:6px}
+.rat-kpis .ana-kpi{cursor:default}
+.rat-kpis .ana-kpi.ok{border-left-color:var(--ok)}.rat-kpis .ana-kpi.err{border-left-color:var(--err)}.rat-kpis .ana-kpi.warn{border-left-color:var(--accent)}
+.rat-kpis input{font-family:inherit;font-size:22px;font-weight:700;line-height:1.2;color:var(--ink);background:transparent;border:none;border-bottom:1px dashed var(--line);width:100%;padding:2px 0;margin-top:4px;font-variant-numeric:tabular-nums}
+.rat-kpis input:focus{outline:none;border-bottom-color:var(--primary)}
+.rat-t td,.rat-t th{white-space:nowrap}
+.rat-t td.tit{white-space:normal;min-width:180px}
+.rat-t input{width:76px;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 7px;text-align:right}
+.rat-t input:focus{outline:2px solid var(--primary);outline-offset:0}
+.rat-t td.fim{font-weight:700;color:var(--primary)}
+.rat-t tfoot td{font-weight:700;border-top:2px solid var(--line)}
+.rat-tag{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 6px;margin:3px 4px 0 0;background:var(--warn-soft);color:var(--warn)}
+.rat-tag.err{background:var(--err-soft);color:var(--err)}.rat-tag.info{background:var(--primary-soft);color:var(--primary)}
+.rat-avisos{display:grid;gap:6px;margin-bottom:12px}
+.rat-avisos div{font-size:14px;padding:10px 12px;border-radius:10px;background:var(--warn-soft);color:var(--ink)}
+.rat-avisos a{color:var(--primary);font-weight:600}
+.rat-acoes{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.rat-msg{font-size:14px;align-self:center}
+.rat-ajuda{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-top:18px;font-size:14px;line-height:1.55}
+.rat-ajuda summary{cursor:pointer;font-weight:700}
+.rat-ajuda li{margin:4px 0}
 /* ===== Marcar conta como paga ===== */
 .ana-chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap}
 .ana-chk input{width:18px;height:18px;margin:0;accent-color:var(--ok);cursor:pointer;flex-shrink:0}
@@ -836,6 +858,52 @@ body.locked{overflow:hidden}
 </section>
 
 <!-- =================== ANÁLISE · FLUXO DE CAIXA =================== -->
+<!-- =================== ANÁLISE · RATEIO DE CRÉDITOS (em construção, só TI) =================== -->
+<section id="tab-rateio" class="hidden">
+  <div class="ana-top">
+    <div><h2>Rateio de créditos <span class="rat-beta">em construção · só TI</span></h2><p id="ratSub">Divide a geração estimada da usina entre as UCs beneficiárias</p></div>
+    <button class="btn sec sm" id="ratAtualizar" type="button">↻ Atualizar</button>
+  </div>
+  <div class="alert" id="ratErro"></div>
+  <div class="ana-filtros">
+    <select id="ratUsina" aria-label="Usina"></select>
+    <select id="ratMes" aria-label="Mês de referência"></select>
+    <select id="ratBase" aria-label="Base de comparação">
+      <option value="3M">Base: média dos últimos 3 meses</option>
+      <option value="12M">Base: média dos últimos 12 meses</option>
+      <option value="MMAA">Base: mesmo mês do ano anterior</option>
+    </select>
+  </div>
+  <div class="rat-avisos" id="ratAvisos"></div>
+  <div class="ana-kpis rat-kpis" id="ratKpis"></div>
+  <div class="ana-tabela"><div class="ana-scroll"><table class="rat-t">
+    <thead><tr><th>UC / Titular</th><th class="num">Consumo</th><th class="num">Mínimo</th><th class="num">Disponível</th><th class="num">Saldo</th><th class="num">Estoque</th>
+      <th class="num">Atual</th><th class="num">Fator</th><th class="num">Calculado</th><th class="num">Manual %</th><th class="num">Final</th><th class="num">Injeção kWh</th><th class="num">Base kWh</th><th class="num">Sobra / falta</th></tr></thead>
+    <tbody id="ratCorpo"></tbody><tfoot id="ratTot"></tfoot>
+  </table></div></div>
+  <div class="rat-acoes">
+    <button class="btn pri" id="ratSalvar" type="button">💾 Salvar rateio</button>
+    <button class="btn sec" id="ratCopiar" type="button">📋 Copiar UC e % (RGE)</button>
+    <button class="btn sec" id="ratCsv" type="button">⬇️ Baixar CSV</button>
+    <span class="rat-msg" id="ratMsg" role="status" aria-live="polite"></span>
+  </div>
+  <div class="fx-sec">Rateios salvos desta usina</div>
+  <div id="ratHist"></div>
+  <details class="rat-ajuda">
+    <summary>Como funciona e onde preencher</summary>
+    <p>As abas abaixo ficam na <a id="ratLinkPlan" target="_blank" rel="noopener">planilha do portal</a> (criadas sozinhas). Uma linha por item:</p>
+    <ul>
+      <li><b>Rateio Usinas</b>: cada usina (UC geradora, nome…). Marque X em "Inativar" para esconder.</li>
+      <li><b>Rateio Beneficiárias</b>: cada UC que recebe crédito, com a usina dela. "Fator Ajuste" vazio = 1. Término de titularidade tira a UC a partir daquele mês.</li>
+      <li><b>Rateio Geração</b>: geração estimada da usina, uma linha por ano (Jan a Dez, em kWh).</li>
+      <li><b>Rateio Consumo</b>: histórico das faturas das beneficiárias (mês AAAAMM, consumo, saldo acumulado, custo mínimo).</li>
+      <li><b>Rateios Gerados</b>: preenchida pelo botão Salvar (histórico).</li>
+    </ul>
+    <p>Conta, igual ao Excel: disponível = consumo − mínimo · preliminar = disponível ÷ geração × fator · a sobra é dividida proporcionalmente · o rateio manual de uma UC é compensado nas outras · final com 4 casas (mín. 0,01%), fechando 100%. Se o arredondamento sobrar 0,01%, vai para a maior UC.</p>
+    <p>Sem consumo do mês, usa o último consumo lançado (e avisa); sem nenhum, usa o "Consumo Referência" do cadastro. Mínimo vazio: monofásico 30, bifásico 50, trifásico 100 kWh.</p>
+  </details>
+</section>
+
 <section id="tab-fluxo" class="hidden">
   <div class="ana-top">
     <div><h2>Fluxo de caixa</h2></div>
@@ -1185,7 +1253,7 @@ async function finishLogin(pl){
 }
 /* ===== Perfis (coluna Perfil da aba Usuários) — o mesmo quadro está no script da planilha ===== */
 const PERFIS={
-  ti:{nome:'TI',areas:['ger','pos','ana','cli'],verComo:true},
+  ti:{nome:'TI',areas:['ger','pos','ana','cli','rat'],verComo:true},   // rat = Rateio (em construção)
   admin:{nome:'Admin',areas:['ger','pos','ana','cli']},
   administrativo:{nome:'Administrativo',areas:['ger','cli']},
   vendedor:{nome:'Vendedor',areas:['ger','pos','cli']}
@@ -1195,7 +1263,7 @@ function normPerfil(p){const t=String(p||'').normalize('NFD').replace(/[\u0300-\
 function perfilReal(){const s=sessao();return s?normPerfil(s.perfil):null}
 // TI pode simular outro perfil (só a tela; a planilha continua conferindo o perfil verdadeiro)
 function perfilVisto(){const r=perfilReal();if(r!=='ti')return r;let v='';try{v=sessionStorage.getItem('ozz_vercomo')||''}catch(e){}return PERFIS[v]?v:r}
-function areasPermitidas(){const p=perfilVisto();return p?PERFIS[p].areas:['ger','pos','ana','cli']}   // sem login a tela de entrada cobre tudo; o perfil é aplicado ao entrar
+function areasPermitidas(){const p=perfilVisto();return p?PERFIS[p].areas:['ger','pos','ana','cli','rat']}   // sem login a tela de entrada cobre tudo; o perfil é aplicado ao entrar
 function aplicarPerfil(){
   const r=perfilReal(),v=perfilVisto();
   $('perfilTag').textContent=r?PERFIS[r].nome:'';$('perfilTag').classList.toggle('hidden',!r);
@@ -1635,6 +1703,165 @@ $('cliCorpo').addEventListener('click',async e=>{
   $('cliSub').textContent='✓ Cliente excluído: '+c.nome;
 });
 
+/* Motor do rateio — mesmas contas do Excel Fluxo_Rateio.xlsx (aba "Arquivo Cálculo de Rateio").
+   D = geração estimada (kWh); cada linha: consumo (N), minimo (Q), fator (W), manual (AB, fração ou null). */
+function ratCalcular(D,linhas){
+  const r2=x=>Math.round((x+Number.EPSILON)*100)/100,r4=x=>Math.round((x+Number.EPSILON)*1e4)/1e4,soma=(l,f)=>l.reduce((t,x)=>t+f(x),0);
+  const L=linhas.map(l=>{const O=Math.max(0,(+l.consumo||0)-(+l.minimo||0));             // O: energia disponível p/ compensar
+    const X=D>0?O/D*(l.fator==null||l.fator===''?1:+l.fator):0;                           // X: rateio preliminar
+    return {O,X,Y:D*X,manual:l.manual==null||l.manual===''?null:+l.manual}});             // Y: injeção projetada
+  const sY=soma(L,r=>r.Y),sX=soma(L,r=>r.X);
+  L.forEach(r=>{r.Z=sX>0?r2(r.Y+(D-sY)*r.X/sX):0;r.AA=D>0?r.Z/D:0});                       // Z: injeção ajustada; AA: rateio calculado
+  L.forEach(r=>{r.AC=r.manual!=null?(r.manual-r.AA)*100:0});                               // AC: variação do manual
+  const sAC=soma(L,r=>r.AC),sAAsem=soma(L.filter(r=>r.manual==null),r=>r.AA);
+  L.forEach(r=>{r.AD=r.manual!=null?0:(sAAsem>0?-sAC*r.AA/sAAsem:0);                       // AD: compensação nas outras
+    r.AE=r.manual===0?0:Math.max(r4(r.manual!=null?r.manual:r.AA+r.AD/100),0.0001)});      // AE: rateio final (4 casas, mín. 0,01%)
+  // o arredondamento pode deixar 99,99% ou 100,01%: a diferença vai para a maior UC sem rateio manual
+  let dif=r4(1-soma(L,r=>r.AE)),ajustada=-1;
+  if(dif!==0){let k=-1;L.forEach((r,i)=>{if(r.manual==null&&(k<0||r.AE>L[k].AE))k=i});
+    if(k>=0&&L[k].AE+dif>=0.0001){L[k].AE=r4(L[k].AE+dif);ajustada=k;dif=r4(1-soma(L,r=>r.AE))}}
+  L.forEach(r=>{r.AG=r.AE*D});                                                             // AG: injeção final (kWh)
+  return {L,soma:soma(L,r=>r.AE),dif,ajustada,injecao:soma(L,r=>r.AG)};
+}
+
+/* ===== Rateio de créditos (só TI): monta as linhas a partir das abas e calcula no navegador ===== */
+const rat={dados:null,ug:'',mes:0,base:'3M',ed:{},ger:{},carregando:false,salvando:false,linhas:[],calc:null};
+const ratDig=v=>String(v==null?'':v).replace(/\D/g,'');
+const ratAM=(am,k)=>{let y=Math.floor(am/100),m=am%100+k;while(m<1){m+=12;y--}while(m>12){m-=12;y++}return y*100+m};
+const ratMesTxt=am=>am?String(am%100).padStart(2,'0')+'/'+Math.floor(am/100):'—';
+const ratN=(x,d=0)=>x==null||isNaN(x)?'—':Number(x).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const ratP=f=>f==null||isNaN(f)?'—':(f*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+const ratMinPadrao=t=>/mono/i.test(t)?30:/bi/i.test(t)?50:/tri/i.test(t)?100:null;
+async function ratCarregar(){
+  if(rat.carregando)return;rat.carregando=true;$('ratErro').style.display='none';
+  if(!rat.dados)$('ratCorpo').innerHTML='<tr><td colspan="14" class="ana-vazio">Lendo as abas de rateio…</td></tr>';
+  const r=await sheetApi('rat_dados',{},{espera:60000});rat.carregando=false;
+  if(!r||!r.ok){$('ratErro').textContent='⚠️ '+((r&&r.erro)||'não foi possível ler a planilha');$('ratErro').style.display='block';return}
+  rat.dados=r;if(r.planilha)$('ratLinkPlan').href=r.planilha;
+  ratOpcoes();ratRender();
+}
+function ratAbrir(){if(!rat.dados)ratCarregar();else ratRender()}
+function ratOpcoes(){
+  const d=rat.dados,us=d.usinas.filter(u=>!String(u.inativa||'').trim());
+  if(!us.find(u=>u.ug===rat.ug))rat.ug=us[0]?us[0].ug:'';
+  $('ratUsina').innerHTML=us.length?us.map(u=>`<option value="${anaEsc(u.ug)}">${anaEsc(u.ug)} · ${anaEsc(u.nome)}</option>`).join(''):'<option value="">Nenhuma usina cadastrada</option>';
+  $('ratUsina').value=rat.ug;
+  // meses: 12 para trás e 3 para frente a partir de hoje
+  const h=new Date(),hoje=h.getFullYear()*100+h.getMonth()+1;if(!rat.mes)rat.mes=hoje;
+  const ms=[];for(let k=3;k>=-12;k--)ms.push(ratAM(hoje,k));if(!ms.includes(rat.mes))ms.push(rat.mes);
+  $('ratMes').innerHTML=ms.sort((a,b)=>b-a).map(m=>`<option value="${m}">${ratMesTxt(m)}${m===hoje?' (este mês)':''}</option>`).join('');
+  $('ratMes').value=rat.mes;$('ratBase').value=rat.base;
+}
+function ratUltimo(ug){   // último rateio salvo da usina (as linhas entram na aba em ordem)
+  const g=rat.dados.gerados.filter(x=>x.ug===ug);if(!g.length)return null;
+  const id=g[g.length-1].id;return {id,linhas:g.filter(x=>x.id===id)};
+}
+function ratMontar(){
+  const d=rat.dados,ug=rat.ug,ref=rat.mes,chave=ug+'|'+ref;
+  const usina=d.usinas.find(u=>u.ug===ug)||{};
+  const gl=d.geracao.find(g=>String(g.ug)===ug&&Number(g.ano)===Math.floor(ref/100));
+  const gerPlan=gl?Number(gl['m'+(ref%100)])||0:0;
+  const ger=rat.ger[chave]!=null?rat.ger[chave]:gerPlan;
+  const ult=ratUltimo(ug),ultUcs=new Set(ult?ult.linhas.map(x=>ratDig(x.uc)):[]);
+  const bens=d.benef.filter(b=>String(b.ug)===ug&&(!b.inicio||+b.inicio<=ref)&&(!b.termino||+b.termino>=ref));
+  const cont={};bens.forEach(b=>{const u=ratDig(b.uc);cont[u]=(cont[u]||0)+1});
+  const linhas=bens.map(b=>{
+    const u=ratDig(b.uc),hist=d.consumo.filter(c=>ratDig(c.uc)===u&&+c.mes<=ref).sort((a,b)=>a.mes-b.mes);
+    const reg=hist[hist.length-1]||null;
+    const media=n=>{const l=hist.filter(c=>+c.mes>ratAM(ref,-n)&&c.consumo!=='');return l.length?l.reduce((t,c)=>t+(+c.consumo||0),0)/l.length:null};
+    const consumo=reg&&reg.consumo!==''?+reg.consumo:(+b.consumoRef||0);
+    const minimo=reg&&reg.minimo!==''&&reg.minimo!=null?+reg.minimo:ratMinPadrao(b.fornecimento)||0;
+    const mmaa=d.consumo.find(c=>ratDig(c.uc)===u&&+c.mes===ratAM(ref,-12));
+    const s3=media(3),s12=media(12);
+    const e=rat.ed[chave+'|'+u]||{};
+    const atual=ult?ult.linhas.find(x=>ratDig(x.uc)===u):null;
+    return {uc:b.uc,u,titular:b.titular||b.favorecido||'',fornecimento:b.fornecimento,consumo,minimo,saldo:reg&&reg.saldo!==''?+reg.saldo||0:0,
+      mesConsumo:reg?+reg.mes:0,semConsumo:!reg,s3,s12,mmaa:mmaa&&mmaa.consumo!==''?+mmaa.consumo:null,
+      fator:e.fator!=null?e.fator:(b.fator===''||b.fator==null?1:+b.fator),manual:e.manual!=null?e.manual:null,
+      atual:atual?+atual.pct:null,nova:!!ult&&!ultUcs.has(u),repetida:cont[u]>1};
+  });
+  return {usina,ger,gerPlan,ult,linhas};
+}
+function ratRender(){
+  if(!rat.dados)return;
+  const d=rat.dados,M=ratMontar(),ref=rat.mes,L=M.linhas;
+  const c=ratCalcular(M.ger,L);rat.linhas=L;rat.calc=c;rat.M=M;
+  const base=l=>rat.base==='12M'?l.s12:rat.base==='MMAA'?l.mmaa:l.s3;
+  // avisos
+  const av=[];
+  if(!d.usinas.length)av.push('Nenhuma usina cadastrada ainda: preencha a aba <b>Rateio Usinas</b> da planilha e clique em Atualizar.');
+  else if(!L.length)av.push('Nenhuma beneficiária desta usina neste mês: confira a aba <b>Rateio Beneficiárias</b> (coluna Unidade Geradora e as datas de titularidade).');
+  if(d.usinas.length&&!M.gerPlan)av.push(`Sem geração estimada de ${ratMesTxt(ref)} na aba <b>Rateio Geração</b>: digite o valor no quadro "Geração estimada" para calcular.`);
+  const desat=L.filter(l=>l.mesConsumo&&l.mesConsumo!==ref).length,sem=L.filter(l=>l.semConsumo).length;
+  if(desat)av.push(`${desat} UC${desat>1?'s':''} com consumo de mês anterior (não tem a fatura de ${ratMesTxt(ref)} na aba Rateio Consumo).`);
+  if(sem)av.push(`${sem} UC${sem>1?'s':''} sem nenhum consumo lançado: usei o "Consumo Referência" do cadastro.`);
+  if(L.some(l=>l.repetida))av.push('Tem UC repetida na lista de beneficiárias desta usina.');
+  $('ratAvisos').innerHTML=av.map(a=>`<div>⚠️ ${a}</div>`).join('');
+  // números do topo
+  const fecha=Math.abs(c.dif)<0.00005&&L.length,fechaKwh=Math.abs(c.injecao-M.ger)<0.5;
+  $('ratKpis').innerHTML=`
+    <div class="ana-kpi${M.ger>0?'':' warn'}"><small>Geração estimada (kWh)</small><input id="ratGer" type="number" min="0" step="1" value="${M.ger||''}" placeholder="digite" aria-label="Geração estimada em kWh"><span>${M.gerPlan?'da aba Rateio Geração'+(M.ger!==M.gerPlan?' (alterada aqui)':''):'não está na planilha'}</span></div>
+    <div class="ana-kpi ${fecha?'ok':'err'}"><small>Soma do rateio</small><b>${ratP(c.soma)}</b><span>${fecha?'fecha 100% ✓':'diferença de '+ratP(c.dif)}</span></div>
+    <div class="ana-kpi ${fechaKwh&&L.length?'ok':'err'}"><small>Injeção total (kWh)</small><b>${ratN(c.injecao,0)}</b><span>${fechaKwh?'fecha com a geração ✓':'não fecha com a geração'}</span></div>
+    <div class="ana-kpi"><small>Último rateio salvo</small><b>${M.ult?ratMesTxt(+M.ult.linhas[0].mes):'—'}</b><span>${M.ult?anaEsc(M.ult.linhas[0].geradoEm)+' · '+M.ult.linhas.length+' UCs':'nenhum ainda'}</span></div>`;
+  $('ratGer').onchange=e=>{const v=e.target.value===''?null:Math.max(0,+e.target.value);rat.ger[rat.ug+'|'+rat.mes]=v;ratRender()};
+  // tabela
+  $('ratCorpo').innerHTML=L.length?L.map((l,i)=>{const r=c.L[i],b=base(l),sf=r.AG-(b==null?l.consumo:b);
+    const tags=(l.nova?'<span class="rat-tag info">NOVA</span>':'')+(l.repetida?'<span class="rat-tag err">REPETIDA</span>':'')+
+      (l.semConsumo?'<span class="rat-tag">SEM CONSUMO</span>':l.mesConsumo!==ref?`<span class="rat-tag">consumo ${ratMesTxt(l.mesConsumo)}</span>`:'')+(c.ajustada===i?'<span class="rat-tag info">+ arredondamento</span>':'');
+    return `<tr><td class="tit"><b>${anaEsc(l.uc)}</b><small>${anaEsc(l.titular)}</small>${tags}</td>
+      <td class="num" data-l="Consumo">${ratN(l.consumo)}</td><td class="num" data-l="Mínimo">${ratN(l.minimo)}</td><td class="num" data-l="Disponível">${ratN(r.O)}</td>
+      <td class="num" data-l="Saldo">${ratN(l.saldo)}</td><td class="num" data-l="Estoque">${l.s3?ratN(l.saldo/l.s3,1)+' m':'—'}</td>
+      <td class="num" data-l="Atual">${ratP(l.atual)}</td>
+      <td class="num" data-l="Fator"><input type="number" step="0.05" min="0" value="${l.fator}" data-rat="fator" data-u="${l.u}" aria-label="Fator de ajuste da UC ${anaEsc(l.uc)}"></td>
+      <td class="num" data-l="Calculado">${ratP(r.AA)}</td>
+      <td class="num" data-l="Manual %"><input type="number" step="0.01" min="0" max="100" value="${l.manual==null?'':+(l.manual*100).toFixed(4)}" placeholder="—" data-rat="manual" data-u="${l.u}" aria-label="Rateio manual em % da UC ${anaEsc(l.uc)}"></td>
+      <td class="num fim" data-l="Final">${ratP(r.AE)}</td><td class="num" data-l="Injeção">${ratN(r.AG,0)}</td>
+      <td class="num" data-l="Base">${ratN(b)}</td><td class="num ${sf>=0?'fx-pos':'fx-neg'}" data-l="Sobra/falta">${b==null?'—':(sf>=0?'+':'')+ratN(sf)}</td></tr>`}).join('')
+    :'<tr><td colspan="14" class="ana-vazio">Sem beneficiárias para calcular.</td></tr>';
+  $('ratTot').innerHTML=L.length?`<tr><td>${L.length} UCs</td><td class="num">${ratN(L.reduce((t,l)=>t+l.consumo,0))}</td><td></td><td class="num">${ratN(c.L.reduce((t,r)=>t+r.O,0))}</td><td class="num">${ratN(L.reduce((t,l)=>t+l.saldo,0))}</td><td></td><td></td><td></td><td></td><td></td><td class="num fim">${ratP(c.soma)}</td><td class="num">${ratN(c.injecao)}</td><td></td><td></td></tr>`:'';
+  $('ratSalvar').disabled=!fecha||!(M.ger>0)||rat.salvando;
+  $('ratSub').textContent=`${M.usina.nome||'Usina'} · ${ratMesTxt(ref)} · base ${rat.base==='3M'?'média 3 meses':rat.base==='12M'?'média 12 meses':'mesmo mês do ano anterior'}`;
+  // histórico
+  const g=d.gerados.filter(x=>x.ug===rat.ug),ids=[...new Set(g.map(x=>x.id))].reverse();
+  $('ratHist').innerHTML=ids.length?`<div class="ana-tabela"><div class="ana-scroll"><table><thead><tr><th>Salvo em</th><th>Mês ref.</th><th class="num">Geração</th><th class="num">UCs</th><th>Base</th><th>Por</th><th>Situação</th></tr></thead><tbody>${
+    ids.slice(0,24).map(id=>{const l=g.filter(x=>x.id===id),a=l[0];return `<tr><td>${anaEsc(a.geradoEm)}</td><td data-l="Mês ref.">${ratMesTxt(+a.mes)}</td><td class="num" data-l="Geração">${ratN(+a.geracao)}</td><td class="num" data-l="UCs">${l.length}</td><td data-l="Base">${anaEsc(a.base)}</td><td data-l="Por">${anaEsc(a.geradoPor)}</td><td data-l="Situação">${anaEsc(a.situacao)}</td></tr>`}).join('')}</tbody></table></div></div>`
+    :'<p class="fx-nota">Nenhum rateio salvo para esta usina ainda.</p>';
+}
+$('ratCorpo').addEventListener('change',e=>{const i=e.target.closest('input[data-rat]');if(!i)return;
+  const k=rat.ug+'|'+rat.mes+'|'+i.dataset.u,ed=rat.ed[k]=rat.ed[k]||{};
+  if(i.dataset.rat==='fator')ed.fator=i.value===''?1:Math.max(0,+i.value);
+  else ed.manual=i.value===''?null:Math.min(100,Math.max(0,+i.value))/100;
+  ratRender();
+  const n=document.querySelector(`#ratCorpo input[data-rat="${i.dataset.rat}"][data-u="${i.dataset.u}"]`);if(n)n.closest('tr').classList.add('r-flash');
+});
+$('ratUsina').onchange=e=>{rat.ug=e.target.value;$('ratMsg').textContent='';ratRender()};
+$('ratMes').onchange=e=>{rat.mes=+e.target.value;$('ratMsg').textContent='';ratRender()};
+$('ratBase').onchange=e=>{rat.base=e.target.value;ratRender()};
+$('ratAtualizar').onclick=()=>ratCarregar();
+$('ratSalvar').onclick=async()=>{
+  const M=rat.M,c=rat.calc;if(!M||!c||rat.salvando)return;
+  rat.salvando=true;$('ratSalvar').disabled=true;$('ratMsg').textContent='Salvando…';
+  const linhas=rat.linhas.map((l,i)=>({uc:l.uc,titular:l.titular,pct:c.L[i].AE,kwh:c.L[i].AG,manual:l.manual,fator:l.fator}));
+  const r=await sheetApi('rat_salvar',{ug:rat.ug,nomeUg:M.usina.nome||'',mes:rat.mes,geracao:M.ger,base:rat.base,linhas},{espera:45000});
+  rat.salvando=false;
+  if(!r||!r.ok){$('ratMsg').textContent='⚠️ '+((r&&r.erro)||'não foi possível salvar');ratRender();return}
+  linhas.forEach(l=>rat.dados.gerados.push({id:r.id,geradoEm:r.geradoEm,geradoPor:sessao().nome,ug:rat.ug,nomeUg:M.usina.nome||'',mes:rat.mes,geracao:M.ger,base:rat.base,uc:l.uc,titular:l.titular,pct:l.pct,kwh:l.kwh,manual:l.manual,fator:l.fator,situacao:'GERADO'}));
+  ratRender();$('ratMsg').textContent='✓ Rateio salvo ('+r.geradoEm+')';
+};
+function ratTabela(){const c=rat.calc;return rat.linhas.map((l,i)=>({l,r:c.L[i]}))}
+$('ratCopiar').onclick=async()=>{
+  const txt=ratTabela().map(({l,r})=>l.uc+'\t'+(r.AE*100).toFixed(2).replace('.',',')).join('\n');
+  try{await navigator.clipboard.writeText(txt);$('ratMsg').textContent='✓ Copiado: UC e % de cada beneficiária'}catch(e){$('ratMsg').textContent='Não deu para copiar'}
+};
+$('ratCsv').onclick=()=>{
+  const f=(x,d=2)=>x==null||isNaN(x)?'':Number(x).toFixed(d).replace('.',',');
+  const cab=['UC','Titular','Consumo kWh','Mínimo kWh','Disponível kWh','Saldo kWh','Fator','Calculado %','Manual %','Final %','Injeção kWh'];
+  const lin=ratTabela().map(({l,r})=>[l.uc,'"'+String(l.titular).replace(/"/g,'""')+'"',f(l.consumo,0),f(l.minimo,0),f(r.O,0),f(l.saldo,0),f(l.fator),f(r.AA*100,4),l.manual==null?'':f(l.manual*100,4),f(r.AE*100,2),f(r.AG)].join(';'));
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+[cab.join(';'),...lin].join('\r\n')],{type:'text/csv;charset=utf-8'}));
+  a.download=`rateio-${rat.ug}-${rat.mes}.csv`;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
+};
+
 /* ===== Importar contas do e-mail (roda na planilha de controle, em segundo plano) ===== */
 const imp={timer:null,inicio:0,estado:null};
 const impHora=ms=>ms?new Date(ms).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
@@ -1943,7 +2170,8 @@ const MENU={
   pos:{nome:'🤝 Pós-venda',itens:[
     {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
   ana:{nome:'📈 Análise',itens:[
-    {id:'fluxo',ic:'💰',nome:'Fluxo de caixa',desc:'Entradas, saídas e saldo mês a mês',sec:'tab-fluxo',largo:true,aoAbrir:()=>fxAbrir()}]}
+    {id:'fluxo',ic:'💰',nome:'Fluxo de caixa',desc:'Entradas, saídas e saldo mês a mês',sec:'tab-fluxo',largo:true,aoAbrir:()=>fxAbrir()},
+    {id:'rateio',ic:'⚖️',nome:'Rateio de créditos',desc:'Divide a geração da usina entre as beneficiárias (em construção, só TI)',sec:'tab-rateio',largo:true,area:'rat',aoAbrir:()=>ratAbrir()}]}
 };
 const nav=document.querySelector('nav.nwrap');
 nav.innerHTML=Object.entries(MENU).map(([c,v])=>`<div class="mcat" data-cat="${c}">
