@@ -46,3 +46,8 @@ caixa, que usa a PROGRAMAÇÃO para as contas da RGE).
 
 **Outro ponto do mesmo cliente:** lucro de setembro/2026 saiu 51% (R$ 2.410,54 sobre R$ 3.842,00),
 bem acima dos outros meses (15% a 39%). Conferir se é erro de digitação.
+
+## Faturamento e liquidez por investidor / por beneficiário (parado em 17/11/2026)
+- No Fluxo de caixa, dois botões: **Por investidor (usina)** e **Por beneficiário (cliente)**.
+- Faturamento = o que os clientes pagam à OZZ; Liquidez = faturamento − contas RGE − repasse ao investidor.
+- Falta confirmar: de onde vem o faturamento (aba FATURAS GERADOR ou conta RGE − desconto) e se entram outros custos (imposto, comissão).
