@@ -27,14 +27,14 @@ const COLS_USUARIOS = ['E-mail', 'Nome', 'Perfil', 'Ativo'];
 /* Perfis (coluna Perfil da aba Usuários) e as áreas do portal que cada um usa.
    ger = Geradores (propostas e termos) · pos = Pós-venda. O TI ainda pode "ver como" outro perfil no portal. */
 const PERFIS_ = {
-  ti:             { nome: 'TI',             areas: ['ger', 'pos', 'ana', 'cli'] },
+  ti:             { nome: 'TI',             areas: ['ger', 'pos', 'ana', 'cli', 'rat'] },   // rat = Rateio (em construção, só TI)
   admin:          { nome: 'Admin',          areas: ['ger', 'pos', 'ana', 'cli'] },
   administrativo: { nome: 'Administrativo', areas: ['ger', 'cli'] },
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos', 'cli'] }
 };
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana' };
-const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', rat_dados: 'rat', rat_salvar: 'rat' };
+const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
 const ABA_CADASTRO = 'Clientes';
@@ -159,7 +159,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '14 (data de pagamento)';
+const VERSAO_SCRIPT = '15 (rateio de créditos, só TI)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -203,6 +203,10 @@ function doPost(e) {
       if (req.acao === 'cli_ficha') return json(cadastroFicha(req.id, usuario));
     }
     if (req.acao === 'prog_situacao') return json(programacaoSituacao(req, usuario));
+    if (req.acao === 'rat_dados' || req.acao === 'rat_salvar') {
+      if (!usuario.email || usuario.perfil !== 'ti') return json({ ok: false, erro: 'o rateio está em construção e só o TI tem acesso', perfil: true });
+      return json(req.acao === 'rat_dados' ? ratDados() : ratSalvar(req, usuario));
+    }
     if (req.acao === 'importar_contas' || req.acao === 'importar_status') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para importar as contas', auth: true });
       return json(importador_(req.acao === 'importar_contas' ? 'importar' : 'status', usuario));
@@ -1044,6 +1048,100 @@ function limpa(x) {
   if (x instanceof Date || typeof x === 'number') return x;
   const s = String(x);
   return /^[=+\-@]/.test(s) ? "'" + s : s;
+}
+
+/* ======================================================================
+ * RATEIO DE CRÉDITOS (em construção — só TI)
+ * Divide a geração estimada de uma usina no mês entre as UCs beneficiárias. O CÁLCULO é feito no site
+ * (igual ao Excel Fluxo_Rateio.xlsx); aqui ficam só os cadastros e o histórico, em abas da planilha do portal.
+ * As abas são criadas sozinhas na primeira vez que o TI abre a tela. Preencha direto nelas (uma linha por item).
+ * ====================================================================== */
+const RAT_ABAS_ = {
+  usinas:  { nome: 'Rateio Usinas', cols: ['Unidade Geradora UC', 'Nome da UG', 'Geração Anual (kWh)', 'Concessionária', 'Início Operação (AAAAMM)', 'Inativar (X)'],
+             chaves: ['ug', 'nome', 'geracaoAnual', 'concessionaria', 'inicio', 'inativa'] },
+  benef:   { nome: 'Rateio Beneficiárias', cols: ['Número da UC', 'CNPJ/CPF', 'Favorecido', 'Unidade Geradora', 'Nome da UG', 'Titular da UC',
+             'Tipo Fornecimento', 'Consumo Referência kWh', 'Desconto', 'Grupo Tarifário', 'Início Titularidade (AAAAMM)', 'Término Titularidade (AAAAMM)', 'Observações', 'Fator Ajuste'],
+             chaves: ['uc', 'doc', 'favorecido', 'ug', 'nomeUg', 'titular', 'fornecimento', 'consumoRef', 'desconto', 'grupo', 'inicio', 'termino', 'obs', 'fator'] },
+  geracao: { nome: 'Rateio Geração', cols: ['Unidade Geradora', 'Ano', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
+             chaves: ['ug', 'ano', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11', 'm12'] },
+  consumo: { nome: 'Rateio Consumo', cols: ['Número da UC', 'Mês Referência (AAAAMM)', 'Consumo kWh', 'Energia Compensada kWh', 'Saldo Acumulado kWh',
+             'Custo Mínimo kWh', 'Data Leitura', 'Data Emissão', 'Data Leitura Anterior'],
+             chaves: ['uc', 'mes', 'consumo', 'compensada', 'saldo', 'minimo', 'leitura', 'emissao', 'leituraAnt'] },
+  gerados: { nome: 'Rateios Gerados', cols: ['ID', 'Gerado em', 'Gerado por', 'Unidade Geradora', 'Nome da UG', 'Ano Mês Ref', 'Geração Estimada kWh', 'Base',
+             'Número da UC', 'Titular', 'Rateio %', 'Injeção kWh', 'Rateio Manual', 'Fator Ajuste', 'Situação'],
+             chaves: ['id', 'geradoEm', 'geradoPor', 'ug', 'nomeUg', 'mes', 'geracao', 'base', 'uc', 'titular', 'pct', 'kwh', 'manual', 'fator', 'situacao'] }
+};
+
+function ratAba_(k) {
+  const ss = SpreadsheetApp.getActive(), def = RAT_ABAS_[k];
+  let sh = ss.getSheetByName(def.nome);
+  if (!sh) {
+    sh = ss.insertSheet(def.nome);
+    sh.getRange(1, 1, 1, def.cols.length).setValues([def.cols]).setFontWeight('bold').setBackground('#ede7f6');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+/** Lê uma aba de rateio como lista de objetos (datas viram dd/MM/aaaa; AAAAMM vira número de 6 dígitos). */
+function ratLer_(k) {
+  const sh = ratAba_(k), def = RAT_ABAS_[k];
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return [];
+  const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  const anoMes = v => {
+    if (v instanceof Date) return Number(Utilities.formatDate(v, tz, 'yyyyMM'));
+    const t = String(v == null ? '' : v).trim(), m = t.match(/^(\d{1,2})\/(\d{4})$/);
+    if (m) return Number(m[2]) * 100 + Number(m[1]);
+    const d = t.replace(/\D/g, '');
+    return d.length === 6 ? Number(d) : (t ? t : '');
+  };
+  return sh.getRange(2, 1, n, def.cols.length).getValues()
+    .filter(r => String(r[0]).trim() !== '')
+    .map(r => {
+      const o = {};
+      def.chaves.forEach((c, i) => {
+        let v = r[i];
+        if (/^(inicio|termino|mes)$/.test(c)) v = anoMes(v);
+        else if (v instanceof Date) v = Utilities.formatDate(v, tz, c === 'geradoEm' ? 'dd/MM/yyyy HH:mm' : 'dd/MM/yyyy');
+        else if (/^(ug|uc|doc|id)$/.test(c)) v = String(v).trim().replace(/\.0+$/, '');
+        o[c] = v;
+      });
+      return o;
+    });
+}
+
+function ratDados() {
+  const out = { ok: true };
+  Object.keys(RAT_ABAS_).forEach(k => { out[k] = ratLer_(k); });
+  out.gerados = out.gerados.slice(-3000);
+  out.planilha = SpreadsheetApp.getActive().getUrl();
+  return out;
+}
+
+/** Guarda um rateio calculado no site: uma linha por UC na aba Rateios Gerados. */
+function ratSalvar(d, usuario) {
+  const linhas = Array.isArray(d.linhas) ? d.linhas : [];
+  const ug = String(d.ug || '').trim(), mes = Number(d.mes) || 0, ger = Number(d.geracao) || 0;
+  if (!ug || !(mes > 200000) || !(ger > 0) || !linhas.length) return { ok: false, erro: 'rateio incompleto (usina, mês, geração e UCs)' };
+  const soma = linhas.reduce((t, l) => t + (Number(l.pct) || 0), 0);
+  if (Math.abs(soma - 1) > 0.00005) return { ok: false, erro: 'a soma do rateio não fecha 100% (' + (soma * 100).toFixed(2) + '%)' };
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'outra gravação em andamento; tente de novo' };
+  try {
+    const sh = ratAba_('gerados');
+    const agora = new Date();
+    const id = 'RAT-' + ug + '-' + mes + '-' + Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyMMddHHmmss');
+    const quem = usuario.nome || usuario.email;
+    const rows = linhas.map(l => [id, agora, quem, ug, String(d.nomeUg || ''), mes, ger, String(d.base || ''),
+      String(l.uc || ''), String(l.titular || ''), Number(l.pct) || 0, Math.round((Number(l.kwh) || 0) * 100) / 100,
+      l.manual == null || l.manual === '' ? '' : Number(l.manual), l.fator == null ? '' : Number(l.fator), 'GERADO']);
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+    sh.getRange(sh.getLastRow() - rows.length + 1, 11, rows.length, 1).setNumberFormat('0.00%');
+    sh.getRange(sh.getLastRow() - rows.length + 1, 13, rows.length, 1).setNumberFormat('0.00%');
+    console.log('Rateio ' + id + ' salvo por ' + usuario.email + ' (' + rows.length + ' UCs)');
+    return { ok: true, id: id, geradoEm: Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm') };
+  } finally { lock.releaseLock(); }
 }
 
 function json(o) {
