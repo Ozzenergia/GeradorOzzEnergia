@@ -33,7 +33,7 @@ const PERFIS_ = {
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos', 'cli'] }
 };
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -159,7 +159,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '12 (importar contas pelo portal)';
+const VERSAO_SCRIPT = '13 (marcar conta paga pelo site)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -202,6 +202,7 @@ function doPost(e) {
       if (req.acao === 'cli_excluir') return json(cadastroExcluir(req.id, usuario));
       if (req.acao === 'cli_ficha') return json(cadastroFicha(req.id, usuario));
     }
+    if (req.acao === 'prog_situacao') return json(programacaoSituacao(req, usuario));
     if (req.acao === 'importar_contas' || req.acao === 'importar_status') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para importar as contas', auth: true });
       return json(importador_(req.acao === 'importar_contas' ? 'importar' : 'status', usuario));
@@ -817,7 +818,7 @@ function cadastroFicha(id, usuario) {
       if (!p.ok) out.avisos.push('não consegui ler a PROGRAMAÇÃO: ' + p.erro);
       else out.contas = { hoje: p.hoje, lidoEm: p.lidoEm, lista: p.contas.filter(k => ucs[dig(k.uc)] || ucs[dig(k.ucAntiga)])
         .sort((a, b) => (b.venc || '').localeCompare(a.venc || '')).slice(0, 36)
-        .map(k => ({ mes: k.mes, venc: k.venc, valor: k.valor, situacao: k.situacao, usinaCod: k.usinaCod, usinaNome: k.usinaNome, link: k.link, pix: k.pix, uc: k.uc })) };
+        .map(k => ({ linha: k.linha, nome: k.nome, mes: k.mes, venc: k.venc, valor: k.valor, situacao: k.situacao, usinaCod: k.usinaCod, usinaNome: k.usinaNome, link: k.link, pix: k.pix, uc: k.uc })) };
     }
   }
   return out;
@@ -954,6 +955,63 @@ function lerProgramacao(ssAberta) {
       situacao: (txt(r, C.sit) || 'AGENDADO').toUpperCase(), usinaCod: txt(r, C.usCod).replace(/\.0+$/, ''), usinaNome: txt(r, C.usNome) });
   }
   return base;
+}
+
+/**
+ * Marca uma conta da PROGRAMAÇÃO como PAGO (ou volta para AGENDADO) pelo site — é a ÚNICA escrita na planilha de controle.
+ * Grava só a célula SITUAÇÃO daquela conta e deixa uma nota nela com quem marcou e quando.
+ * Confere se a linha ainda é a mesma conta (alguém pode ter ordenado a aba); se não for, procura a conta pelo nome/vencimento/link/PIX.
+ * A conta que implantou o script do portal precisa ter permissão de EDIÇÃO na planilha de controle.
+ */
+function programacaoSituacao(req, usuario) {
+  const sit = String(req.situacao || '').toUpperCase();
+  if (sit !== 'PAGO' && sit !== 'AGENDADO') return { ok: false, erro: 'situação inválida' };
+  const k = req.conta || {};
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'outra alteração está sendo gravada; tente de novo' };
+  try {
+    let ss;
+    try { ss = SpreadsheetApp.openById(idPlanilhaControle_()); } catch (e) { return { ok: false, erro: 'não consegui abrir a planilha de controle' }; }
+    const sh = ss.getSheetByName(ABA_PROGRAMACAO_EXT);
+    if (!sh) return { ok: false, erro: 'aba ' + ABA_PROGRAMACAO_EXT + ' não encontrada' };
+    const tz = ss.getSpreadsheetTimeZone();
+    const up = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    const larg = sh.getLastColumn();
+    const cab = sh.getRange(1, 1, 1, larg).getValues()[0].map(up);
+    const C = { nome: cab.indexOf('NOME DO TITULAR'), venc: cab.indexOf('DATA DE VENCIMENTO'), link: cab.indexOf('LINK DE ACESSO A CONTA'),
+      pix: cab.indexOf('PIX COPIA E COLA'), sit: cab.indexOf('SITUACAO') };
+    if (C.sit < 0 || C.nome < 0) return { ok: false, erro: 'não achei as colunas SITUAÇÃO e NOME DO TITULAR na PROGRAMAÇÃO' };
+    const iso = x => x instanceof Date ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : String(x || '').trim().replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1');
+    const mesma = r => up(r[C.nome]) === up(k.nome) && (C.venc < 0 || iso(r[C.venc]) === String(k.venc || '')) &&
+      (!k.link || C.link < 0 || String(r[C.link]).trim() === k.link) && (!k.pix || C.pix < 0 || String(r[C.pix]).trim() === k.pix);
+    let linha = Number(req.linha) || 0;
+    if (!(linha >= 2 && linha <= sh.getLastRow() && mesma(sh.getRange(linha, 1, 1, larg).getValues()[0]))) {
+      linha = 0;
+      if (sh.getLastRow() >= 2) {
+        const v = sh.getRange(2, 1, sh.getLastRow() - 1, larg).getValues();
+        for (let i = 0; i < v.length; i++) if (mesma(v[i])) { linha = i + 2; break; }
+      }
+    }
+    if (!linha) return { ok: false, erro: 'não achei esta conta na PROGRAMAÇÃO (pode ter sido apagada ou alterada). Clique em Atualizar.' };
+    const cel = sh.getRange(linha, C.sit + 1);
+    try {
+      cel.setValue(sit);
+      const quando = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm');
+      cel.setNote((sit === 'PAGO' ? 'Marcado PAGO' : 'Voltou para AGENDADO') + ' pelo portal por ' + (usuario.nome || usuario.email) + ' em ' + quando);
+    } catch (e) {
+      return { ok: false, erro: 'sem permissão para editar a planilha de controle: compartilhe ela como Editor com a conta que implantou o script do portal' };
+    }
+    // atualiza a leitura guardada, sem precisar ler a planilha toda de novo
+    try {
+      const c = lerCacheGrande_(CACHE_PROG_);
+      if (c && c.contas) {
+        const it = c.contas.find(x => x.linha === linha && up(x.nome) === up(k.nome)) || c.contas.find(x => up(x.nome) === up(k.nome) && x.venc === k.venc);
+        if (it) { it.situacao = sit; delete c.doCache; gravarCacheGrande_(CACHE_PROG_, c); }
+      }
+    } catch (e) {}
+    console.log('Situação ' + sit + ' na linha ' + linha + ' da PROGRAMAÇÃO por ' + usuario.email);
+    return { ok: true, linha: linha, situacao: sit };
+  } finally { lock.releaseLock(); }
 }
 
 /** Primeiro telefone de um campo de contato ("55 9116-5376 / email…", 55981440018 …) no formato (55) 98144-0018. */
