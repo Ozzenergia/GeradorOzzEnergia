@@ -33,7 +33,7 @@ const PERFIS_ = {
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos', 'cli'] }
 };
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -154,7 +154,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '10 (termo entra no cadastro)';
+const VERSAO_SCRIPT = '11 (ficha do cliente)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -195,6 +195,7 @@ function doPost(e) {
       if (req.acao === 'cli_listar') return json(cadastroListar());
       if (req.acao === 'cli_salvar') return json(cadastroSalvar(req.dados || {}, usuario));
       if (req.acao === 'cli_excluir') return json(cadastroExcluir(req.id, usuario));
+      if (req.acao === 'cli_ficha') return json(cadastroFicha(req.id, usuario));
     }
     if (req.acao === 'fluxo') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
@@ -742,6 +743,75 @@ function cadastroExcluir(id, usuario) {
     sh.deleteRow(i + 2);
     return { ok: true };
   } finally { lock.releaseLock(); }
+}
+
+/**
+ * Ficha do cliente: o cadastro + o que a planilha de controle (aba CLIENTES) sabe dele + propostas e termos
+ * gerados pelo portal + as contas da PROGRAMAÇÃO (estas só para quem tem acesso à Análise: TI e Admin).
+ * Liga tudo pela UC (a nova e a antiga, que a aba CLIENTES relaciona) ou pelo CPF/CNPJ.
+ */
+function cadastroFicha(id, usuario) {
+  id = String(id || '').trim();
+  const r = cadastroLinhas_(abaCadastro_()).find(x => String(x[0]) === id);
+  if (!r) return { ok: false, erro: 'cliente não encontrado (pode ter sido excluído)' };
+  const c = cadastroObj_(r);
+  const dig = v => String(v == null ? '' : v).replace(/\D/g, '');
+  const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const data = v => v instanceof Date ? Utilities.formatDate(v, 'America/Sao_Paulo', 'dd/MM/yyyy') : String(v || '').trim();
+  const num = v => typeof v === 'number' ? v : (String(v || '').trim() ? Number(String(v).replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')) || null : null);
+  const ucs = {}; const addUc = u => { if (dig(u).length >= 7) ucs[dig(u)] = true; };
+  addUc(c.uc);
+  const doc = dig(c.doc), nome = norm(c.nome);
+  const out = { ok: true, cliente: c, controle: null, propostas: [], termos: [], contas: null, avisos: [] };
+
+  // planilha de controle: a aba CLIENTES liga a UC nova à antiga
+  try {
+    const ext = lerClientesExternos_();
+    let m = ext.find(x => [x.uc, x.uc_antiga].some(u => ucs[dig(u)]));
+    if (!m && !Object.keys(ucs).length && nome) m = ext.find(x => norm(x.titular) === nome);
+    if (m) {
+      out.controle = { titular: m.titular, responsavel: m.responsavel, fantasia: m.fantasia, celular: m.celular, email: m.email,
+        vendedor: m.consultor, uc: m.uc, ucAntiga: m.uc_antiga, cidade: m.cidade, uf: m.uf };
+      addUc(m.uc); addUc(m.uc_antiga);
+    }
+  } catch (e) { out.avisos.push('não consegui ler a aba CLIENTES da planilha de controle'); console.error('Ficha/CLIENTES: ' + e.message); }
+
+  const temUc = Object.keys(ucs).length > 0;
+  // sem UC e sem documento, só o nome exato liga as coisas
+  const bate = (uc, docs, nm) => (temUc && !!ucs[dig(uc)]) || (doc.length >= 11 && docs.some(d => dig(d) === doc)) || (!temUc && doc.length < 11 && !!nome && norm(nm) === nome);
+
+  const ss = SpreadsheetApp.getActive();
+  const sp = ss.getSheetByName(ABA_PROPOSTAS);
+  if (sp && sp.getLastRow() > 1) {
+    sp.getRange(2, 1, sp.getLastRow() - 1, 21).getValues().forEach(x => {
+      if (!String(x[1]).trim() || !bate(x[6], [x[4], x[5]], x[3])) return;
+      out.propostas.push({ data: data(x[0]), numero: String(x[1]), consultor: String(x[2] || ''), plano: String(x[14] || ''),
+        consumo: num(x[13]), desconto: String(x[15] || ''), economiaMensal: num(x[18]), economiaAnual: num(x[19]), uc: String(x[6] || '') });
+    });
+  }
+  const st = ss.getSheetByName(ABA_TERMOS);
+  if (st && st.getLastRow() > 1) {
+    st.getRange(2, 1, st.getLastRow() - 1, 16).getValues().forEach(x => {
+      if (!String(x[0]).trim() || !bate(x[5], [x[4]], x[3])) return;
+      out.termos.push({ data: data(x[0]), numero: String(x[1] || ''), consultor: String(x[2] || ''), modalidade: String(x[11] || ''),
+        assinatura: data(x[12]), consumo: num(x[10]), uc: String(x[5] || '') });
+    });
+  }
+  out.propostas.reverse(); out.termos.reverse();   // mais recentes primeiro
+
+  // contas a pagar: só para quem vê a Análise (são valores da empresa)
+  const perfil = PERFIS_[usuario.perfil] || PERFIS_.vendedor;
+  if (perfil.areas.indexOf('ana') >= 0) {
+    if (!temUc) out.contas = { hoje: '', lista: [], semUc: true };
+    else {
+      const p = programacaoComCache_(false);
+      if (!p.ok) out.avisos.push('não consegui ler a PROGRAMAÇÃO: ' + p.erro);
+      else out.contas = { hoje: p.hoje, lidoEm: p.lidoEm, lista: p.contas.filter(k => ucs[dig(k.uc)] || ucs[dig(k.ucAntiga)])
+        .sort((a, b) => (b.venc || '').localeCompare(a.venc || '')).slice(0, 36)
+        .map(k => ({ mes: k.mes, venc: k.venc, valor: k.valor, situacao: k.situacao, usinaCod: k.usinaCod, usinaNome: k.usinaNome, link: k.link, pix: k.pix, uc: k.uc })) };
+    }
+  }
+  return out;
 }
 
 /** Tira do nome os números soltos de CPF/CNPJ ("60.897.570 FLAVIO" → "FLAVIO"). */
