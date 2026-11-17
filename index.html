@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<script>/* tema escolhido no portal (Automático / Claro / Escuro), aplicado antes de desenhar a página */try{var t=localStorage.getItem("ozz_tema");if(t==="claro")document.documentElement.setAttribute("data-theme","light");else if(t==="escuro")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
+<script>/* tema escolhido no portal (Claro / Escuro), aplicado antes de desenhar a página */try{var t=localStorage.getItem("ozz_tema");if(t==="claro")document.documentElement.setAttribute("data-theme","light");else if(t==="escuro")document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OZZ Energia – Portal Interno</title>
@@ -415,7 +415,7 @@ body.locked{overflow:hidden}
       <div class="sub-h">Portal Interno · Energia Certa Consórcio</div>
     </div>
     <div class="hd-right">
-      <button class="tema-btn" id="temaBtn" type="button"><span class="ic" aria-hidden="true">🌓</span><span class="tx">Automático</span></button>
+      <button class="tema-btn" id="temaBtn" type="button"><span class="ic" aria-hidden="true">☀️</span><span class="tx">Claro</span></button>
       <div class="badge-int"><i>⚡</i>Uso interno</div>
       <label class="ver-como hidden" id="verComoBox" title="Só muda o que aparece na tela; as permissões da planilha continuam as suas"><span>👁 Ver como</span><select id="verComo"></select></label>
       <div class="user-chip hidden" id="userChip"><span id="userName">👤 Visitante</span><span class="perfil-tag" id="perfilTag"></span><button id="lgOut" type="button">Sair</button></div>
@@ -1362,19 +1362,21 @@ $('anaCorpo').addEventListener('click',async e=>{const b=e.target.closest('butto
   try{await navigator.clipboard.writeText(b.dataset.pix);b.textContent='Copiado ✓'}catch(x){b.textContent='Não deu para copiar'}
   setTimeout(()=>{b.textContent='Copiar PIX'},1800)});
 
-/* ===== Tema: Automático (segue o aparelho) → Claro → Escuro; vale também para o pós-venda e a privacidade ===== */
-const TEMAS={auto:{ic:'🌓',nome:'Automático',dica:'Tema automático (segue o aparelho). Clique para claro.'},
-  claro:{ic:'☀️',nome:'Claro',dica:'Tema claro. Clique para escuro.'},escuro:{ic:'🌙',nome:'Escuro',dica:'Tema escuro. Clique para automático.'}};
-function temaAtual(){try{const t=localStorage.getItem('ozz_tema');return TEMAS[t]?t:'auto'}catch(e){return 'auto'}}
-function aplicarTemaEm(doc,t){const el=doc.documentElement;if(t==='claro')el.setAttribute('data-theme','light');else if(t==='escuro')el.setAttribute('data-theme','dark');else el.removeAttribute('data-theme')}
+/* ===== Tema: Claro ↔ Escuro; vale também para o pós-venda e a privacidade.
+   Quem ainda não escolheu começa com o tema do aparelho. ===== */
+const TEMAS={claro:{ic:'☀️',nome:'Claro',dica:'Tema claro. Clique para escuro.'},escuro:{ic:'🌙',nome:'Escuro',dica:'Tema escuro. Clique para claro.'}};
+const mqEscuro=window.matchMedia?matchMedia('(prefers-color-scheme: dark)'):null;
+function temaSalvo(){try{const t=localStorage.getItem('ozz_tema');return TEMAS[t]?t:null}catch(e){return null}}
+function temaAtual(){return temaSalvo()||(mqEscuro&&mqEscuro.matches?'escuro':'claro')}
+function aplicarTemaEm(doc,t){doc.documentElement.setAttribute('data-theme',t==='escuro'?'dark':'light')}
 function aplicarTema(t){
   aplicarTemaEm(document,t);
   document.querySelectorAll('iframe').forEach(f=>{try{if(f.contentDocument)aplicarTemaEm(f.contentDocument,t)}catch(e){}});   // pós-venda embutido
   const b=$('temaBtn'),o=TEMAS[t];b.querySelector('.ic').textContent=o.ic;b.querySelector('.tx').textContent=o.nome;b.title=o.dica;b.setAttribute('aria-label',o.dica);
 }
-$('temaBtn').onclick=()=>{const ordem=['auto','claro','escuro'],t=ordem[(ordem.indexOf(temaAtual())+1)%3];
-  try{t==='auto'?localStorage.removeItem('ozz_tema'):localStorage.setItem('ozz_tema',t)}catch(e){}aplicarTema(t)};
+$('temaBtn').onclick=()=>{const t=temaAtual()==='escuro'?'claro':'escuro';try{localStorage.setItem('ozz_tema',t)}catch(e){}aplicarTema(t)};
 window.addEventListener('storage',e=>{if(e.key==='ozz_tema')aplicarTema(temaAtual())});
+if(mqEscuro&&mqEscuro.addEventListener)mqEscuro.addEventListener('change',()=>{if(!temaSalvo())aplicarTema(temaAtual())});   // sem escolha: acompanha o aparelho
 aplicarTema(temaAtual());
 
 /* ===== Clientes · Cadastro (aba "Clientes" da planilha do portal) ===== */
