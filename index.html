@@ -121,6 +121,17 @@ main.wide{max-width:1180px}
 .ana-rodape{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
 .ana-rodape b{color:var(--ink);font-variant-numeric:tabular-nums}
 .ana-vazio{padding:34px 16px;text-align:center;color:var(--muted)}
+/* ===== Clientes · Importar contas ===== */
+.imp-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;max-width:680px}
+.imp-txt{margin:0 0 16px;color:var(--muted);font-size:14.5px;line-height:1.5}
+.imp-st{margin-top:16px;font-size:14.5px;line-height:1.5}
+.imp-st:empty{display:none}
+.imp-st .imp-linha{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;background:var(--bg)}
+.imp-st .ok{background:var(--ok-soft)}.imp-st .err{background:var(--err-soft)}.imp-st .run{background:var(--warn-soft)}
+.imp-st small{display:block;color:var(--muted)}
+.imp-spin{width:16px;height:16px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:impg .8s linear infinite;flex-shrink:0;margin-top:3px}
+@keyframes impg{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.imp-spin{animation:none}}
 /* ===== Clientes · Ficha ===== */
 #cliCorpo tr[data-id]{cursor:pointer}
 #cliCorpo tr[data-id]:hover td{background:var(--primary-soft)}
@@ -725,7 +736,7 @@ body.locked{overflow:hidden}
 <section id="tab-analise" class="hidden">
   <div class="ana-top">
     <div><h2>Contas a pagar</h2><p id="anaSub">Contas de energia da aba PROGRAMAÇÃO da planilha de controle</p></div>
-    <button class="btn sec sm" id="anaAtualizar" type="button">↻ Atualizar</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" id="anaImportar" type="button">📥 Importar do e-mail</button><button class="btn sec sm" id="anaAtualizar" type="button">↻ Atualizar</button></div>
   </div>
   <div class="alert" id="anaErro"></div>
   <div class="ana-kpis" id="anaKpis"></div>
@@ -761,6 +772,16 @@ body.locked{overflow:hidden}
       <tbody id="cliCorpo"></tbody>
     </table></div>
     <div class="ana-rodape" id="cliRodape"></div>
+  </div>
+</section>
+
+<!-- =================== CLIENTES · IMPORTAR CONTAS =================== -->
+<section id="tab-importar" class="hidden">
+  <div class="ana-top"><div><h2>Importar contas do e-mail</h2><p>Puxa para a PROGRAMAÇÃO as contas da CPFL que chegaram no e-mail da OZZ</p></div></div>
+  <div class="imp-card">
+    <p class="imp-txt">É a mesma importação do botão da planilha de controle: confere as <b>50 contas mais recentes</b> do e-mail e acrescenta só as que ainda não estão na PROGRAMAÇÃO. As novas entram como <b>AGENDADO</b>. Roda em segundo plano e costuma levar de 1 a 3 minutos; pode sair desta tela.</p>
+    <button class="btn pri" id="impBtn" type="button">📥 Importar contas agora</button>
+    <div class="imp-st" id="impSt" role="status" aria-live="polite"></div>
   </div>
 </section>
 
@@ -1581,6 +1602,44 @@ $('cliCorpo').addEventListener('click',async e=>{
   $('cliSub').textContent='✓ Cliente excluído: '+c.nome;
 });
 
+/* ===== Importar contas do e-mail (roda na planilha de controle, em segundo plano) ===== */
+const imp={timer:null,inicio:0,estado:null};
+const impHora=ms=>ms?new Date(ms).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+function impMostrar(r){
+  const st=$('impSt'),btn=$('impBtn');
+  if(!r||!r.ok){btn.disabled=false;btn.textContent='📥 Importar contas agora';
+    st.innerHTML=`<div class="imp-linha err">⚠️ <span>${anaEsc((r&&r.erro)||'não foi possível falar com a planilha')}${r&&r.naoConfigurado&&perfilReal()==='ti'?'<small>Veja as instruções no arquivo PortalImportar.gs da planilha de controle.</small>':''}</span></div>`;return false}
+  const e=r.estado||{};imp.estado=e;
+  const andando=e.estado==='fila'||e.estado==='rodando';
+  btn.disabled=andando;btn.textContent=andando?'Importando…':'📥 Importar contas agora';
+  if(andando)st.innerHTML=`<div class="imp-linha run"><span class="imp-spin" aria-hidden="true"></span><span>${e.estado==='fila'?'Pedido enviado, a planilha vai começar em instantes…':'Lendo os e-mails e gravando na PROGRAMAÇÃO…'}<small>Pedido por ${anaEsc(e.pedidoPor||'—')} às ${impHora(e.pedidoEm)}</small></span></div>`;
+  else if(e.estado==='pronto')st.innerHTML=`<div class="imp-linha ok">✅ <span>${e.importadas?`<b>${e.importadas} conta${e.importadas===1?' nova importada':'s novas importadas'}</b>`:'Nenhuma conta nova: as contas do e-mail já estavam na PROGRAMAÇÃO.'}<small>Última importação: ${impHora(e.fimEm)}${e.pedidoPor?' · pedida por '+anaEsc(e.pedidoPor):''}</small>${e.importadas&&areasPermitidas().includes('ana')?'<small><a href="#cli/contas">Ver em Contas a pagar →</a></small>':''}</span></div>`;
+  else if(e.estado==='erro')st.innerHTML=`<div class="imp-linha err">⚠️ <span>A importação parou com erro: ${anaEsc(e.erro||'')}<small>${impHora(e.fimEm)} · tente de novo; se repetir, rode o importador pela planilha e veja o registro.</small></span></div>`;
+  else st.innerHTML='<div class="imp-linha">Nenhuma importação pelo portal ainda.</div>';
+  return andando;
+}
+function impAcompanhar(){
+  clearTimeout(imp.timer);
+  imp.timer=setTimeout(async()=>{
+    const r=await sheetApi('importar_status',{},{espera:40000});
+    const andando=impMostrar(r);
+    if(andando&&Date.now()-imp.inicio<8*60000)impAcompanhar();
+    else if(r&&r.ok&&r.estado&&r.estado.estado==='pronto'&&r.estado.importadas&&ana.dados)anaCarregar(false);   // Contas a pagar já aberta: relê
+  },6000);
+}
+async function impAbrir(){
+  if(!imp.estado)$('impSt').innerHTML='<div class="imp-linha">Vendo a última importação…</div>';
+  const r=await sheetApi('importar_status',{},{espera:40000});
+  if(impMostrar(r)){imp.inicio=imp.inicio||Date.now();impAcompanhar()}
+}
+$('impBtn').onclick=async()=>{
+  const b=$('impBtn');b.disabled=true;b.textContent='Enviando…';
+  const r=await sheetApi('importar_contas',{},{espera:40000});
+  imp.inicio=Date.now();
+  if(impMostrar(r))impAcompanhar();
+};
+$('anaImportar').onclick=()=>abrir('cli','importar');
+
 /* ===== Ficha do cliente: tudo de um cliente num lugar só ===== */
 const ficha={id:null,cache:{},volta:null};
 function fichaAbrir(id){
@@ -1846,6 +1905,7 @@ const MENU={
     {id:'tabela',ic:'🗂️',nome:'Tabela de clientes',desc:'Consultar, buscar, alterar e excluir clientes',sec:'tab-clientes',largo:true,aoAbrir:()=>cliAbrir()},
     {id:'registrar',ic:'➕',nome:'Registrar cliente',desc:'Cadastrar um cliente novo (dá para preencher pela fatura)',sec:'tab-cli-reg',largo:true,aoAbrir:()=>cliAbrirRegistro()},
     // area: só aparece para quem tem acesso à Análise (TI e Admin), porque mostra valores da empresa
+    {id:'importar',ic:'📥',nome:'Importar contas',desc:'Puxa agora as contas novas da CPFL que chegaram no e-mail',sec:'tab-importar',aoAbrir:()=>impAbrir()},
     {id:'contas',ic:'🗓️',nome:'Contas a pagar',desc:'Contas de energia: vencimentos, valores e usinas',sec:'tab-analise',largo:true,area:'ana',aoAbrir:()=>anaAbrir()}]},
   pos:{nome:'🤝 Pós-venda',itens:[
     {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
