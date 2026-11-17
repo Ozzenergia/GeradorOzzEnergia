@@ -697,13 +697,31 @@ body.locked{overflow:hidden}
 <!-- =================== CLIENTES · CADASTRO =================== -->
 <section id="tab-clientes" class="hidden">
   <div class="ana-top">
-    <div><h2>Cadastro de clientes</h2><p id="cliSub">Clientes cadastrados pelo portal</p></div>
-    <div style="display:flex;gap:8px"><button class="btn sec sm" id="cliAtualizar" type="button">↻ Atualizar</button><button class="btn pri sm" id="cliNovo" type="button">＋ Novo cliente</button></div>
+    <div><h2>Tabela de clientes</h2><p id="cliSub">Clientes cadastrados pelo portal</p></div>
+    <div style="display:flex;gap:8px"><button class="btn sec sm" id="cliAtualizar" type="button">↻ Atualizar</button><button class="btn pri sm" id="cliNovo" type="button">＋ Registrar cliente</button></div>
   </div>
   <div class="alert" id="cliErro"></div>
 
-  <form class="cli-form hidden" id="cliForm" novalidate autocomplete="off">
-    <h3 id="cliFormTit">Novo cliente</h3>
+
+  <div class="ana-filtros">
+    <input type="search" id="cliBusca" placeholder="Buscar por nome, CPF/CNPJ, UC, cidade, telefone ou vendedor" autocomplete="off" aria-label="Buscar clientes">
+  </div>
+  <div class="ana-tabela">
+    <div class="ana-scroll"><table>
+      <thead><tr><th data-ord="nome">Cliente</th><th data-ord="telefone">Contato</th><th data-ord="cidade">Cidade</th><th data-ord="uc">UC</th><th data-ord="plano">Plano</th><th data-ord="vendedor">Vendedor</th><th></th></tr></thead>
+      <tbody id="cliCorpo"></tbody>
+    </table></div>
+    <div class="ana-rodape" id="cliRodape"></div>
+  </div>
+</section>
+
+<!-- =================== CLIENTES · REGISTRAR =================== -->
+<section id="tab-cli-reg" class="hidden">
+  <div class="ana-top">
+    <div><h2 id="cliFormTit">Registrar cliente</h2><p id="cliRegSub">Os dados ficam na aba Clientes da planilha do portal</p></div>
+    <button class="btn sec sm" id="cliVerTabela" type="button">☰ Tabela de clientes</button>
+  </div>
+  <form class="cli-form" id="cliForm" novalidate autocomplete="off">
     <div class="cli-fatura">
       <button class="btn sec sm" id="cliFatBtn" type="button">📄 Preencher pela fatura</button>
       <input type="file" id="cliFatFile" accept=".pdf,image/*" hidden>
@@ -730,17 +748,6 @@ body.locked{overflow:hidden}
     </div>
     <div class="cli-meta" id="cliMeta"></div>
   </form>
-
-  <div class="ana-filtros">
-    <input type="search" id="cliBusca" placeholder="Buscar por nome, CPF/CNPJ, UC, cidade, telefone ou vendedor" autocomplete="off" aria-label="Buscar clientes">
-  </div>
-  <div class="ana-tabela">
-    <div class="ana-scroll"><table>
-      <thead><tr><th data-ord="nome">Cliente</th><th data-ord="telefone">Contato</th><th data-ord="cidade">Cidade</th><th data-ord="uc">UC</th><th data-ord="plano">Plano</th><th data-ord="vendedor">Vendedor</th><th></th></tr></thead>
-      <tbody id="cliCorpo"></tbody>
-    </table></div>
-    <div class="ana-rodape" id="cliRodape"></div>
-  </div>
 </section>
 
 <!-- =================== ANÁLISE · FLUXO DE CAIXA =================== -->
@@ -1349,7 +1356,7 @@ window.addEventListener('storage',e=>{if(e.key==='ozz_tema')aplicarTema(temaAtua
 aplicarTema(temaAtual());
 
 /* ===== Clientes · Cadastro (aba "Clientes" da planilha do portal) ===== */
-const cli={lista:null,busca:'',ord:'nome',desc:false,editando:null,carregando:false,salvando:false};
+const cli={lista:null,busca:'',ord:'nome',desc:false,editando:null,formAberto:false,paraEditar:null,carregando:false,salvando:false};
 const CLI_CAMPOS=['nome','doc','telefone','email','endereco','cep','cidade','uf','uc','distribuidora','plano','vendedor'];
 const soDig=s=>String(s||'').replace(/\D/g,'');
 function mascDoc(v){const d=soDig(v).slice(0,14);
@@ -1379,9 +1386,13 @@ async function cliCarregar(){
     return}
   cli.lista=r.clientes;cliRender();
 }
-function cliAbrir(){
-  const sel=$('cl_plano');if(!sel.options.length)sel.innerHTML='<option value="">—</option>'+cfg.planos.map(p=>`<option>${anaEsc(p.nome)}</option>`).join('');
-  if(!cli.lista)cliCarregar();else cliRender()}
+function cliPlanos(){const sel=$('cl_plano');if(!sel.options.length)sel.innerHTML='<option value="">—</option>'+cfg.planos.map(p=>`<option>${anaEsc(p.nome)}</option>`).join('')}
+function cliAbrir(){if(!cli.lista)cliCarregar();else cliRender()}
+function cliAbrirRegistro(){
+  cliPlanos();
+  if(cli.paraEditar){const c=cli.paraEditar;cli.paraEditar=null;cliEditar(c)}   // veio do "Editar" da tabela
+  else if(!cli.formAberto)cliEditar(null);                                         // formulário limpo para um cliente novo
+}
 function cliRender(){
   if(!cli.lista)return;
   const sem=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -1398,22 +1409,25 @@ function cliRender(){
       <td data-l="Plano">${anaEsc(c.plano)}</td>
       <td data-l="Vendedor">${anaEsc(c.vendedor)}</td>
       <td><div class="ana-acoes"><button type="button" data-ed="${anaEsc(c.id)}">Editar</button><button type="button" class="perigo" data-ex="${anaEsc(c.id)}">Excluir</button></div></td>
-    </tr>`).join(''):`<tr><td colspan="7" class="ana-vazio">${cli.lista.length?'Nenhum cliente com essa busca.':'Nenhum cliente cadastrado ainda. Clique em “＋ Novo cliente”.'}</td></tr>`;
+    </tr>`).join(''):`<tr><td colspan="7" class="ana-vazio">${cli.lista.length?'Nenhum cliente com essa busca.':'Nenhum cliente cadastrado ainda. Clique em “＋ Registrar cliente”.'}</td></tr>`;
   $('cliRodape').innerHTML=`<span>${lista.length} de ${cli.lista.length} cliente${cli.lista.length===1?'':'s'}</span><span></span>`;
 }
 function cliErroCampo(k,msg){const el=$('cl_'+k);el.classList.toggle('err',!!msg);el.setAttribute('aria-invalid',msg?'true':'false');el.parentElement.querySelector('small').textContent=msg||''}
 function cliEditar(c){
   cli.editando=c?c.id:null;
-  $('cliFormTit').textContent=c?'Alterar cliente':'Novo cliente';
+  cli.formAberto=true;
+  $('cliFormTit').textContent=c?'Alterar cliente':'Registrar cliente';
+  $('cliRegSub').textContent=c?'Alterando: '+c.nome:'Os dados ficam na aba Clientes da planilha do portal';
+  $('cliSalvar').textContent=c?'Salvar alterações':'Salvar cliente';
   CLI_CAMPOS.forEach(k=>{$('cl_'+k).value=c?(c[k]||''):'';cliErroCampo(k,'');$('cl_'+k).classList.remove('da-fatura','unsure')});
   $('cliFatSt').textContent='PDF ou foto da conta de energia: preenche nome, documento, endereço, UC e distribuidora.';$('cliFatSt').className='';
   if(c&&c.plano&&![...$('cl_plano').options].some(o=>o.value===c.plano)){const o=document.createElement('option');o.textContent=c.plano;$('cl_plano').append(o);$('cl_plano').value=c.plano}
   if(!c){try{$('cl_vendedor').value=consultorAtual()||''}catch(e){}}
   $('cliMeta').textContent=c?`Cadastrado em ${c.criadoEm}${c.criadoPor?' por '+c.criadoPor:''}${c.atualizadoEm?' · alterado em '+c.atualizadoEm+(c.atualizadoPor?' por '+c.atualizadoPor:''):''}`:'';
   $('cliSt').textContent='';$('cliSt').className='st';
-  $('cliForm').classList.remove('hidden');$('cliForm').scrollIntoView({behavior:'smooth',block:'start'});$('cl_nome').focus({preventScroll:true});
+  $('cl_nome').focus({preventScroll:true});
 }
-function cliFechar(){cli.editando=null;$('cliForm').classList.add('hidden')}
+function cliFechar(irParaTabela){cli.editando=null;cli.formAberto=false;if(irParaTabela)abrir('cli','tabela')}
 function cliValidar(){
   const d={};CLI_CAMPOS.forEach(k=>{d[k]=$('cl_'+k).value.replace(/\s+/g,' ').trim();cliErroCampo(k,'')});
   d.uf=d.uf.toUpperCase();let ok=true;const erro=(k,m)=>{cliErroCampo(k,m);if(ok)$('cl_'+k).focus();ok=false};
@@ -1439,10 +1453,13 @@ $('cliForm').addEventListener('submit',async e=>{
     st.textContent='⚠️ '+m.charAt(0).toUpperCase()+m.slice(1)+'.';st.className='st err';
     if(r&&r.duplicado)cliErroCampo(soDig(d.uc).length>=7?'uc':'doc','Já cadastrado.');
     return}
-  const i=(cli.lista||[]).findIndex(c=>c.id===r.cliente.id);
-  if(i>=0)cli.lista[i]=r.cliente;else(cli.lista=cli.lista||[]).push(r.cliente);
-  cliFechar();cliRender();
-  $('cliSub').textContent=(r.criado?'✓ Cliente cadastrado: ':'✓ Cliente alterado: ')+r.cliente.nome;
+  if(cli.lista){const i=cli.lista.findIndex(c=>c.id===r.cliente.id);if(i>=0)cli.lista[i]=r.cliente;else cli.lista.push(r.cliente)}
+  if(r.criado){   // cliente novo: limpa o formulário para registrar o próximo
+    cliEditar(null);
+    $('cliRegSub').textContent='✓ Cliente cadastrado: '+r.cliente.nome+'. Pode registrar o próximo.';
+  }else{          // alteração: volta para a tabela
+    cliFechar(true);$('cliSub').textContent='✓ Cliente alterado: '+r.cliente.nome;
+  }
 });
 /* Preencher o cadastro pela fatura (mesmo leitor do gerador de propostas: PDF ou foto) */
 $('cliFatBtn').onclick=()=>$('cliFatFile').click();
@@ -1475,8 +1492,9 @@ $('cliFatFile').addEventListener('change',async e=>{
   st.className=pos.length?'ok':'err';
   st.textContent=pos.length||dif.length?partes.join(' '):'⚠️ Não reconheci os dados nessa fatura. Preencha à mão ou tente outro arquivo.';
 });
-$('cliNovo').onclick=()=>cliEditar(null);
-$('cliCancelar').onclick=cliFechar;
+$('cliNovo').onclick=()=>{cli.formAberto=false;abrir('cli','registrar')};
+$('cliVerTabela').onclick=()=>abrir('cli','tabela');
+$('cliCancelar').onclick=()=>cliFechar(true);
 $('cliAtualizar').onclick=cliCarregar;
 $('cliBusca').oninput=e=>{cli.busca=e.target.value.trim();cliRender()};
 $('cl_doc').addEventListener('input',e=>{e.target.value=mascDoc(e.target.value)});
@@ -1485,7 +1503,7 @@ $('cl_cep').addEventListener('input',e=>{e.target.value=mascCep(e.target.value)}
 document.querySelectorAll('#tab-clientes th[data-ord]').forEach(th=>th.onclick=()=>{if(cli.ord===th.dataset.ord)cli.desc=!cli.desc;else{cli.ord=th.dataset.ord;cli.desc=false}cliRender()});
 $('cliCorpo').addEventListener('click',async e=>{
   const ed=e.target.closest('button[data-ed]'),ex=e.target.closest('button[data-ex]');
-  if(ed){const c=cli.lista.find(x=>x.id===ed.dataset.ed);if(c)cliEditar(c);return}
+  if(ed){const c=cli.lista.find(x=>x.id===ed.dataset.ed);if(c){cli.paraEditar=c;cli.formAberto=false;abrir('cli','registrar')}return}
   if(!ex)return;
   const c=cli.lista.find(x=>x.id===ex.dataset.ex);if(!c)return;
   // confirmação em dois toques no próprio botão (sem janela do navegador)
@@ -1493,7 +1511,7 @@ $('cliCorpo').addEventListener('click',async e=>{
   ex.disabled=true;ex.textContent='Excluindo…';
   const r=await sheetApi('cli_excluir',{id:c.id},{espera:60000});
   if(!r||!r.ok){ex.disabled=false;ex.textContent='Excluir';delete ex.dataset.conf;$('cliErro').textContent='⚠️ '+((r&&r.erro)||'não foi possível excluir');$('cliErro').style.display='block';return}
-  cli.lista=cli.lista.filter(x=>x.id!==c.id);if(cli.editando===c.id)cliFechar();cliRender();
+  cli.lista=cli.lista.filter(x=>x.id!==c.id);if(cli.editando===c.id)cliFechar(false);cliRender();
   $('cliSub').textContent='✓ Cliente excluído: '+c.nome;
 });
 
@@ -1607,7 +1625,8 @@ const MENU={
     {id:'prop',ic:'📊',nome:'Propostas',desc:'Fatura → proposta preenchida em segundos',sec:'tab-prop'},
     {id:'termo',ic:'📄',nome:'Termo de Adesão',desc:'Termo preenchido a partir da proposta ou da fatura',sec:'tab-termo'}]},
   cli:{nome:'👥 Clientes',itens:[
-    {id:'cad',ic:'🗂️',nome:'Cadastro de clientes',desc:'Cadastrar, consultar e alterar os dados dos clientes',sec:'tab-clientes',largo:true,aoAbrir:()=>cliAbrir()}]},
+    {id:'tabela',ic:'🗂️',nome:'Tabela de clientes',desc:'Consultar, buscar, alterar e excluir clientes',sec:'tab-clientes',largo:true,aoAbrir:()=>cliAbrir()},
+    {id:'registrar',ic:'➕',nome:'Registrar cliente',desc:'Cadastrar um cliente novo (dá para preencher pela fatura)',sec:'tab-cli-reg',largo:true,aoAbrir:()=>cliAbrirRegistro()}]},
   pos:{nome:'🤝 Pós-venda',itens:[
     {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
   ana:{nome:'📈 Análise',itens:[
