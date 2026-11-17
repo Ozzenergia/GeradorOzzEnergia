@@ -121,6 +121,10 @@ main.wide{max-width:1180px}
 .ana-rodape{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
 .ana-rodape b{color:var(--ink);font-variant-numeric:tabular-nums}
 .ana-vazio{padding:34px 16px;text-align:center;color:var(--muted)}
+/* ===== Marcar conta como paga ===== */
+.ana-chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap}
+.ana-chk input{width:18px;height:18px;margin:0;accent-color:var(--ok);cursor:pointer;flex-shrink:0}
+.ana-chk.salvando{opacity:.55;cursor:progress}
 /* ===== Clientes · Importar contas ===== */
 .imp-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;max-width:680px}
 .imp-txt{margin:0 0 16px;color:var(--muted);font-size:14.5px;line-height:1.5}
@@ -1328,7 +1332,7 @@ aplicarSessao();iniciarGoogle();
 /* =================== Abas =================== */
 /* Menu: categorias no cabeçalho com menu suspenso (passar o mouse ou tocar). Para incluir algo novo, é só acrescentar aqui. */
 /* ===== Análise · Programação (lê a aba PROGRAMAÇÃO pela planilha do portal; só TI e Admin) ===== */
-const ana={dados:null,filtro:'apagar',mes:'',usina:'',busca:'',ord:'venc',desc:false,carregando:false};
+const ana={dados:null,fixas:new Set(),filtro:'apagar',mes:'',usina:'',busca:'',ord:'venc',desc:false,carregando:false};
 const anaEsc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const anaDias=(iso,hoje)=>iso?Math.round((Date.parse(iso+'T12:00:00Z')-Date.parse(hoje+'T12:00:00Z'))/864e5):null;
 const anaDataBR=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4):'—';
@@ -1360,7 +1364,7 @@ async function anaCarregar(forcar){
     return;
   }
   r.contas.forEach(c=>{c.dias=anaDias(c.venc,r.hoje);c.mesVenc=c.venc?c.venc.slice(0,7):''});
-  ana.dados=r;
+  ana.dados=r;ana.fixas.clear();
   const meses=[...new Set(r.contas.map(c=>c.mesVenc).filter(Boolean))].sort().reverse();
   const anos=[...new Set(meses.map(m=>m.slice(0,4)))];
   if(ana.mes&&!meses.includes(ana.mes)&&!anos.includes(ana.mes))ana.mes='';
@@ -1393,8 +1397,9 @@ function anaRender(){
   const K=[['venc','k-venc','Vencidas'],['prox','k-prox','Vencem em até 7 dias'],['apagar','k-apagar','Total a pagar'],['pago','k-pago','Pagas']];
   $('anaKpis').innerHTML=K.map(([k,cl,nome])=>{const l=base.filter(grupos[k]);
     return `<button type="button" class="ana-kpi ${cl}${ana.filtro===k?' on':''}" data-f="${k}" aria-pressed="${ana.filtro===k}"><small>${nome}</small><b>${brl(soma(l))}</b><span>${l.length} conta${l.length===1?'':'s'}</span></button>`}).join('');
-  $('anaKpis').querySelectorAll('button').forEach(b=>b.onclick=()=>{ana.filtro=ana.filtro===b.dataset.f?'todas':b.dataset.f;anaRender()});
-  const lista=base.filter(grupos[ana.filtro]||grupos.todas);
+  $('anaKpis').querySelectorAll('button').forEach(b=>b.onclick=()=>{ana.fixas.clear();ana.filtro=ana.filtro===b.dataset.f?'todas':b.dataset.f;anaRender()});
+  const g=grupos[ana.filtro]||grupos.todas;
+  const lista=base.filter(c=>g(c)||ana.fixas.has(c));   // a conta recém-marcada continua na tela até trocar o filtro (dá para desfazer)
   const chave={venc:c=>c.venc||'9999',nome:c=>sem(c.nome),uc:c=>c.uc,mes:c=>c.mes.slice(3)+c.mes.slice(0,2),usina:c=>sem(c.usinaNome),valor:c=>c.valor==null?-1:c.valor,sit:c=>anaRotulo(c)}[ana.ord];
   lista.sort((a,b)=>{const x=chave(a),y=chave(b);return (x<y?-1:x>y?1:0)*(ana.desc?-1:1)||(a.venc<b.venc?-1:1)});
   document.querySelectorAll('#tab-analise th[data-ord]').forEach(th=>{const on=th.dataset.ord===ana.ord;th.setAttribute('aria-sort',on?(ana.desc?'descending':'ascending'):'none');
@@ -1407,8 +1412,8 @@ function anaRender(){
       <td data-l="Mês ref.">${anaEsc(c.mes)}</td>
       <td data-l="Usina">${c.usinaCod?'<b>'+anaEsc(c.usinaCod)+'</b> ':''}${c.usinaNome?(c.usinaCod?`<small>${anaEsc(c.usinaNome)}</small>`:anaEsc(c.usinaNome)):''}</td>
       <td class="num" data-l="Valor">${c.valor==null?'—':brl(c.valor)}</td>
-      <td><span class="ana-pill ${cl}">${anaRotulo(c)}</span></td>
-      <td><div class="ana-acoes">${c.link?`<a href="${anaEsc(c.link)}" target="_blank" rel="noopener">Conta ↗</a>`:''}${c.pix?`<button type="button" data-pix="${anaEsc(c.pix)}">Copiar PIX</button>`:''}</div></td>
+      <td>${pagoCheck(c,cl)}</td>
+      <td><div class="ana-acoes">${c.link?`<a href="${anaEsc(c.link)}" target="_blank" rel="noopener">Conta ↗</a>`:''}${c.pix&&c.situacao!=='PAGO'?`<button type="button" data-pix="${anaEsc(c.pix)}">Copiar PIX</button>`:''}</div></td>
     </tr>`}).join(''):'<tr><td colspan="8" class="ana-vazio">Nenhuma conta com esses filtros.</td></tr>';
   const nomes={venc:'vencidas',prox:'que vencem em até 7 dias',apagar:'a pagar',pago:'pagas',todas:'no total'};
   $('anaRodape').innerHTML=`<span>${lista.length} conta${lista.length===1?'':'s'} ${nomes[ana.filtro]}${ana.filtro!=='todas'?' · <a href="#" id="anaTodas">ver todas</a>':''}</span><span>Soma: <b>${brl(soma(lista))}</b></span>`;
@@ -1419,6 +1424,33 @@ $('anaBusca').oninput=e=>{ana.busca=e.target.value.trim();anaRender()};
 $('anaMes').onchange=e=>{ana.mes=e.target.value;anaRender()};
 $('anaUsina').onchange=e=>{ana.usina=e.target.value;anaRender()};
 document.querySelectorAll('#tab-analise th[data-ord]').forEach(th=>th.onclick=()=>{if(ana.ord===th.dataset.ord)ana.desc=!ana.desc;else{ana.ord=th.dataset.ord;ana.desc=false}anaRender()});
+/* ===== Marcar conta como paga: grava SITUAÇÃO = PAGO (ou AGENDADO) na PROGRAMAÇÃO da planilha de controle ===== */
+function pagoCheck(c,cl){
+  const pago=c.situacao==='PAGO';
+  return `<label class="ana-chk" title="${pago?'Desmarcar (volta para agendado)':'Marcar como pago'}"><input type="checkbox" data-pago="${c.linha}" data-venc="${anaEsc(c.venc)}"${pago?' checked':''} aria-label="Pago: ${anaEsc(c.nome)} ${anaEsc(c.mes)}"><span class="ana-pill ${cl}">${anaRotulo(c)}</span></label>`;
+}
+async function pagoAlternar(inp,lista,onde){
+  const c=lista.find(x=>String(x.linha)===inp.dataset.pago&&String(x.venc)===inp.dataset.venc);if(!c)return;
+  const novo=inp.checked?'PAGO':'AGENDADO';
+  inp.disabled=true;inp.closest('label').classList.add('salvando');
+  const r=await sheetApi('prog_situacao',{linha:c.linha,situacao:novo,conta:{nome:c.nome,venc:c.venc,link:c.link,pix:c.pix}},{espera:45000});
+  inp.disabled=false;inp.closest('label').classList.remove('salvando');
+  if(!r||!r.ok){inp.checked=!inp.checked;pagoErro(onde,(r&&r.erro)||'não foi possível gravar na planilha');return}
+  // atualiza as duas telas (Contas a pagar e a ficha) com o que foi gravado
+  const igual=x=>x.nome===c.nome&&x.venc===c.venc&&(x.linha===c.linha||x.link===c.link);
+  if(ana.dados)ana.dados.contas.filter(igual).forEach(x=>{x.situacao=r.situacao;x.linha=r.linha;ana.fixas.add(x)});
+  Object.values(ficha.cache).forEach(f=>f.contas&&f.contas.lista.filter(igual).forEach(x=>{x.situacao=r.situacao;x.linha=r.linha}));
+  c.situacao=r.situacao;c.linha=r.linha;
+  if(ana.dados&&!$('tab-analise').classList.contains('hidden'))anaRender();
+  if(ficha.id&&ficha.cache[ficha.id])fichaRender(ficha.cache[ficha.id]);
+}
+function pagoErro(onde,msg){
+  if(onde==='ana'){$('anaErro').textContent='⚠️ '+msg;$('anaErro').style.display='block';$('anaErro').scrollIntoView({block:'nearest'})}
+  else{let el=$('fichaMsg');if(!el){el=document.createElement('div');el.id='fichaMsg';el.className='alert';$('fichaCorpo').prepend(el)}el.textContent='⚠️ '+msg;el.style.display='block'}
+}
+$('anaCorpo').addEventListener('change',e=>{const i=e.target.closest('input[data-pago]');if(i&&ana.dados)pagoAlternar(i,ana.dados.contas,'ana')});
+$('fichaCorpo').addEventListener('change',e=>{const i=e.target.closest('input[data-pago]');const f=ficha.cache[ficha.id];if(i&&f&&f.contas)pagoAlternar(i,f.contas.lista,'ficha')});
+
 $('anaCorpo').addEventListener('click',async e=>{const b=e.target.closest('button[data-pix]');if(!b)return;
   try{await navigator.clipboard.writeText(b.dataset.pix);b.textContent='Copiado ✓'}catch(x){b.textContent='Não deu para copiar'}
   setTimeout(()=>{b.textContent='Copiar PIX'},1800)});
@@ -1703,7 +1735,7 @@ function fichaRender(r){
     else corpo=`<div class="ana-tabela"><div class="ana-scroll"><table><thead><tr><th>Mês</th><th>Vencimento</th><th class="num">Valor</th><th>Usina</th><th>Situação</th><th></th></tr></thead><tbody>${
       contas.map(x=>{const cl=anaClasse(x);return `<tr class="${cl?'r-'+cl:''}"><td data-l="Mês">${E(x.mes)}</td><td data-l="Vencimento">${anaDataBR(x.venc)}</td>
         <td class="num" data-l="Valor">${x.valor==null?'—':brl(x.valor)}</td><td data-l="Usina">${E([x.usinaCod,x.usinaNome].filter(Boolean).join(' · '))}</td>
-        <td><span class="ana-pill ${cl}">${anaRotulo(x)}</span></td>
+        <td>${pagoCheck(x,cl)}</td>
         <td><div class="ana-acoes">${x.link?`<a href="${E(x.link)}" target="_blank" rel="noopener">Conta ↗</a>`:''}${x.pix&&x.situacao!=='PAGO'?`<button type="button" data-pix="${E(x.pix)}">Copiar PIX</button>`:''}</div></td></tr>`}).join('')}</tbody></table></div></div>`;
     h+=`<section class="ficha-bloco"><h3>Contas de energia<span>PROGRAMAÇÃO${r.contas.lidoEm?' · lida em '+E(r.contas.lidoEm):''}</span></h3>${corpo}</section>`;
   }
