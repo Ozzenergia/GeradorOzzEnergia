@@ -54,7 +54,9 @@ function perfil_(p) {
 
 const COLS_PROPOSTAS = ['Data/hora', 'Nº proposta', 'Consultor', 'Cliente', 'CPF', 'CNPJ', 'UC', 'Distribuidora',
   'Endereço', 'CEP', 'Cidade', 'UF', 'Tensão', 'Consumo médio (kWh)', 'Plano', 'Desconto (%)',
-  'Custo mensal', 'Custo anual', 'Economia mensal', 'Economia anual', 'Modelo'];
+  'Custo mensal', 'Custo anual', 'Economia mensal', 'Economia anual', 'Modelo',
+  // a partir da versão 16: o que mais a fatura trouxe (o histórico também vai para a aba Rateio Consumo)
+  'Classe', 'Bairro', 'E-mail', 'Celular', 'Tarifa (R$/kWh)', 'Mês da fatura', 'Consumo TE do mês (kWh)', 'Injeção TE (kWh)', 'Histórico 12 meses (kWh)'];
 const COLS_TERMOS = ['Data/hora', 'Nº proposta', 'Consultor', 'Titular', 'CPF/CNPJ', 'UC', 'Distribuidora',
   'Classe', 'Endereço', 'Cidade/UF', 'Consumo médio (kWh)', 'Modalidade', 'Data de assinatura', 'Representante',
   'Celular', 'E-mail'];
@@ -159,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '15 (rateio de créditos, só TI)';
+const VERSAO_SCRIPT = '16 (proposta guarda o histórico de consumo)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -300,14 +302,56 @@ function registrarProposta(d) {
     const prefixo = String(cfg.getRange('B2').getValue() || '');
     const numero = prefixo + String(prox);
     cfg.getRange('B1').setValue(prox + 1);
+    completaCabecalho_(sh, COLS_PROPOSTAS);
+    const hist = historicoValido_(d.historico);
+    const mesFat = hist.length ? hist[hist.length - 1].mes : '';
+    const histTxt = hist.map(h => String(h.mes).slice(4) + '/' + String(h.mes).slice(0, 4) + ': ' + h.kwh).join(' · ');
     sh.appendRow([new Date(), numero, d.consultor, d.titular, d.cpf, d.cnpj, d.codigo_uc, d.distribuidora,
       d.endereco, d.cep, d.cidade, d.uf, d.tensao, d.consumo, d.plano, d.desconto,
-      d.custo_mensal, d.custo_anual, d.economia_mensal, d.economia_anual, d.modelo].map(limpa));
+      d.custo_mensal, d.custo_anual, d.economia_mensal, d.economia_anual, d.modelo,
+      d.classe_uc, d.bairro, d.email, d.celular, d.tarifa, mesFat ? String(mesFat).slice(4) + '/' + String(mesFat).slice(0, 4) : '',
+      d.consumo_te, d.inj_te, histTxt].map(limpa));
     SpreadsheetApp.flush();
-    return { ok: true, numero: numero };
+    let consumo = null;
+    try { consumo = consumoDaProposta_(d.codigo_uc, hist, numero); } catch (e) { console.error('Consumo da proposta: ' + e.message); }
+    return { ok: true, numero: numero, consumo: consumo };
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Histórico mandado pelo site: [{mes: AAAAMM, kwh}] — só meses e valores que fazem sentido, em ordem. */
+function historicoValido_(h) {
+  if (!Array.isArray(h)) return [];
+  const vistos = {};
+  return h.map(x => ({ mes: Number(x && x.mes) || 0, kwh: Number(x && x.kwh) }))
+    .filter(x => x.mes > 200001 && x.mes < 210001 && x.mes % 100 >= 1 && x.mes % 100 <= 12 && isFinite(x.kwh) && x.kwh >= 0 && x.kwh < 10000000)
+    .filter(x => vistos[x.mes] ? false : (vistos[x.mes] = true))
+    .sort((a, b) => a.mes - b.mes);
+}
+
+/**
+ * Leva o histórico da fatura usada na proposta para a aba "Rateio Consumo" (uma linha por UC e mês),
+ * para o rateio usar depois. Só ACRESCENTA meses que ainda não estão lá: não muda o que já foi lançado.
+ */
+function consumoDaProposta_(uc, hist, numero) {
+  const u = String(uc || '').replace(/\D/g, '');
+  if (u.length < 7 || !hist.length) return { novos: 0, existentes: 0 };
+  const sh = ratAba_('consumo');
+  const ja = {};
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(r => {
+    if (String(r[0]).replace(/\D/g, '') !== u) return;
+    const m = r[1] instanceof Date ? Number(Utilities.formatDate(r[1], 'America/Sao_Paulo', 'yyyyMM')) : Number(String(r[1]).replace(/\D/g, ''));
+    ja[m] = true;
+  });
+  const largura = RAT_ABAS_.consumo.cols.length;
+  const novos = hist.filter(h => !ja[h.mes]).map(h => {
+    const r = Array(largura).fill('');
+    r[0] = String(uc).trim(); r[1] = h.mes; r[2] = h.kwh; r[largura - 1] = 'Proposta ' + numero;
+    return r;
+  });
+  if (novos.length) sh.getRange(sh.getLastRow() + 1, 1, novos.length, largura).setValues(novos);
+  return { novos: novos.length, existentes: hist.length - novos.length };
 }
 
 function registrarTermo(d) {
@@ -1065,8 +1109,8 @@ const RAT_ABAS_ = {
   geracao: { nome: 'Rateio Geração', cols: ['Unidade Geradora', 'Ano', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
              chaves: ['ug', 'ano', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11', 'm12'] },
   consumo: { nome: 'Rateio Consumo', cols: ['Número da UC', 'Mês Referência (AAAAMM)', 'Consumo kWh', 'Energia Compensada kWh', 'Saldo Acumulado kWh',
-             'Custo Mínimo kWh', 'Data Leitura', 'Data Emissão', 'Data Leitura Anterior'],
-             chaves: ['uc', 'mes', 'consumo', 'compensada', 'saldo', 'minimo', 'leitura', 'emissao', 'leituraAnt'] },
+             'Custo Mínimo kWh', 'Data Leitura', 'Data Emissão', 'Data Leitura Anterior', 'Origem'],
+             chaves: ['uc', 'mes', 'consumo', 'compensada', 'saldo', 'minimo', 'leitura', 'emissao', 'leituraAnt', 'origem'] },
   gerados: { nome: 'Rateios Gerados', cols: ['ID', 'Gerado em', 'Gerado por', 'Unidade Geradora', 'Nome da UG', 'Ano Mês Ref', 'Geração Estimada kWh', 'Base',
              'Número da UC', 'Titular', 'Rateio %', 'Injeção kWh', 'Rateio Manual', 'Fator Ajuste', 'Situação'],
              chaves: ['id', 'geradoEm', 'geradoPor', 'ug', 'nomeUg', 'mes', 'geracao', 'base', 'uc', 'titular', 'pct', 'kwh', 'manual', 'fator', 'situacao'] }
@@ -1079,6 +1123,9 @@ function ratAba_(k) {
     sh = ss.insertSheet(def.nome);
     sh.getRange(1, 1, 1, def.cols.length).setValues([def.cols]).setFontWeight('bold').setBackground('#ede7f6');
     sh.setFrozenRows(1);
+  } else if (sh.getLastColumn() < def.cols.length) {   // aba criada numa versão anterior: acrescenta as colunas novas
+    sh.getRange(1, sh.getLastColumn() + 1, 1, def.cols.length - sh.getLastColumn()).setValues([def.cols.slice(sh.getLastColumn())])
+      .setFontWeight('bold').setBackground('#ede7f6');
   }
   return sh;
 }

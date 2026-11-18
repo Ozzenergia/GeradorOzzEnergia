@@ -2610,6 +2610,13 @@ function buildValues(){
   return o;
 }
 
+// "NOV/26" + kWh de cada mês → [{mes:202611,kwh}] (só os meses preenchidos; sem os meses da fatura não dá para saber a data)
+function historicoParaPlanilha(){
+  const hm=propData.histMes,h=readHist(),M='JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ'.split('|');
+  if(!hm||hm.length!==12)return [];
+  return hm.map((mm,i)=>{const k=M.indexOf(String(mm).slice(0,3)),y=+String(mm).slice(4);
+    return {mes:k<0||!isFinite(y)?0:(2000+y)*100+k+1,kwh:h[i]}}).filter(x=>x.mes&&isFinite(x.kwh)&&x.kwh!==null&&x.kwh>=0);
+}
 $('propBack').onclick=()=>{$('fatOk').style.display='none';propStep(1)};
 $('propNew').onclick=()=>{$('fatOk').style.display='none';propStep(1)};
 $('propGen').onclick=async()=>{
@@ -2627,7 +2634,10 @@ $('propGen').onclick=async()=>{
       btn.disabled=true;btn.textContent='Registrando na planilha…';
       reg=await sheetApi('proposta',{dados:{consultor:consultorAtual(),titular:V.titular,cpf:V.cpf,cnpj:V.cnpj,codigo_uc:V.codigo_uc,distribuidora:V.distribuidora,
         endereco:V.endereco,cep:V.cep,cidade:propData.cidade,uf:V.uf,tensao:V.tensao,consumo:V.consumo,plano:V.plano,desconto:V.desconto,
-        custo_mensal:V.custo_mensal,custo_anual:V.custo_anual,economia_mensal:V.economia_mensal,economia_anual:V.economia_anual,modelo:$('pmName').textContent}});
+        custo_mensal:V.custo_mensal,custo_anual:V.custo_anual,economia_mensal:V.economia_mensal,economia_anual:V.economia_anual,modelo:$('pmName').textContent,
+        // o que mais a fatura trouxe: guardado na planilha (o histórico também alimenta o Rateio)
+        classe_uc:propData.classe_uc||'',bairro:propData.bairro||'',email:V.email||'',celular:V.celular||'',tarifa:V.tarifa||'',
+        consumo_te:propData.consumo_te||'',inj_te:propData.inj_te||'',historico:historicoParaPlanilha()}});
       btn.disabled=false;btn.textContent='Gerar proposta .docx ✨';
       if(reg.ok&&reg.numero){V.numero_proposta=propData.numero_proposta=String(reg.numero)}
       else if(!confirm('Não foi possível registrar na planilha ('+reg.erro+').\n\nGerar mesmo assim com o número '+V.numero_proposta+' do contador deste computador? Confira o número depois.'))return;
@@ -2646,7 +2656,7 @@ $('propGen').onclick=async()=>{
     $('propDl').download=`Proposta_OZZ_Energia_${n}_-_${(V.titular||'cliente').toUpperCase().replace(/[^\wÀ-ú]+/g,'_')}.docx`;
     $('propNumOut').textContent=n;
     if(!(reg.ok&&reg.numero)){cfg.next=Number(cfg.next)+1;store.set('ozz_cfg',cfg)}
-    sheetStatus('propSheetSt',reg,'✅ Registrada na planilha com o número '+n+'.');
+    sheetStatus('propSheetSt',reg,'✅ Registrada na planilha com o número '+n+'.'+(reg.consumo&&reg.consumo.novos?` Histórico de consumo guardado (${reg.consumo.novos} ${reg.consumo.novos===1?'mês':'meses'}).`:''));
     propStep(3);
   }catch(err){
     btn.disabled=false;btn.textContent='Gerar proposta .docx ✨';
