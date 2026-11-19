@@ -2526,9 +2526,15 @@ function readHist(){return Array.from({length:12},(_,i)=>num($('h'+i).value))}
 function recompute(auto){
   FX.forEach(k=>propData[k]=$('fx_'+k).value.trim());
   const h=readHist(),okH=h.filter(v=>isFinite(v)&&v>0);
-  const te=num(propData.consumo_te);
+  const te=num(propData.consumo_te),inj=num(propData.inj_te);
   let media=NaN;
-  if(okH.length){
+  // cliente com energia solar: a média do histórico não vale (a placa muda o consumo de mês a mês).
+  // Na proposta usa só o mês da fatura: consumo − energia injetada. Depois, com 6 faturas, a OZZ refaz pela média.
+  if(isFinite(te)&&isFinite(inj)&&inj>0){
+    media=Math.max(0,te-inj);
+    $('method').textContent='☀️ Método: cliente com energia solar';
+    $('sumBox').innerHTML=`Consumo TE do mês: ${fmtBR(te)} kWh<br>− Energia injetada: ${fmtBR(inj)} kWh<hr><b>= Consumo considerado: ${fmtBR(Math.round(media))} kWh</b><br><small>A fatura tem energia injetada (solar), então não uso a média do histórico. Se não for o caso, apague o campo "Inj. TE".</small>`;
+  }else if(okH.length){
     const soma=okH.reduce((a,b)=>a+b,0);media=soma/okH.length;
     $('method').textContent='📊 Método: média do histórico';
     $('sumBox').innerHTML=`Soma ${okH.length===1?'de 1 mês':'dos '+okH.length+' meses'}: ${fmtBR(soma)} kWh<br>÷ ${okH.length} ${okH.length>1?'meses':'mês'}<hr><b>= Consumo médio: ${fmtBR(Math.round(media))} kWh</b>`;
