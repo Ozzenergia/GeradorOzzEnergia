@@ -1014,6 +1014,12 @@ function parseFaturaOCR(T){
   if(!d.dia_vencimento){const m=T.match(new RegExp('\\b(?:'+MES3+')\\/20\\d\\d\\s+(\\d{2})\\/\\d{2}\\/\\d{4}'));if(m)d.dia_vencimento=String(+m[1])}
   if(!d.dia_leitura){const m=T.match(/Pr[óo]xima leitura:?\s*(\d{2})\//i);if(m)d.dia_leitura=String(+m[1])}
   const inj=T.match(/Energia\s+[Ii]njetada[^\n]*?(\d{1,3}(?:\.\d{3})+|\d{3,5})\s*\S{0,25}$/m);if(inj)d.inj_te=String(Math.round(+inj[1].replace(/\./g,'')));
+  // tabela "Descrição da operação": quantidade faturada (ex.: 3.060,0000). Na foto a linha TE costuma sair embaralhada,
+  // então usa a TUSD, que tem a mesma quantidade (consumo e energia injetada de outra UC: "Energ Atv Inj. oUC mPT")
+  {const qt=l=>{const m=l.match(/(\d{1,3})[.\s]?(\d{3})\s*[,\/.]{1,2}\s*\d{4}\b/);return m?+(m[1]+m[2]):NaN};
+   const Ls=T.split('\n'),tusd=l=>/TUS[DO0]|Uso\s+Sist|Uso\s+Sat/i.test(l);
+   if(!d.inj_te){let s=0,ok=false;Ls.filter(l=>/oUC|mPT|\bInj/i.test(l)&&tusd(l)).forEach(l=>{const v=qt(l);if(v>0){s+=v;ok=true}});if(ok)d.inj_te=String(s)}
+   const cl=Ls.find(l=>/Consumo/i.test(l)&&tusd(l)&&!/oUC|mPT|Inj/i.test(l));if(cl){const v=qt(cl);if(v>0)d._te_tab=String(v)}}
   // mês de referência
   let ref=T.match(new RegExp('\\b('+MES3+')\\/(20\\d\\d)\\s+\\d{2}\\/\\d{2}\\/\\d{4}'));
   if(ref)d._ref=[ref[1],+ref[2]];
@@ -1141,6 +1147,9 @@ async function ocrFatura(src,prog){
     if(d._ref)d.histMes=mesesHist(d._ref).slice(0,12).reverse();d._histIlegivel=true}
   ['titular','endereco','cep','cidade','uf','distribuidora'].forEach(k=>{if(!d[k])incertos.add(k)});
   if(!d.cpf&&!d.cnpj){incertos.add('cpf');incertos.add('cnpj')}
+  // sem histórico legível: o consumo do mês vem da tabela (fica marcado para conferir)
+  if(!d.consumo_te&&d._te_tab){d.consumo_te=d._te_tab;incertos.add('consumo_te')}
+  if(d.inj_te)incertos.add('inj_te');delete d._te_tab;
   delete d._ref;const ileg=!!d._histIlegivel;delete d._histIlegivel;
   return {d,incertos,histImg,histIlegivel:ileg,texto:T};
 }
@@ -2438,7 +2447,7 @@ function parseCPFL(t){
   const tn=t.match(/Disp\.?:?\s*(\d{3})/i);if(tn)d.tensao=tn[1];
   const te=t.match(/Consumo\s*-\s*TE[^\n]*?kWh\s+([\d.]+,\d+|\d+)/i);if(te)d.consumo_te=String(Math.round(num(te[1])));
   let inj=0,hasInj=false;
-  (t.match(/Inje[^\n]*?\bTE\b[^\n]*?kWh\s+-?([\d.]+,\d+|\d+)/gi)||[]).forEach(l=>{const m=l.match(/kWh\s+-?([\d.]+,\d+|\d+)/i);if(m){inj+=num(m[1]);hasInj=true}});
+  (t.match(/(?:Inje|\bInj\.|\boUC\b|\bmPT\b)[^\n]*?\bTE\b[^\n]*?kWh\s+-?([\d.]+,\d+|\d+)/gi)||[]).forEach(l=>{const m=l.match(/kWh\s+-?([\d.]+,\d+|\d+)/i);if(m){inj+=num(m[1]);hasInj=true}});
   if(hasInj)d.inj_te=String(Math.round(inj));
   // Histórico: "FEV 26 llll 1423 32" (mais recente primeiro; 1ª linha = mês da fatura)
   const hist=[],hm=[];const re=new RegExp('^('+MES3+') (\\d{2}) [l ]*?(\\d+) (\\d{1,2})$');
