@@ -143,6 +143,10 @@ main.wide{max-width:1180px}
 .rat-ajuda{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-top:18px;font-size:14px;line-height:1.55}
 .rat-ajuda summary{cursor:pointer;font-weight:700}
 .rat-ajuda li{margin:4px 0}
+/* ===== Tarifa editável no rodapé da proposta ===== */
+.tar-rapida{width:44px;font:inherit;color:inherit;background:transparent;border:none;border-bottom:1px dashed currentColor;padding:0 2px;text-align:center;cursor:pointer;-moz-appearance:textfield}
+.tar-rapida::-webkit-inner-spin-button,.tar-rapida::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.tar-rapida:focus{outline:2px solid var(--primary);outline-offset:2px;border-bottom-color:transparent;cursor:text}
 /* ===== Marcar conta como paga ===== */
 .ana-chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap}
 .ana-chk input{width:18px;height:18px;margin:0;accent-color:var(--ok);cursor:pointer;flex-shrink:0}
@@ -611,7 +615,7 @@ body.locked{overflow:hidden}
   </div>
 
   <div class="foot" style="margin-top:6px">
-    <span id="rules">Mín. 600 kWh · R$ 1.06/kWh · 220V ou 380V</span>
+    <span id="rules">Mín. 600 kWh · R$ 1.21/kWh · 220V ou 380V</span>
     <button class="linkbtn" id="numCfgBtn">configurar numeração</button>
   </div>
 </section>
@@ -2224,12 +2228,22 @@ window.addEventListener('hashchange',()=>{const [c,i]=location.hash.slice(1).spl
 aplicarPerfil();
 
 /* =================== GERADOR DE PROPOSTAS =================== */
-const CFG_DEF={prefix:'',next:54384,min:600,tarifa:1.06,desconto:0,gesp:1370};
+const CFG_DEF={prefix:'',next:54384,min:600,tarifa:1.21,desconto:0,gesp:1370};
 let cfg={...CFG_DEF,...store.get('ozz_cfg',{})};
+// a tarifa padrão passou de 1,06 para 1,21 (nov/2026): quem tinha o valor antigo salvo no aparelho passa para o novo
+if(Number(cfg.tarifa)===1.06&&!store.get('ozz_tar121',false)){cfg.tarifa=1.21;store.set('ozz_cfg',{...store.get('ozz_cfg',{}),tarifa:1.21});store.set('ozz_tar121',true)}
 let tplTags=[];
 
 function fmtNum(n){return (cfg.prefix||'')+String(n).padStart(4,'0')}
-function renderRules(){$('rules').textContent=`Mín. ${cfg.min} kWh · R$ ${Number(cfg.tarifa).toFixed(2)}/kWh · 220V ou 380V`}
+function renderRules(){
+  // a tarifa dá para trocar ali mesmo (fica salva neste aparelho e recalcula a proposta aberta)
+  $('rules').innerHTML=`Mín. ${cfg.min} kWh · R$ <input id="tarRapida" class="tar-rapida" type="number" step="0.01" min="0" value="${Number(cfg.tarifa).toFixed(2)}" aria-label="Tarifa em reais por kWh" title="Clique para trocar a tarifa">/kWh · 220V ou 380V`;
+  $('tarRapida').onchange=e=>{const v=Number(String(e.target.value).replace(',','.'));
+    if(!(v>0)){e.target.value=Number(cfg.tarifa).toFixed(2);return}
+    cfg.tarifa=Math.round(v*100)/100;store.set('ozz_cfg',{...store.get('ozz_cfg',{}),tarifa:cfg.tarifa});
+    e.target.value=cfg.tarifa.toFixed(2);if($('cfgTar'))$('cfgTar').value=cfg.tarifa;
+    try{if(propData&&!$('pp2').classList.contains('hidden'))recompute()}catch(x){}};
+}
 renderRules();
 
 /* Campos conhecidos: chave canônica → rótulo e origem. Placeholders do template são casados por nome normalizado. */
