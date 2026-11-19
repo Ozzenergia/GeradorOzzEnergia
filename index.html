@@ -868,9 +868,10 @@ body.locked{overflow:hidden}
 <section id="tab-rateio" class="hidden">
   <div class="ana-top">
     <div><h2>Rateio de créditos <span class="rat-beta">em construção · só TI</span></h2><p id="ratSub">Divide a geração estimada da usina entre as UCs beneficiárias</p></div>
-    <button class="btn sec sm" id="ratAtualizar" type="button">↻ Atualizar</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" id="ratImportar" type="button">⬇️ Puxar da planilha de controle</button><button class="btn sec sm" id="ratAtualizar" type="button">↻ Atualizar</button></div>
   </div>
   <div class="alert" id="ratErro"></div>
+  <div class="rat-avisos" id="ratImpRes" role="status" aria-live="polite"></div>
   <div class="ana-filtros">
     <select id="ratUsina" aria-label="Usina"></select>
     <select id="ratMes" aria-label="Mês de referência"></select>
@@ -1758,7 +1759,7 @@ async function ratCarregar(){
 function ratAbrir(){if(!rat.dados)ratCarregar();else ratRender()}
 function ratOpcoes(){
   const d=rat.dados,us=d.usinas.filter(u=>!String(u.inativa||'').trim());
-  if(!us.find(u=>u.ug===rat.ug))rat.ug=us[0]?us[0].ug:'';
+  if(!us.find(u=>ratDig(u.ug)===ratDig(rat.ug)))rat.ug=us[0]?us[0].ug:'';
   $('ratUsina').innerHTML=us.length?us.map(u=>`<option value="${anaEsc(u.ug)}">${anaEsc(u.ug)} · ${anaEsc(u.nome)}</option>`).join(''):'<option value="">Nenhuma usina cadastrada</option>';
   $('ratUsina').value=rat.ug;
   // meses: 12 para trás e 3 para frente a partir de hoje
@@ -1768,21 +1769,23 @@ function ratOpcoes(){
   $('ratMes').value=rat.mes;$('ratBase').value=rat.base;
 }
 function ratUltimo(ug){   // último rateio salvo da usina (as linhas entram na aba em ordem)
-  const g=rat.dados.gerados.filter(x=>x.ug===ug);if(!g.length)return null;
+  const g=rat.dados.gerados.filter(x=>ratDig(x.ug)===ratDig(ug));if(!g.length)return null;
   const id=g[g.length-1].id;return {id,linhas:g.filter(x=>x.id===id)};
 }
 function ratMontar(){
   const d=rat.dados,ug=rat.ug,ref=rat.mes,chave=ug+'|'+ref;
-  const usina=d.usinas.find(u=>u.ug===ug)||{};
-  const gl=d.geracao.find(g=>String(g.ug)===ug&&Number(g.ano)===Math.floor(ref/100));
+  const usina=d.usinas.find(u=>ratDig(u.ug)===ratDig(ug))||{};
+  const gl=d.geracao.find(g=>ratDig(g.ug)===ratDig(ug)&&Number(g.ano)===Math.floor(ref/100));
   const gerPlan=gl?Number(gl['m'+(ref%100)])||0:0;
   const ger=rat.ger[chave]!=null?rat.ger[chave]:gerPlan;
   const ult=ratUltimo(ug),ultUcs=new Set(ult?ult.linhas.map(x=>ratDig(x.uc)):[]);
-  const bens=d.benef.filter(b=>String(b.ug)===ug&&(!b.inicio||+b.inicio<=ref)&&(!b.termino||+b.termino>=ref));
+  const bens=d.benef.filter(b=>ratDig(b.ug)===ratDig(ug)&&(!b.inicio||+b.inicio<=ref)&&(!b.termino||+b.termino>=ref));
   const cont={};bens.forEach(b=>{const u=ratDig(b.uc);cont[u]=(cont[u]||0)+1});
   const linhas=bens.map(b=>{
     const u=ratDig(b.uc),hist=d.consumo.filter(c=>ratDig(c.uc)===u&&+c.mes<=ref).sort((a,b)=>a.mes-b.mes);
-    const reg=hist[hist.length-1]||null;
+    // consumo e saldo podem vir de linhas diferentes (proposta/fatura traz consumo; a planilha de controle traz saldo)
+    const comC=hist.filter(c=>c.consumo!==''&&c.consumo!=null),comS=hist.filter(c=>c.saldo!==''&&c.saldo!=null);
+    const reg=comC[comC.length-1]||null,regS=comS[comS.length-1]||null;
     const media=n=>{const l=hist.filter(c=>+c.mes>ratAM(ref,-n)&&c.consumo!=='');return l.length?l.reduce((t,c)=>t+(+c.consumo||0),0)/l.length:null};
     const consumo=reg&&reg.consumo!==''?+reg.consumo:(+b.consumoRef||0);
     const minimo=reg&&reg.minimo!==''&&reg.minimo!=null?+reg.minimo:ratMinPadrao(b.fornecimento)||0;
@@ -1790,7 +1793,7 @@ function ratMontar(){
     const s3=media(3),s12=media(12);
     const e=rat.ed[chave+'|'+u]||{};
     const atual=ult?ult.linhas.find(x=>ratDig(x.uc)===u):null;
-    return {uc:b.uc,u,titular:b.titular||b.favorecido||'',fornecimento:b.fornecimento,consumo,minimo,saldo:reg&&reg.saldo!==''?+reg.saldo||0:0,
+    return {uc:b.uc,u,titular:b.titular||b.favorecido||'',fornecimento:b.fornecimento,consumo,minimo,saldo:regS?+regS.saldo||0:0,mesSaldo:regS?+regS.mes:0,
       mesConsumo:reg?+reg.mes:0,semConsumo:!reg,s3,s12,mmaa:mmaa&&mmaa.consumo!==''?+mmaa.consumo:null,
       fator:e.fator!=null?e.fator:(b.fator===''||b.fator==null?1:+b.fator),manual:e.manual!=null?e.manual:null,
       atual:atual?+atual.pct:null,nova:!!ult&&!ultUcs.has(u),repetida:cont[u]>1};
@@ -1811,6 +1814,8 @@ function ratRender(){
   if(desat)av.push(`${desat} UC${desat>1?'s':''} com consumo de mês anterior (não tem a fatura de ${ratMesTxt(ref)} na aba Rateio Consumo).`);
   if(sem)av.push(`${sem} UC${sem>1?'s':''} sem nenhum consumo lançado: usei o "Consumo Referência" do cadastro.`);
   if(L.some(l=>l.repetida))av.push('Tem UC repetida na lista de beneficiárias desta usina.');
+  const semMin=L.filter(l=>!l.minimo).length;
+  if(semMin)av.push(`${semMin} UC${semMin>1?'s':''} sem custo mínimo nem tipo de fornecimento: considerei mínimo 0. Preencha "Tipo Fornecimento" na aba Rateio Beneficiárias (mono 30, bi 50, tri 100 kWh).`);
   $('ratAvisos').innerHTML=av.map(a=>`<div>⚠️ ${a}</div>`).join('');
   // números do topo
   const fecha=Math.abs(c.dif)<0.00005&&L.length,fechaKwh=Math.abs(c.injecao-M.ger)<0.5;
@@ -1826,7 +1831,7 @@ function ratRender(){
       (l.semConsumo?'<span class="rat-tag">SEM CONSUMO</span>':l.mesConsumo!==ref?`<span class="rat-tag">consumo ${ratMesTxt(l.mesConsumo)}</span>`:'')+(c.ajustada===i?'<span class="rat-tag info">+ arredondamento</span>':'');
     return `<tr><td class="tit"><b>${anaEsc(l.uc)}</b><small>${anaEsc(l.titular)}</small>${tags}</td>
       <td class="num" data-l="Consumo">${ratN(l.consumo)}</td><td class="num" data-l="Mínimo">${ratN(l.minimo)}</td><td class="num" data-l="Disponível">${ratN(r.O)}</td>
-      <td class="num" data-l="Saldo">${ratN(l.saldo)}</td><td class="num" data-l="Estoque">${l.s3?ratN(l.saldo/l.s3,1)+' m':'—'}</td>
+      <td class="num" data-l="Saldo">${ratN(l.saldo)}</td><td class="num" data-l="Estoque">${(l.s3||l.consumo)?ratN(l.saldo/(l.s3||l.consumo),1)+' m':'—'}</td>
       <td class="num" data-l="Atual">${ratP(l.atual)}</td>
       <td class="num" data-l="Fator"><input type="number" step="0.05" min="0" value="${l.fator}" data-rat="fator" data-u="${l.u}" aria-label="Fator de ajuste da UC ${anaEsc(l.uc)}"></td>
       <td class="num" data-l="Calculado">${ratP(r.AA)}</td>
@@ -1838,9 +1843,9 @@ function ratRender(){
   $('ratSalvar').disabled=!fecha||!(M.ger>0)||rat.salvando;
   $('ratSub').textContent=`${M.usina.nome||'Usina'} · ${ratMesTxt(ref)} · base ${rat.base==='3M'?'média 3 meses':rat.base==='12M'?'média 12 meses':'mesmo mês do ano anterior'}`;
   // histórico
-  const g=d.gerados.filter(x=>x.ug===rat.ug),ids=[...new Set(g.map(x=>x.id))].reverse();
+  const g=d.gerados.filter(x=>ratDig(x.ug)===ratDig(rat.ug)),ids=[...new Set(g.map(x=>x.id))].reverse();
   $('ratHist').innerHTML=ids.length?`<div class="ana-tabela"><div class="ana-scroll"><table><thead><tr><th>Salvo em</th><th>Mês ref.</th><th class="num">Geração</th><th class="num">UCs</th><th>Base</th><th>Por</th><th>Situação</th></tr></thead><tbody>${
-    ids.slice(0,24).map(id=>{const l=g.filter(x=>x.id===id),a=l[0];return `<tr><td>${anaEsc(a.geradoEm)}</td><td data-l="Mês ref.">${ratMesTxt(+a.mes)}</td><td class="num" data-l="Geração">${ratN(+a.geracao)}</td><td class="num" data-l="UCs">${l.length}</td><td data-l="Base">${anaEsc(a.base)}</td><td data-l="Por">${anaEsc(a.geradoPor)}</td><td data-l="Situação">${anaEsc(a.situacao)}</td></tr>`}).join('')}</tbody></table></div></div>`
+    ids.slice(0,24).map(id=>{const l=g.filter(x=>x.id===id),a=l[0];return `<tr><td>${anaEsc(a.geradoEm)}</td><td data-l="Mês ref.">${ratMesTxt(+a.mes)}</td><td class="num" data-l="Geração">${a.geracao===''||a.geracao==null?'—':ratN(+a.geracao)}</td><td class="num" data-l="UCs">${l.length}</td><td data-l="Base">${anaEsc(a.base)}</td><td data-l="Por">${anaEsc(a.geradoPor)}</td><td data-l="Situação">${anaEsc(a.situacao)}</td></tr>`}).join('')}</tbody></table></div></div>`
     :'<p class="fx-nota">Nenhum rateio salvo para esta usina ainda.</p>';
 }
 $('ratCorpo').addEventListener('change',e=>{const i=e.target.closest('input[data-rat]');if(!i)return;
@@ -1854,6 +1859,18 @@ $('ratUsina').onchange=e=>{rat.ug=e.target.value;$('ratMsg').textContent='';ratR
 $('ratMes').onchange=e=>{rat.mes=+e.target.value;$('ratMsg').textContent='';ratRender()};
 $('ratBase').onchange=e=>{rat.base=e.target.value;ratRender()};
 $('ratAtualizar').onclick=()=>ratCarregar();
+$('ratImportar').onclick=async()=>{
+  const b=$('ratImportar');b.disabled=true;b.textContent='Puxando…';$('ratImpRes').innerHTML='<div>Lendo INVESTIDORES, CLIENTES, RATEIOS e as abas dos meses (pode levar até 1 minuto)…</div>';
+  const r=await sheetApi('rat_importar',{},{espera:180000});
+  b.disabled=false;b.textContent='⬇️ Puxar da planilha de controle';
+  if(!r||!r.ok){$('ratImpRes').innerHTML=`<div>⚠️ ${anaEsc((r&&r.erro)||'não foi possível puxar')}</div>`;return}
+  const n=(v,s,p)=>v+' '+(v===1?s:p);
+  let h=`<div>✅ Acrescentado: ${n(r.usinas,'usina','usinas')} · ${n(r.geracao,'linha de geração','linhas de geração')} · ${n(r.benef,'beneficiária','beneficiárias')} · ${n(r.consumo,'mês de saldo/injetado','meses de saldo/injetado')} · ${n(r.rateios,'linha de rateio anterior','linhas de rateio anterior')}. Nada que já estava lançado foi mudado.</div>`;
+  if(r.semUsina&&r.semUsina.length)h+=`<div>Clientes cujo INVESTIDOR não achei na aba INVESTIDORES (ficaram de fora): ${r.semUsina.map(anaEsc).join('; ')}</div>`;
+  if(r.conferir&&r.conferir.length)h+=`<div>Usinas sem bloco "NOVO RATEIO" e com o bloco de cima somando ≠ 100% (rateio anterior não importado): ${r.conferir.map(anaEsc).join('; ')}</div>`;
+  if(r.avisos&&r.avisos.length)h+=`<div>${r.avisos.map(anaEsc).join(' · ')}</div>`;
+  $('ratImpRes').innerHTML=h;ratCarregar();
+};
 $('ratSalvar').onclick=async()=>{
   const M=rat.M,c=rat.calc;if(!M||!c||rat.salvando)return;
   rat.salvando=true;$('ratSalvar').disabled=true;$('ratMsg').textContent='Salvando…';

@@ -33,7 +33,7 @@ const PERFIS_ = {
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos', 'cli'] }
 };
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', rat_dados: 'rat', rat_salvar: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '17 (UC já é cliente OZZ?)';
+const VERSAO_SCRIPT = '18 (rateio: puxar da planilha de controle)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -206,8 +206,9 @@ function doPost(e) {
     }
     if (req.acao === 'prog_situacao') return json(programacaoSituacao(req, usuario));
     if (req.acao === 'uc_ozz') return json(ucDaOzz(req.uc));
-    if (req.acao === 'rat_dados' || req.acao === 'rat_salvar') {
+    if (req.acao === 'rat_dados' || req.acao === 'rat_salvar' || req.acao === 'rat_importar') {
       if (!usuario.email || usuario.perfil !== 'ti') return json({ ok: false, erro: 'o rateio está em construção e só o TI tem acesso', perfil: true });
+      if (req.acao === 'rat_importar') return json(ratImportarControle(usuario));
       return json(req.acao === 'rat_dados' ? ratDados() : ratSalvar(req, usuario));
     }
     if (req.acao === 'importar_contas' || req.acao === 'importar_status') {
@@ -1205,6 +1206,194 @@ function ucDaOzz(uc) {
   try { if (lerClientesExternos_().some(x => d(x.uc) === u || d(x.uc_antiga) === u)) return { ok: true, ozz: true, onde: 'na aba CLIENTES' }; } catch (e) {}
   try { const p = programacaoComCache_(false); if (p.ok && p.contas.some(k => d(k.uc) === u || d(k.ucAntiga) === u)) return { ok: true, ozz: true, onde: 'na PROGRAMAÇÃO' }; } catch (e) {}
   return { ok: true, ozz: false };
+}
+
+/**
+ * RATEIO · "Puxar da planilha de controle" (só LÊ a planilha de controle; escreve só nas abas de rateio do portal).
+ *  - INVESTIDORES  → Rateio Usinas (UC geradora nova ou antiga) e Rateio Geração (GERAÇÃO MENSAL nos 12 meses do ano, como estimativa)
+ *  - CLIENTES      → Rateio Beneficiárias (só CONECTADO / CONECTADA…; a usina vem pelo nome do INVESTIDOR; MÉDIA = consumo de referência)
+ *  - abas dos meses (JUNHO…NOVEMBRO) → Rateio Consumo: INJETADO e SALDO. A aba é o mês de PAGAMENTO: a aba OUTUBRO é a fatura ref. SETEMBRO.
+ *  - RATEIOS, blocos "NOVO RATEIO" (de baixo) → último rateio enviado de cada usina (Rateios Gerados, situação IMPORTADO).
+ *    Usina que não está nos blocos de baixo: usa o bloco de cima só se a soma der 100%.
+ * Nunca apaga nem muda o que já foi lançado: só acrescenta linhas novas e completa células vazias.
+ */
+function ratImportarControle(usuario) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'outra gravação em andamento; tente de novo' };
+  try {
+    let ss;
+    try { ss = SpreadsheetApp.openById(idPlanilhaControle_()); } catch (e) { return { ok: false, erro: 'não consegui abrir a planilha de controle' }; }
+    const tz = ss.getSpreadsheetTimeZone();
+    const up = x => String(x == null ? '' : x).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    const dig = x => String(x == null ? '' : x).replace(/\.0+$/, '').replace(/\D/g, '');
+    const num = x => typeof x === 'number' ? x : (String(x || '').trim() && isFinite(Number(String(x).replace(/\./g, '').replace(',', '.'))) ? Number(String(x).replace(/\./g, '').replace(',', '.')) : null);
+    const txt = x => x instanceof Date ? Utilities.formatDate(x, tz, 'dd/MM/yyyy') : String(x == null ? '' : x).trim().replace(/\.0+$/, '');
+    const avisos = [];
+    const hojeAM = Number(Utilities.formatDate(new Date(), tz, 'yyyyMM')), anoAtual = Math.floor(hojeAM / 100), mesAtual = hojeAM % 100;
+    // acha a linha de cabeçalho que tem todas as colunas pedidas e devolve {linha, col(nome) -> índice}
+    const tabela = (nome, precisa) => {
+      const sh = ss.getSheetByName(nome);
+      if (!sh || sh.getLastRow() < 2) { avisos.push('aba ' + nome + ' não encontrada'); return null; }
+      const v = sh.getDataRange().getValues();
+      for (let i = 0; i < Math.min(v.length, 15); i++) {
+        const cab = v[i].map(up);
+        if (precisa.every(n => cab.indexOf(n) >= 0)) return { v: v, i: i, col: n => cab.indexOf(n) };
+      }
+      avisos.push('aba ' + nome + ': não achei o cabeçalho (' + precisa.join(', ') + ')');
+      return null;
+    };
+    const res = { usinas: 0, geracao: 0, benef: 0, consumo: 0, rateios: 0, semUsina: [], conferir: [] };
+
+    /* ---------- usinas e geração (INVESTIDORES) ---------- */
+    const invPorNome = {};
+    const ti = tabela('INVESTIDORES', ['INVESTIDOR', 'UC GERADORA']);
+    if (ti) {
+      const cNova = ti.col('NOVA UC GERADORA'), cUg = ti.col('UC GERADORA'), cNome = ti.col('INVESTIDOR'), cGer = ti.col('GERACAO MENSAL'),
+        cConc = ti.col('CONCESSAO'), cSt = ti.col('STATUS');
+      const shU = ratAba_('usinas'), jaU = {};
+      ratLer_('usinas').forEach(u => { jaU[dig(u.ug)] = true; });
+      const shG = ratAba_('geracao'), ano = anoAtual, jaG = {};
+      ratLer_('geracao').forEach(g => { if (Number(g.ano) === ano) jaG[dig(g.ug)] = true; });
+      const novasU = [], novasG = [];
+      ti.v.slice(ti.i + 1).forEach(r => {
+        const nome = String(r[cNome] || '').trim(); if (!nome) return;
+        const ugTxt = cNova >= 0 && r[cNova] ? txt(r[cNova]) : txt(r[cUg]), ug = dig(ugTxt); if (ug.length < 7) return;
+        const ger = cGer >= 0 ? num(r[cGer]) : null;
+        invPorNome[up(nome)] = { ug: ugTxt, nome: nome };   // a UC fica escrita igual em todas as abas de rateio
+        if (!jaU[ug]) {
+          jaU[ug] = true;
+          novasU.push([ugTxt, nome, ger ? Math.round(ger * 12) : '', cConc >= 0 ? txt(r[cConc]) : '', '',
+            cSt >= 0 && /CANCEL|INATIV/i.test(String(r[cSt])) ? 'X' : '']);
+        }
+        if (ger && !jaG[ug]) { jaG[ug] = true; novasG.push([ugTxt, ano].concat(Array(12).fill(Math.round(ger)))); }
+      });
+      if (novasU.length) shU.getRange(shU.getLastRow() + 1, 1, novasU.length, novasU[0].length).setValues(novasU);
+      if (novasG.length) shG.getRange(shG.getLastRow() + 1, 1, novasG.length, novasG[0].length).setValues(novasG);
+      res.usinas = novasU.length; res.geracao = novasG.length;
+    }
+    const usinaDe = nome => {
+      const k = up(nome); if (!k) return null;
+      if (invPorNome[k]) return invPorNome[k];
+      const ks = Object.keys(invPorNome).filter(n => n.indexOf(k) === 0 || k.indexOf(n) === 0);   // "NELSON ANTONIO ARNHOLD" x "NELSON ANTONIO ARNHO…"
+      return ks.length === 1 ? invPorNome[ks[0]] : null;
+    };
+
+    /* ---------- beneficiárias (CLIENTES) ---------- */
+    const tc = tabela('CLIENTES', ['CLIENTE', 'NOVA UC', 'INVESTIDOR']);
+    const ucNova = {};   // UC antiga → nova, para ligar as outras abas
+    if (tc) {
+      const C = { nome: tc.col('CLIENTE'), nova: tc.col('NOVA UC'), antiga: tc.col('ANTIGA UC'), doc: tc.col('CPF/CNPJ') >= 0 ? tc.col('CPF/CNPJ') : tc.col('CPF CNPJ'),
+        inv: tc.col('INVESTIDOR'), media: tc.col('MEDIA'), st: tc.col('STATUS'), resp: tc.col('RESPONSAVEL') };
+      const shB = ratAba_('benef'), jaB = {};
+      ratLer_('benef').forEach(b => { jaB[dig(b.uc)] = true; });
+      const novas = [];
+      tc.v.slice(tc.i + 1).forEach(r => {
+        const nome = String(r[C.nome] || '').trim(); if (!nome || up(nome) === 'CLIENTE') return;
+        const nova = C.nova >= 0 ? txt(r[C.nova]) : '', antiga = C.antiga >= 0 ? txt(r[C.antiga]) : '';
+        if (dig(antiga) && dig(nova)) ucNova[dig(antiga)] = nova;
+        const st = C.st >= 0 ? up(r[C.st]) : '';
+        if (st && st.indexOf('CONECTAD') !== 0) return;          // só quem já recebe crédito
+        const uc = dig(nova) ? nova : antiga; if (dig(uc).length < 7 || jaB[dig(uc)]) return;
+        const us = usinaDe(r[C.inv]);
+        if (!us) { if (String(r[C.inv] || '').trim()) res.semUsina.push(nome + ' (' + String(r[C.inv]).trim() + ')'); return; }
+        jaB[dig(uc)] = true;
+        const media = C.media >= 0 ? num(r[C.media]) : null;
+        novas.push([uc, C.doc >= 0 ? txt(r[C.doc]) : '', 'CONSÓRCIO', us.ug, us.nome, nome, '', media ? Math.round(media) : '', '', '', '', '',
+          'Importado da planilha de controle' + (antiga && dig(nova) ? ' · UC antiga ' + antiga : ''), '']);
+      });
+      if (novas.length) shB.getRange(shB.getLastRow() + 1, 1, novas.length, novas[0].length).setValues(novas);
+      res.benef = novas.length;
+    }
+    const ucCerta = (nova, antiga) => dig(nova).length >= 7 ? txt(nova) : (ucNova[dig(antiga)] || txt(antiga));
+
+    /* ---------- saldo e injetado (abas dos meses) ---------- */
+    const MESES = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
+    const shC = ratAba_('consumo'), larg = RAT_ABAS_.consumo.cols.length;
+    const vC = shC.getLastRow() > 1 ? shC.getRange(2, 1, shC.getLastRow() - 1, larg).getValues() : [];
+    const idxC = {};
+    vC.forEach((r, i) => { idxC[dig(r[0]) + '|' + dig(r[1])] = i; });
+    const novasC = [];
+    let mudouC = false;
+    ss.getSheets().forEach(sh => {
+      const m = MESES.indexOf(up(sh.getName())); if (m < 0) return;
+      // aba = mês de pagamento; a fatura é do mês anterior. Abas de meses depois do atual são do ano passado.
+      let anoPg = anoAtual; if (m + 1 > mesAtual) anoPg--;
+      let mesRef = m, anoRef = anoPg; if (mesRef === 0) { mesRef = 12; anoRef--; }
+      const am = anoRef * 100 + mesRef;
+      const v = sh.getDataRange().getValues();
+      let hi = -1, cab = [];
+      for (let i = 0; i < Math.min(v.length, 6); i++) { const c = v[i].map(up); if (c.indexOf('CLIENTE') >= 0 && c.indexOf('INJETADO') >= 0) { hi = i; cab = c; break; } }
+      if (hi < 0) return;
+      const cUc = cab.indexOf('UC'), cNova = cab.indexOf('NOVA UC'), cInj = cab.indexOf('INJETADO'), cSaldo = cab.indexOf('SALDO');
+      if (cSaldo < 0) return;   // só as abas que têm SALDO servem para o rateio
+      v.slice(hi + 1).forEach(r => {
+        const uc = ucCerta(cNova >= 0 ? r[cNova] : '', cUc >= 0 ? r[cUc] : ''); if (dig(uc).length < 7) return;
+        const inj = num(r[cInj]), saldo = num(r[cSaldo]);
+        if (inj == null && saldo == null) return;
+        const k = dig(uc) + '|' + am;
+        if (idxC[k] != null) {   // já existe (ex.: veio da proposta): só completa o que está vazio
+          const row = idxC[k] >= 0 ? vC[idxC[k]] : null; if (!row) return;
+          let mexeu = false;
+          if (row[3] === '' && inj != null) { row[3] = inj; mexeu = true; }
+          if (row[4] === '' && saldo != null) { row[4] = saldo; mexeu = true; }
+          if (mexeu) { mudouC = true; row[larg - 1] = String(row[larg - 1] || '') + (row[larg - 1] ? ' + ' : '') + 'controle (aba ' + sh.getName() + ')'; }
+          return;
+        }
+        const n = Array(larg).fill('');
+        n[0] = uc; n[1] = am; n[3] = inj == null ? '' : inj; n[4] = saldo == null ? '' : saldo; n[larg - 1] = 'Planilha de controle (aba ' + sh.getName() + ')';
+        idxC[k] = -1; novasC.push(n);
+      });
+    });
+    if (mudouC && vC.length) shC.getRange(2, 1, vC.length, larg).setValues(vC);
+    if (novasC.length) shC.getRange(shC.getLastRow() + 1, 1, novasC.length, larg).setValues(novasC);
+    res.consumo = novasC.length;
+
+    /* ---------- último rateio enviado (RATEIOS) ---------- */
+    const sr = ss.getSheetByName('RATEIOS');
+    if (sr && sr.getLastRow() > 2) {
+      const v = sr.getDataRange().getValues();
+      let cab = null, baixo = false;
+      const grupos = { cima: {}, baixo: {} };
+      v.forEach(r => {
+        const c0 = up(r[1]);
+        if (c0.indexOf('NOVO RATEIO') === 0) { baixo = true; return; }
+        if (c0 === 'CLIENTE') { cab = r.map(up); return; }
+        if (!cab || !c0) return;
+        const cInv = cab.indexOf('INVESTIDOR'), cPct = baixo ? cab.indexOf('NOVO RATEIO') : cab.indexOf('RATEIO');
+        const pct = num(r[cPct]); if (pct == null) return;
+        const us = usinaDe(r[cInv]); if (!us) return;
+        const uc = ucCerta(r[cab.indexOf('NOVA UC')], r[cab.indexOf('UC')]); if (dig(uc).length < 7) return;
+        const g = grupos[baixo ? 'baixo' : 'cima'];
+        (g[dig(us.ug)] = g[dig(us.ug)] || { us: us, linhas: {} }).linhas[dig(uc)] = { uc: uc, titular: String(r[1]).trim(), pct: pct };
+      });
+      const jaR = {};
+      ratLer_('gerados').forEach(x => { jaR[dig(x.ug)] = true; });
+      const shR = ratAba_('gerados'), agora = new Date(), mesImp = anoAtual * 100 + mesAtual, novasR = [];
+      Object.keys(grupos.cima).concat(Object.keys(grupos.baixo)).filter((x, i, a) => a.indexOf(x) === i).forEach(ug => {
+        if (jaR[ug]) return;
+        let g = grupos.baixo[ug], origem = 'IMPORTADO (último enviado)';
+        if (!g) {
+          g = grupos.cima[ug]; origem = 'IMPORTADO (bloco de cima — conferir)';
+          const soma = Object.keys(g.linhas).reduce((t, k) => t + g.linhas[k].pct, 0);
+          if (Math.abs(soma - 1) > 0.02) { res.conferir.push(g.us.nome + ' (soma ' + Math.round(soma * 100) + '%)'); return; }
+        }
+        const id = 'RAT-IMPORT-' + ug;
+        Object.keys(g.linhas).forEach(k => {
+          const l = g.linhas[k];
+          novasR.push([id, agora, 'Planilha de controle', g.us.ug, g.us.nome, mesImp, '', 'importado', l.uc, l.titular, l.pct, '', '', '', origem]);
+        });
+      });
+      if (novasR.length) {
+        shR.getRange(shR.getLastRow() + 1, 1, novasR.length, novasR[0].length).setValues(novasR);
+        shR.getRange(shR.getLastRow() - novasR.length + 1, 11, novasR.length, 1).setNumberFormat('0.00%');
+      }
+      res.rateios = novasR.length;
+    }
+    res.avisos = avisos;
+    res.semUsina = res.semUsina.slice(0, 30);
+    console.log('Rateio: importação da planilha de controle por ' + usuario.email + ' → ' + JSON.stringify(res).slice(0, 400));
+    return Object.assign({ ok: true }, res);
+  } finally { lock.releaseLock(); }
 }
 
 function json(o) {
