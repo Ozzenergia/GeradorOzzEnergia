@@ -33,7 +33,7 @@ const PERFIS_ = {
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos', 'cli'] }
 };
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '18 (rateio: puxar da planilha de controle)';
+const VERSAO_SCRIPT = '19 (leitor de faturas)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -206,6 +206,10 @@ function doPost(e) {
     }
     if (req.acao === 'prog_situacao') return json(programacaoSituacao(req, usuario));
     if (req.acao === 'uc_ozz') return json(ucDaOzz(req.uc));
+    if (req.acao === 'fat_salvar') {
+      if (!usuario.email || usuario.perfil !== 'ti') return json({ ok: false, erro: 'o leitor de faturas está em construção e só o TI tem acesso', perfil: true });
+      return json(faturasSalvar(req.faturas, usuario));
+    }
     if (req.acao === 'rat_dados' || req.acao === 'rat_salvar' || req.acao === 'rat_importar') {
       if (!usuario.email || usuario.perfil !== 'ti') return json({ ok: false, erro: 'o rateio está em construção e só o TI tem acesso', perfil: true });
       if (req.acao === 'rat_importar') return json(ratImportarControle(usuario));
@@ -1392,6 +1396,95 @@ function ratImportarControle(usuario) {
     res.avisos = avisos;
     res.semUsina = res.semUsina.slice(0, 30);
     console.log('Rateio: importação da planilha de controle por ' + usuario.email + ' → ' + JSON.stringify(res).slice(0, 400));
+    return Object.assign({ ok: true }, res);
+  } finally { lock.releaseLock(); }
+}
+
+/* ======================================================================
+ * LEITOR DE FATURAS (só TI, em construção): o site lê os PDFs da CPFL/RGE e manda os dados para cá.
+ *  - aba "Faturas Lidas": tudo o que a fatura traz (uma linha por UC e mês; ler de novo a mesma fatura atualiza a linha)
+ *  - aba "Rateio Consumo": consumo, energia injetada, saldo, mínimo e datas do mês da fatura (a fatura vale mais que
+ *    a planilha de controle e a proposta, então sobrescreve esses campos) + os 12 meses do histórico (só os que faltam)
+ *  - aba "Rateio Beneficiárias": completa o Tipo Fornecimento quando estiver vazio
+ * ====================================================================== */
+const COLS_FATURAS = ['Lido em', 'Lido por', 'Arquivo', 'UC', 'Titular', 'CPF/CNPJ', 'Distribuidora', 'Classe', 'Tipo Fornecimento', 'Tensão (V)',
+  'Mês Ref (AAAAMM)', 'Vencimento', 'Valor Total (R$)', 'Consumo kWh', 'Energia Injetada kWh', 'Injetada por mês', 'Saldo kWh', 'Saldo a Expirar kWh',
+  'Participação na Geração %', 'Custo Mínimo kWh', 'Leitura Anterior', 'Leitura Atual', 'Dias', 'Data Emissão', 'Nota Fiscal', 'Histórico 12 meses (kWh)'];
+
+function faturasSalvar(lista, usuario) {
+  lista = Array.isArray(lista) ? lista.slice(0, 200) : [];
+  if (!lista.length) return { ok: false, erro: 'nenhuma fatura para guardar' };
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'outra gravação em andamento; tente de novo' };
+  try {
+    const ss = SpreadsheetApp.getActive();
+    let sh = ss.getSheetByName('Faturas Lidas');
+    if (!sh) { sh = ss.insertSheet('Faturas Lidas'); sh.getRange(1, 1, 1, COLS_FATURAS.length).setValues([COLS_FATURAS]).setFontWeight('bold').setBackground('#ede7f6'); sh.setFrozenRows(1); }
+    else completaCabecalho_(sh, COLS_FATURAS);
+    const dig = x => String(x == null ? '' : x).replace(/\.0+$/, '').replace(/\D/g, '');
+    const nv = x => (x === '' || x == null || !isFinite(Number(x))) ? '' : Number(x);
+    const am = x => { const n = Number(x); return n > 200001 && n < 210001 && n % 100 >= 1 && n % 100 <= 12 ? n : 0; };
+    const larg = COLS_FATURAS.length;
+    const vF = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, larg).getValues() : [];
+    const idxF = {};
+    vF.forEach((r, i) => { idxF[dig(r[3]) + '|' + dig(r[10])] = i; });
+    // Rateio Consumo (uma linha por UC e mês)
+    const shC = ratAba_('consumo'), lc = RAT_ABAS_.consumo.cols.length;
+    const vC = shC.getLastRow() > 1 ? shC.getRange(2, 1, shC.getLastRow() - 1, lc).getValues() : [];
+    const idxC = {};
+    vC.forEach((r, i) => { const m = r[1] instanceof Date ? Number(Utilities.formatDate(r[1], 'America/Sao_Paulo', 'yyyyMM')) : dig(r[1]); idxC[dig(r[0]) + '|' + m] = i; });
+    const novasF = [], novasC = [], forn = {}, res = { faturas: 0, atualizadas: 0, mesesConsumo: 0, historico: 0, ignoradas: [] };
+    const agora = new Date(), quem = usuario.nome || usuario.email;
+    lista.forEach(f => {
+      const uc = String(f.uc || '').trim(), mes = am(f.mes);
+      if (dig(uc).length < 7 || !mes) { res.ignoradas.push((f.arquivo || '?') + ' (sem UC ou mês de referência)'); return; }
+      const hist = historicoValido_(f.historico);
+      const linha = [agora, quem, String(f.arquivo || '').slice(0, 120), uc, String(f.titular || ''), String(f.doc || ''), String(f.distribuidora || ''),
+        String(f.classe || ''), String(f.fornecimento || ''), nv(f.tensao), mes, String(f.vencimento || ''), nv(f.valor), nv(f.consumo), nv(f.injetada),
+        String(f.injetadaMeses || ''), nv(f.saldo), nv(f.saldoExpirar), nv(f.participacao), nv(f.minimo), String(f.leituraAnt || ''), String(f.leitura || ''),
+        nv(f.dias), String(f.emissao || ''), String(f.nf || ''),
+        hist.map(h => String(h.mes).slice(4) + '/' + String(h.mes).slice(0, 4) + ': ' + h.kwh).join(' · ')].map(limpa);
+      const kF = dig(uc) + '|' + mes;
+      if (idxF[kF] != null) { vF[idxF[kF]] = linha; res.atualizadas++; } else { idxF[kF] = -1; novasF.push(linha); res.faturas++; }
+      // mês da fatura → Rateio Consumo (a fatura sobrescreve consumo, injetada, saldo, mínimo e datas)
+      const dados = { 2: nv(f.consumo), 3: nv(f.injetada), 4: nv(f.saldo), 5: nv(f.minimo), 6: String(f.leitura || ''), 7: String(f.emissao || ''), 8: String(f.leituraAnt || '') };
+      const origem = 'Fatura PDF (' + Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy') + ')';
+      const kC = dig(uc) + '|' + mes;
+      if (idxC[kC] != null && idxC[kC] >= 0) {
+        const r = vC[idxC[kC]];
+        Object.keys(dados).forEach(c => { if (dados[c] !== '') r[c] = dados[c]; });
+        r[lc - 1] = origem;
+      } else if (idxC[kC] == null) {
+        const r = Array(lc).fill(''); r[0] = uc; r[1] = mes;
+        Object.keys(dados).forEach(c => { r[c] = dados[c]; }); r[lc - 1] = origem;
+        idxC[kC] = -1; novasC.push(r);
+      }
+      res.mesesConsumo++;
+      // histórico: só o consumo dos meses que ainda não estão lá (ou estão sem consumo)
+      hist.forEach(h => {
+        if (h.mes === mes) return;
+        const k = dig(uc) + '|' + h.mes;
+        if (idxC[k] != null) { if (idxC[k] >= 0 && vC[idxC[k]][2] === '') { vC[idxC[k]][2] = h.kwh; res.historico++; } return; }
+        const r = Array(lc).fill(''); r[0] = uc; r[1] = h.mes; r[2] = h.kwh; r[lc - 1] = 'Histórico da fatura ' + String(mes).slice(4) + '/' + String(mes).slice(0, 4);
+        idxC[k] = -1; novasC.push(r); res.historico++;
+      });
+      if (f.fornecimento) forn[dig(uc)] = String(f.fornecimento);
+    });
+    if (vF.length) sh.getRange(2, 1, vF.length, larg).setValues(vF);
+    if (novasF.length) sh.getRange(sh.getLastRow() + 1, 1, novasF.length, larg).setValues(novasF);
+    if (vC.length) shC.getRange(2, 1, vC.length, lc).setValues(vC);
+    if (novasC.length) shC.getRange(shC.getLastRow() + 1, 1, novasC.length, lc).setValues(novasC);
+    // tipo de fornecimento nas beneficiárias (só onde está vazio)
+    if (Object.keys(forn).length) {
+      const shB = ratAba_('benef');
+      if (shB.getLastRow() > 1) {
+        const vB = shB.getRange(2, 1, shB.getLastRow() - 1, 7).getValues();
+        let mudou = false;
+        vB.forEach(r => { const f = forn[dig(r[0])]; if (f && !String(r[6]).trim()) { r[6] = f; mudou = true; res.fornecimento = (res.fornecimento || 0) + 1; } });
+        if (mudou) shB.getRange(2, 7, vB.length, 1).setValues(vB.map(r => [r[6]]));
+      }
+    }
+    console.log('Leitor de faturas: ' + lista.length + ' por ' + usuario.email + ' → ' + JSON.stringify(res).slice(0, 300));
     return Object.assign({ ok: true }, res);
   } finally { lock.releaseLock(); }
 }

@@ -151,6 +151,7 @@ main.wide{max-width:1180px}
 .tar-rapida{width:44px;font:inherit;color:inherit;background:transparent;border:none;border-bottom:1px dashed currentColor;padding:0 2px;text-align:center;cursor:pointer;-moz-appearance:textfield}
 .tar-rapida::-webkit-inner-spin-button,.tar-rapida::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .tar-rapida:focus{outline:2px solid var(--primary);outline-offset:2px;border-bottom-color:transparent;cursor:text}
+#lfTabela,#lfErro{margin-top:16px}
 /* ===== Marcar conta como paga ===== */
 .ana-chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap}
 .ana-chk input{width:18px;height:18px;margin:0;accent-color:var(--ok);cursor:pointer;flex-shrink:0}
@@ -864,6 +865,37 @@ body.locked{overflow:hidden}
 </section>
 
 <!-- =================== ANÁLISE · FLUXO DE CAIXA =================== -->
+<!-- =================== ANÁLISE · LEITOR DE FATURAS (em construção, só TI) =================== -->
+<section id="tab-leitor" class="hidden">
+  <div class="ana-top">
+    <div><h2>Leitor de faturas <span class="rat-beta">em construção · só TI</span></h2><p>Lê os PDFs da CPFL/RGE e guarda tudo o que o rateio usa: consumo, energia injetada, saldo, participação, fornecimento e o histórico de 12 meses</p></div>
+  </div>
+  <div class="drop" id="lfDrop" tabindex="0" role="button" aria-label="Escolher PDFs de faturas">
+    <div class="ic">📄</div>
+    <strong>Arraste os PDFs das faturas aqui ou clique para selecionar</strong>
+    <small>Pode mandar várias de uma vez · é lido no próprio aparelho; só os dados vão para a planilha</small>
+    <input type="file" id="lfFile" accept=".pdf,application/pdf" multiple hidden>
+  </div>
+  <div class="alert" id="lfErro"></div>
+  <div class="ana-tabela" id="lfTabela" hidden><div class="ana-scroll"><table class="rat-t">
+    <thead><tr><th>Fatura</th><th>Ref.</th><th class="num">Consumo</th><th class="num">Injetada</th><th class="num">Saldo</th><th class="num">Particip.</th><th>Fornecimento</th><th class="num">Mínimo</th><th>Vencimento</th><th class="num">Valor</th><th></th></tr></thead>
+    <tbody id="lfCorpo"></tbody></table></div></div>
+  <div class="rat-acoes" id="lfAcoes" hidden>
+    <button class="btn pri" id="lfSalvar" type="button">💾 Guardar na planilha</button>
+    <button class="btn sec" id="lfLimpar" type="button">Limpar lista</button>
+    <span class="rat-msg" id="lfMsg" role="status" aria-live="polite"></span>
+  </div>
+  <details class="rat-ajuda">
+    <summary>Onde os dados ficam</summary>
+    <ul>
+      <li><b>Faturas Lidas</b> (aba nova na planilha do portal): tudo o que a fatura traz, uma linha por UC e mês. Ler de novo a mesma fatura atualiza a linha.</li>
+      <li><b>Rateio Consumo</b>: o mês da fatura (consumo, energia injetada, saldo, mínimo e datas; a fatura vale mais que a planilha de controle) e os 12 meses do histórico que ainda faltam.</li>
+      <li><b>Rateio Beneficiárias</b>: completa o tipo de fornecimento quando estiver vazio.</li>
+    </ul>
+    <p>Custo mínimo: pelo tipo de fornecimento (monofásico 30, bifásico 50, trifásico 100 kWh).</p>
+  </details>
+</section>
+
 <!-- =================== ANÁLISE · RATEIO DE CRÉDITOS (em construção, só TI) =================== -->
 <section id="tab-rateio" class="hidden">
   <div class="ana-top">
@@ -1740,6 +1772,85 @@ function ratCalcular(D,linhas){
   return {L,soma:soma(L,r=>r.AE),dif,ajustada,injecao:soma(L,r=>r.AG)};
 }
 
+/* ===== Leitor de faturas (só TI): lê PDFs da CPFL/RGE e guarda o que o rateio usa ===== */
+const MESES_ABR='JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ'.split('|');
+// o que a fatura traz além do que a proposta usa (saldo, participação, datas, valor…)
+function extrasFatura(t){
+  const x={},n=v=>v==null?NaN:+String(v).replace(/\./g,'').replace(',','.');
+  const r=t.match(/\b(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\/(20\d\d)\s+(\d\d\/\d\d\/\d{4})\s+R\$\s*([\d.]+,\d\d)/);
+  if(r){x.mes=+r[2]*100+MESES_ABR.indexOf(r[1])+1;x.vencimento=r[3];x.valor=n(r[4])}
+  const fo=t.match(/Tipo de Fornecimento:?\s*(Monof[áa]sico|Bif[áa]sico|Trif[áa]sico)/i);if(fo)x.fornecimento=fo[1].replace(/^./,c=>c.toUpperCase());
+  x.minimo=x.fornecimento?(/mono/i.test(x.fornecimento)?30:/bi/i.test(x.fornecimento)?50:100):'';
+  const le=t.match(/(\d\d\/\d\d\/20\d\d)\s+(\d\d\/\d\d\/20\d\d)\s+(\d{1,2})\s*\n\s*Pr[óo]xima leitura/i);if(le){x.leitura=le[1];x.leituraAnt=le[2];x.dias=+le[3]}
+  const em=t.match(/DATA DE EMISS[ÃA]O:\s*(\d\d\/\d\d\/20\d\d)/i);if(em)x.emissao=em[1];
+  const nf=t.match(/NOTA FISCAL N[ºo°]\s*(\d+)/i);if(nf)x.nf=nf[1];
+  const pa=t.match(/Participa[çc][ãa]o na gera[çc][ãa]o\s*([\d.,]+)\s*%/i);if(pa)x.participacao=+pa[1].replace(',','.');
+  const sa=t.match(/Saldo em Energia da Instala[çc][ãa]o:[^\d\n]*([\d.]*\d,\d+|\d+)\s*kWh/i);if(sa)x.saldo=n(sa[1]);
+  const se=t.match(/Saldo a expirar pr[óo]ximo m[êe]s:\s*([\d.]*\d,\d+|\d+)\s*kWh/i);if(se)x.saldoExpirar=n(se[1]);
+  // documento do cliente (o CNPJ do cabeçalho é o da distribuidora: "Inscrição no CNPJ")
+  const doc=t.match(/(?:^|INSC\.?\s*EST[^\/\n]*\/\s*)(CPF|CNPJ):\s*([\d*.\/-]{8,})/im);if(doc)x.doc=doc[1]+' '+doc[2];
+  // energia injetada por mês (linhas TE, que a fatura repete na TUSD)
+  const inj=[];(t.match(/(?:Inje|\bInj\.|\boUC\b|\bmPT\b)[^\n]*?\bTE\b\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\/(\d\d)\s+kWh\s+-?([\d.]+,\d+|\d+)/gi)||[]).forEach(l=>{const m=l.match(/\bTE\b\s+(\w{3})\/(\d\d)\s+kWh\s+-?([\d.]+,\d+|\d+)/i);if(m)inj.push(m[1].toUpperCase()+'/'+m[2]+': '+Math.round(n(m[3])))});
+  x.injetadaMeses=inj.join(' · ');
+  return x;
+}
+const lf={itens:[],salvando:false};
+function lfAbrir(){lfRender()}
+async function lfLer(files){
+  $('lfErro').style.display='none';
+  for(const file of files){
+    const it={arquivo:file.name,estado:'lendo'};lf.itens.unshift(it);lfRender();
+    try{
+      if(!/\.pdf$/i.test(file.name))throw new Error('não é PDF');
+      const t=await readPdf(file),d=parseCPFL(t);
+      if(!d)throw new Error('não parece uma fatura da CPFL/RGE (ou é um PDF escaneado, sem texto)');
+      const e=extrasFatura(t),M=MESES_ABR;
+      const hist=(d.histMes||[]).map((mm,i)=>{const k=M.indexOf(String(mm).slice(0,3)),y=+String(mm).slice(4);return {mes:k<0?0:(2000+y)*100+k+1,kwh:(d.hist||[])[i]}}).filter(h=>h.mes&&isFinite(h.kwh));
+      Object.assign(it,{estado:'ok',uc:d.codigo_uc,titular:d.titular,distribuidora:d.distribuidora,classe:d.classe_uc,tensao:d.tensao,
+        consumo:num(d.consumo_te),injetada:num(d.inj_te)||0,historico:hist},e);
+      if(!it.mes&&hist.length)it.mes=hist[hist.length-1].mes;
+      if(!it.doc)it.doc=d.cnpj||d.cpf||'';
+      // a mesma UC e mês já na lista: fica a leitura mais nova
+      const dup=lf.itens.findIndex(o=>o!==it&&o.estado!=='erro'&&soDig(o.uc)===soDig(it.uc)&&o.mes===it.mes);if(dup>=0)lf.itens.splice(dup,1);
+    }catch(err){Object.assign(it,{estado:'erro',erro:err.message||String(err)})}
+    lfRender();
+  }
+}
+function lfRender(){
+  const L=lf.itens,ok=L.filter(i=>i.estado==='ok'),E=anaEsc,n=(v,d=0)=>v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:d});
+  $('lfTabela').hidden=!L.length;$('lfAcoes').hidden=!L.length;
+  $('lfCorpo').innerHTML=L.map((i,k)=>i.estado==='lendo'?`<tr><td class="tit"><b>${E(i.arquivo)}</b><small>lendo…</small></td><td colspan="10"></td></tr>`
+    :i.estado==='erro'?`<tr><td class="tit"><b>${E(i.arquivo)}</b><span class="rat-tag err">NÃO LIDA</span></td><td colspan="9" style="white-space:normal">${E(i.erro)}</td><td><div class="ana-acoes"><button type="button" data-lf-tira="${k}">Tirar</button></div></td></tr>`
+    :`<tr><td class="tit"><b>${E(i.uc)}</b><small>${E(i.titular)}</small>${i.salva?'<span class="rat-tag info">GUARDADA</span>':''}</td>
+      <td data-l="Ref.">${i.mes?String(i.mes%100).padStart(2,'0')+'/'+Math.floor(i.mes/100):'—'}</td><td class="num" data-l="Consumo">${n(i.consumo)}</td>
+      <td class="num" data-l="Injetada" title="${E(i.injetadaMeses||'')}">${n(i.injetada)}</td><td class="num" data-l="Saldo">${n(i.saldo,1)}</td>
+      <td class="num" data-l="Particip.">${i.participacao!=null?n(i.participacao,2)+'%':'—'}</td><td data-l="Fornecimento">${E(i.fornecimento||'—')}</td>
+      <td class="num" data-l="Mínimo">${n(i.minimo)}</td><td data-l="Vencimento">${E(i.vencimento||'—')}</td><td class="num" data-l="Valor">${i.valor!=null?brl(i.valor):'—'}</td>
+      <td><div class="ana-acoes"><button type="button" data-lf-tira="${k}">Tirar</button></div></td></tr>`).join('');
+  const pend=ok.filter(i=>!i.salva).length;
+  $('lfSalvar').disabled=!pend||lf.salvando;$('lfSalvar').textContent=pend?`💾 Guardar ${pend} fatura${pend>1?'s':''} na planilha`:'💾 Guardar na planilha';
+}
+$('lfDrop').onclick=()=>$('lfFile').click();
+$('lfDrop').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('lfFile').click()}};
+$('lfFile').onchange=e=>{const f=[...e.target.files];e.target.value='';if(f.length)lfLer(f)};
+['dragover','dragenter'].forEach(ev=>$('lfDrop').addEventListener(ev,e=>{e.preventDefault();$('lfDrop').classList.add('over')}));
+['dragleave','drop'].forEach(ev=>$('lfDrop').addEventListener(ev,e=>{e.preventDefault();$('lfDrop').classList.remove('over')}));
+$('lfDrop').addEventListener('drop',e=>{const f=[...(e.dataTransfer&&e.dataTransfer.files||[])];if(f.length)lfLer(f)});
+$('lfCorpo').addEventListener('click',e=>{const b=e.target.closest('button[data-lf-tira]');if(!b)return;lf.itens.splice(+b.dataset.lfTira,1);lfRender()});
+$('lfLimpar').onclick=()=>{lf.itens=[];$('lfMsg').textContent='';lfRender()};
+$('lfSalvar').onclick=async()=>{
+  const pend=lf.itens.filter(i=>i.estado==='ok'&&!i.salva);if(!pend.length||lf.salvando)return;
+  lf.salvando=true;lfRender();$('lfMsg').textContent='Guardando…';
+  const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','emissao','nf','historico'];
+  const r=await sheetApi('fat_salvar',{faturas:pend.map(i=>Object.fromEntries(campos.map(c=>[c,i[c]==null?'':i[c]])))},{espera:90000});
+  lf.salvando=false;
+  if(!r||!r.ok){$('lfMsg').textContent='⚠️ '+((r&&r.erro)||'não foi possível guardar');lfRender();return}
+  pend.forEach(i=>{i.salva=true});
+  $('lfMsg').textContent=`✓ ${r.faturas} nova${r.faturas===1?'':'s'}, ${r.atualizadas} atualizada${r.atualizadas===1?'':'s'} · ${r.historico} meses de histórico acrescentados`+(r.fornecimento?` · fornecimento preenchido em ${r.fornecimento} beneficiária${r.fornecimento>1?'s':''}`:'')+(r.ignoradas&&r.ignoradas.length?` · ignoradas: ${r.ignoradas.join('; ')}`:'');
+  if(typeof rat!=='undefined')rat.dados=null;   // o rateio relê as abas na próxima vez que abrir
+  lfRender();
+};
+
 /* ===== Rateio de créditos (só TI): monta as linhas a partir das abas e calcula no navegador ===== */
 const rat={dados:null,ug:'',mes:0,base:'3M',ed:{},ger:{},carregando:false,salvando:false,linhas:[],calc:null};
 const ratDig=v=>String(v==null?'':v).replace(/\D/g,'');
@@ -2203,6 +2314,7 @@ const MENU={
     {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
   ana:{nome:'📈 Análise',itens:[
     {id:'fluxo',ic:'💰',nome:'Fluxo de caixa',desc:'Entradas, saídas e saldo mês a mês',sec:'tab-fluxo',largo:true,aoAbrir:()=>fxAbrir()},
+    {id:'leitor',ic:'📄',nome:'Leitor de faturas',desc:'Lê PDFs de faturas e guarda os dados para o rateio (em construção, só TI)',sec:'tab-leitor',largo:true,area:'rat',aoAbrir:()=>lfAbrir()},
     {id:'rateio',ic:'⚖️',nome:'Rateio de créditos',desc:'Divide a geração da usina entre as beneficiárias (em construção, só TI)',sec:'tab-rateio',largo:true,area:'rat',aoAbrir:()=>ratAbrir()}]}
 };
 const nav=document.querySelector('nav.nwrap');
