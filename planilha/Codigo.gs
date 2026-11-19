@@ -33,7 +33,7 @@ const PERFIS_ = {
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos', 'cli'] }
 };
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', rat_dados: 'rat', rat_salvar: 'rat' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', rat_dados: 'rat', rat_salvar: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '16 (proposta guarda o histórico de consumo)';
+const VERSAO_SCRIPT = '17 (UC já é cliente OZZ?)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -205,6 +205,7 @@ function doPost(e) {
       if (req.acao === 'cli_ficha') return json(cadastroFicha(req.id, usuario));
     }
     if (req.acao === 'prog_situacao') return json(programacaoSituacao(req, usuario));
+    if (req.acao === 'uc_ozz') return json(ucDaOzz(req.uc));
     if (req.acao === 'rat_dados' || req.acao === 'rat_salvar') {
       if (!usuario.email || usuario.perfil !== 'ti') return json({ ok: false, erro: 'o rateio está em construção e só o TI tem acesso', perfil: true });
       return json(req.acao === 'rat_dados' ? ratDados() : ratSalvar(req, usuario));
@@ -1189,6 +1190,21 @@ function ratSalvar(d, usuario) {
     console.log('Rateio ' + id + ' salvo por ' + usuario.email + ' (' + rows.length + ' UCs)');
     return { ok: true, id: id, geradoEm: Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm') };
   } finally { lock.releaseLock(); }
+}
+
+/**
+ * A UC já é cliente da OZZ? Usado pelo gerador quando a fatura tem energia injetada: se a UC já recebe
+ * créditos da OZZ, a energia injetada é da OZZ (não é placa do cliente) e o consumo segue pela média.
+ * Procura no cadastro do portal, na aba CLIENTES e na PROGRAMAÇÃO (UC nova ou antiga). Devolve só sim/não e onde.
+ */
+function ucDaOzz(uc) {
+  const u = String(uc || '').replace(/\D/g, '');
+  if (u.length < 7) return { ok: true, ozz: false };
+  const d = v => String(v == null ? '' : v).replace(/\D/g, '');
+  try { if (cadastroLinhas_(abaCadastro_()).some(r => d(cadastroObj_(r).uc) === u)) return { ok: true, ozz: true, onde: 'no cadastro do portal' }; } catch (e) {}
+  try { if (lerClientesExternos_().some(x => d(x.uc) === u || d(x.uc_antiga) === u)) return { ok: true, ozz: true, onde: 'na aba CLIENTES' }; } catch (e) {}
+  try { const p = programacaoComCache_(false); if (p.ok && p.contas.some(k => d(k.uc) === u || d(k.ucAntiga) === u)) return { ok: true, ozz: true, onde: 'na PROGRAMAÇÃO' }; } catch (e) {}
+  return { ok: true, ozz: false };
 }
 
 function json(o) {
