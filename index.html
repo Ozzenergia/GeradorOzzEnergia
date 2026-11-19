@@ -143,6 +143,10 @@ main.wide{max-width:1180px}
 .rat-ajuda{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-top:18px;font-size:14px;line-height:1.55}
 .rat-ajuda summary{cursor:pointer;font-weight:700}
 .rat-ajuda li{margin:4px 0}
+/* ===== Origem da energia injetada (proposta) ===== */
+.inj-orig{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);display:grid;gap:4px;font-size:13.5px}
+.inj-orig label{display:flex;gap:6px;align-items:center;cursor:pointer}
+.inj-orig small{color:var(--muted)}
 /* ===== Tarifa editável no rodapé da proposta ===== */
 .tar-rapida{width:44px;font:inherit;color:inherit;background:transparent;border:none;border-bottom:1px dashed currentColor;padding:0 2px;text-align:center;cursor:pointer;-moz-appearance:textfield}
 .tar-rapida::-webkit-inner-spin-button,.tar-rapida::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
@@ -2535,7 +2539,7 @@ function openReview(d,warn,leitura){
     return `<div class="f${WIDE.includes(key)?' wide':''}"><label>${meta.label}${meta.src==='calc'?' <span class="tag calc">CALC</span>':''}</label><input data-tag="${tag}" data-key="${key}" value="${v}"></div>`;
   }).join('');
   const w=$('minWarn');w.style.display=warn?'block':'none';w.textContent=warn?'⚠️ '+warn:'';
-  recompute(true);propStep(2);
+  recompute(true);propStep(2);verificarInjOzz();
 }
 FX.forEach(k=>bindMark($('fx_'+k),()=>recompute()));
 document.getElementById('pp2').addEventListener('input',e=>{if(e.target.classList)e.target.classList.remove('unsure')});
@@ -2553,18 +2557,24 @@ function recompute(auto){
   let media=NaN;
   // cliente com energia solar: a média do histórico não vale (a placa muda o consumo de mês a mês).
   // Na proposta usa só o mês da fatura: consumo − energia injetada. Depois, com 6 faturas, a OZZ refaz pela média.
-  if(isFinite(te)&&isFinite(inj)&&inj>0){
+  const temInj=isFinite(te)&&isFinite(inj)&&inj>0,daOzz=propData._injOrigem==='ozz';
+  // a fatura tem energia injetada: pode ser placa do cliente ou créditos que a própria OZZ já manda para ele
+  const escolha=temInj?`<div class="inj-orig"><span>A energia injetada (${fmtBR(inj)} kWh) é:</span>
+    <label><input type="radio" name="injOrig" value="cliente"${daOzz?'':' checked'}> da placa solar do cliente</label>
+    <label><input type="radio" name="injOrig" value="ozz"${daOzz?' checked':''}> créditos da OZZ (já é cliente)</label>
+    ${propData._injOnde?`<small>Esta UC já está ${anaEsc(propData._injOnde)}.</small>`:propData._injChecando?'<small>Conferindo se a UC já é cliente da OZZ…</small>':''}</div>`:'';
+  if(temInj&&!daOzz){
     media=Math.max(0,te-inj);
     $('method').textContent='☀️ Método: cliente com energia solar';
-    $('sumBox').innerHTML=`Consumo TE do mês: ${fmtBR(te)} kWh<br>− Energia injetada: ${fmtBR(inj)} kWh<hr><b>= Consumo considerado: ${fmtBR(Math.round(media))} kWh</b><br><small>A fatura tem energia injetada (solar), então não uso a média do histórico. Se não for o caso, apague o campo "Inj. TE".</small>`;
+    $('sumBox').innerHTML=`Consumo TE do mês: ${fmtBR(te)} kWh<br>− Energia injetada: ${fmtBR(inj)} kWh<hr><b>= Consumo considerado: ${fmtBR(Math.round(media))} kWh</b><br><small>Com energia solar não uso a média do histórico.</small>`+escolha;
   }else if(okH.length){
     const soma=okH.reduce((a,b)=>a+b,0);media=soma/okH.length;
     $('method').textContent='📊 Método: média do histórico';
-    $('sumBox').innerHTML=`Soma ${okH.length===1?'de 1 mês':'dos '+okH.length+' meses'}: ${fmtBR(soma)} kWh<br>÷ ${okH.length} ${okH.length>1?'meses':'mês'}<hr><b>= Consumo médio: ${fmtBR(Math.round(media))} kWh</b>`;
+    $('sumBox').innerHTML=`Soma ${okH.length===1?'de 1 mês':'dos '+okH.length+' meses'}: ${fmtBR(soma)} kWh<br>÷ ${okH.length} ${okH.length>1?'meses':'mês'}<hr><b>= Consumo médio: ${fmtBR(Math.round(media))} kWh</b>`+escolha;
   }else if(isFinite(te)){
     media=te;
     $('method').textContent='📄 Método: consumo do mês (sem histórico)';
-    $('sumBox').innerHTML=`Histórico não informado — usando o Consumo TE<hr><b>= Consumo médio: ${fmtBR(Math.round(media))} kWh</b>`;
+    $('sumBox').innerHTML=`Histórico não informado — usando o Consumo TE<hr><b>= Consumo médio: ${fmtBR(Math.round(media))} kWh</b>`+escolha;
   }else{
     $('method').textContent='📊 Método: média do histórico';
     $('sumBox').innerHTML='Preencha o histórico ou o Consumo TE para calcular o consumo médio.';
@@ -2636,6 +2646,20 @@ function buildValues(){
   o._hist=h;o._media=m;o._histMes=propData.histMes;
   return o;
 }
+
+/* Fatura com energia injetada: a UC já é cliente da OZZ? Se for, a energia injetada são créditos da OZZ (não placa do cliente) */
+async function verificarInjOzz(){
+  const uc=soDig(propData.codigo_uc),inj=num(propData.inj_te);
+  delete propData._injOrigem;delete propData._injOnde;
+  if(!(inj>0)||uc.length<7||!sessao()||isVisitor())return;
+  propData._injChecando=true;recompute();
+  const r=await sheetApi('uc_ozz',{uc},{espera:30000}).catch(()=>null);
+  if(soDig(propData.codigo_uc)!==uc)return;   // já trocou de fatura
+  propData._injChecando=false;
+  if(r&&r.ok&&r.ozz&&propData._injOrigem===undefined){propData._injOrigem='ozz';propData._injOnde=r.onde}
+  recompute();
+}
+$('sumBox').addEventListener('change',e=>{const i=e.target.closest('input[name=injOrig]');if(!i)return;propData._injOrigem=i.value;recompute()});
 
 // "NOV/26" + kWh de cada mês → [{mes:202611,kwh}] (só os meses preenchidos; sem os meses da fatura não dá para saber a data)
 function historicoParaPlanilha(){
@@ -2824,11 +2848,23 @@ function mergeTermo(p,f){
     if(a){d[k]=a;src[k]=sa}else if(b){d[k]=b;src[k]=sb}});
   return {d,src};
 }
+/* Termo pela fatura com energia injetada: se a UC já é cliente da OZZ, a energia é crédito da OZZ e o consumo volta para a média */
+async function termoInjOzz(f,sol){
+  const mh=f&&f._mediaHist;if(f)delete f._mediaHist;
+  if(!sol||!mh||!sessao()||isVisitor())return;
+  const uc=soDig(f.codigo_uc);if(uc.length<7)return;
+  const r=await sheetApi('uc_ozz',{uc},{espera:30000}).catch(()=>null);
+  if(!(r&&r.ok&&r.ozz)||soDig($('t_codigo_uc').value)!==uc)return;
+  const c=$('t_consumo');if(c&&c.value===f.consumo){c.value=mh;c.dispatchEvent(new Event('input',{bubbles:true}))}
+  const w=$('warn1');w.className='alert warn';w.style.display='block';
+  const antes=w.textContent.replace(/^⚠️\s*/,'').replace(sol,'').trim();
+  w.textContent=`⚠️ Esta UC já é cliente da OZZ (está ${r.onde}): a energia injetada da fatura são créditos da OZZ, não placa do cliente. Usei a média do histórico (${mh} kWh). Se for placa do cliente, corrija o consumo para ${f.consumo} kWh.`+(antes?' '+antes:'');
+}
 $('dualGo').onclick=()=>{
   const {d,src}=mergeTermo(dual.p,dual.f);
   // fatura com energia solar: o consumo vale o da fatura (mês − injetada), igual à proposta
   const sol=dual.f&&dual.f._solar;if(sol){d.consumo=dual.f.consumo;src.consumo='f'}
-  openTermo(d,'ambos',sol||'',src);
+  openTermo(d,'ambos',sol||'',src);if(sol)termoInjOzz(dual.f,sol);
 };
 const isoHoje=()=>{const h=new Date();return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`};
 function fromProposta(text){
@@ -2859,6 +2895,7 @@ function fromFaturaD(f){
   d.classe_uc=f.classe_uc||'';d.dia_leitura=f.dia_leitura||'';d.dia_vencimento=f.dia_vencimento||'';
   const h=(f.hist||[]).filter(v=>isFinite(v)&&v>0),te=num(f.consumo_te),inj=num(f.inj_te);
   // mesma regra da proposta: cliente com energia solar usa o consumo do mês − energia injetada
+  if(h.length)d._mediaHist=fmtBR(Math.round(h.reduce((a,b)=>a+b,0)/h.length));else if(isFinite(te))d._mediaHist=fmtBR(te);
   if(isFinite(te)&&isFinite(inj)&&inj>0){d.consumo=fmtBR(Math.max(0,Math.round(te-inj)));
     d._solar=`☀️ Cliente com energia solar: consumo = ${fmtBR(te)} − ${fmtBR(inj)} kWh injetados = ${d.consumo} kWh (sem a média do histórico).`}
   else if(h.length)d.consumo=fmtBR(Math.round(h.reduce((a,b)=>a+b,0)/h.length));
@@ -2911,13 +2948,13 @@ setupDrop($('drop'),$('file'),async file=>{
     const name=file.name.toLowerCase();let text='';
     const fat=termoSrc==='fatura';
     const ehImg=/^image\//.test(file.type||'')||/\.(jpe?g|png|webp|heic|heif)$/.test(name);
-    if(fat){const r=await lerFatura(file,t=>$('load1Prog').textContent=t);const t=fromFaturaD(r.d),sol=t._solar;delete t._solar;openTermo(t,'fatura',[r.aviso,sol].filter(Boolean).join(' '))}
+    if(fat){const r=await lerFatura(file,t=>$('load1Prog').textContent=t);const t=fromFaturaD(r.d),sol=t._solar;delete t._solar;openTermo(t,'fatura',[r.aviso,sol].filter(Boolean).join(' '));termoInjOzz(t,sol)}
     else if(ehImg){
       // foto na opção "Proposta aprovada": lê a imagem e decide se é fatura ou proposta
       const r=await lerFatura(file,t=>$('load1Prog').textContent=t).catch(e=>({erro:e}));
       const T=(r&&r.texto)||'';
       if(r&&!r.erro&&/DANF3E|N[úu]mero da UC|Distribuidora de Energia|Data de Vencimento/i.test(T)){
-        {const t=fromFaturaD(r.d),sol=t._solar;delete t._solar;openTermo(t,'fatura',[sol,'A imagem enviada é uma fatura de energia, então foi lida como fatura. '+r.aviso].filter(Boolean).join(' '))}
+        {const t=fromFaturaD(r.d),sol=t._solar;delete t._solar;openTermo(t,'fatura',[sol,'A imagem enviada é uma fatura de energia, então foi lida como fatura. '+r.aviso].filter(Boolean).join(' '));termoInjOzz(t,sol)}
       }else if(T.trim()){
         openTermo(fromProposta(T),'proposta','Proposta lida a partir da foto: confira todos os campos.');
       }else throw (r&&r.erro)||new Error('não foi possível ler a imagem');
@@ -2928,7 +2965,7 @@ setupDrop($('drop'),$('file'),async file=>{
       // PDF de fatura enviado na opção "Proposta aprovada": lê como fatura (igual já acontece com foto)
       if(name.endsWith('.pdf')&&/DANF3E|N[úu]mero da UC|Distribuidora de Energia/i.test(text)){
         const t=fromFatura(text),sol=t._solar;delete t._solar;
-        openTermo(t,'fatura',[sol,'O PDF enviado é uma fatura de energia, então foi lido como fatura.'].filter(Boolean).join(' '));return}
+        openTermo(t,'fatura',[sol,'O PDF enviado é uma fatura de energia, então foi lido como fatura.'].filter(Boolean).join(' '));termoInjOzz(t,sol);return}
       openTermo(fromProposta(text),'proposta',!text.trim()?'Não foi possível ler o texto do arquivo (imagem ou PDF escaneado). Preencha os campos manualmente.':'');
     }
   }catch(e){err.textContent='⚠️ Não foi possível ler o arquivo: '+e.message;err.style.display='block'}
