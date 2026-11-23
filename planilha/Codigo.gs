@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '25 (rateio: Puxar mais rápido)';
+const VERSAO_SCRIPT = '26 (rateio: puxar pelo editor)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -1274,6 +1274,19 @@ function ucDaOzz(uc) {
  *    Usina que não está nos blocos de baixo: usa o bloco de cima só se a soma der 100%.
  * Nunca apaga nem muda o que já foi lançado: só acrescenta linhas novas e completa células vazias.
  */
+/**
+ * Roda o "Puxar da planilha de controle" direto aqui no editor (sem depender da conexão do site).
+ * Escolha esta função na barra de cima e clique em Executar; o resultado e o tempo de cada etapa aparecem no Registro.
+ */
+function puxarRateioPeloEditor() {
+  const quem = { email: Session.getActiveUser().getEmail() || 'editor', nome: 'Apps Script (editor)' };
+  ['usinas', 'benef', 'consumo', 'rateios'].forEach(etapa => {
+    const t0 = Date.now();
+    const r = ratImportarControle(quem, etapa);
+    Logger.log(etapa + ': ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s → ' + JSON.stringify(r).slice(0, 500));
+  });
+}
+
 // etapa: 'usinas' | 'benef' | 'consumo' | 'rateios' (o site chama uma por vez: cada chamada fica curta). Sem etapa = tudo.
 function ratImportarControle(usuario, etapa) {
   const faz = x => !etapa || etapa === x;
