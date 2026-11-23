@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '23 (rateio: aviso de importação em andamento)';
+const VERSAO_SCRIPT = '24 (rateio: Puxar em etapas)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -216,7 +216,7 @@ function doPost(e) {
     }
     if (req.acao === 'rat_dados' || req.acao === 'rat_salvar' || req.acao === 'rat_importar') {
       if (!usuario.email || usuario.perfil !== 'ti') return json({ ok: false, erro: 'o rateio está em construção e só o TI tem acesso', perfil: true });
-      if (req.acao === 'rat_importar') return json(ratImportarControle(usuario));
+      if (req.acao === 'rat_importar') return json(ratImportarControle(usuario, req.etapa));
       return json(req.acao === 'rat_dados' ? ratDados() : ratSalvar(req, usuario));
     }
     if (req.acao === 'importar_contas' || req.acao === 'importar_status') {
@@ -1274,7 +1274,9 @@ function ucDaOzz(uc) {
  *    Usina que não está nos blocos de baixo: usa o bloco de cima só se a soma der 100%.
  * Nunca apaga nem muda o que já foi lançado: só acrescenta linhas novas e completa células vazias.
  */
-function ratImportarControle(usuario) {
+// etapa: 'usinas' | 'benef' | 'consumo' | 'rateios' (o site chama uma por vez: cada chamada fica curta). Sem etapa = tudo.
+function ratImportarControle(usuario, etapa) {
+  const faz = x => !etapa || etapa === x;
   const cache = CacheService.getScriptCache();
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
@@ -1313,26 +1315,26 @@ function ratImportarControle(usuario) {
 
     /* ---------- usinas e geração (INVESTIDORES) ---------- */
     const invPorNome = {};
-    const ti = tabela('INVESTIDORES', ['INVESTIDOR', 'UC GERADORA']);
+    const ti = etapa === 'consumo' ? null : tabela('INVESTIDORES', ['INVESTIDOR', 'UC GERADORA']);
     if (ti) {
       const cNova = ti.col('NOVA UC GERADORA'), cUg = ti.col('UC GERADORA'), cNome = ti.col('INVESTIDOR'), cGer = ti.col('GERACAO MENSAL'),
         cConc = ti.col('CONCESSAO'), cSt = ti.col('STATUS');
       const shU = ratAba_('usinas'), jaU = {};
-      ratLer_('usinas').forEach(u => { jaU[dig(u.ug)] = true; });
+      if (faz('usinas')) ratLer_('usinas').forEach(u => { jaU[dig(u.ug)] = true; });
       const shG = ratAba_('geracao'), ano = anoAtual, jaG = {};
-      ratLer_('geracao').forEach(g => { if (Number(g.ano) === ano) jaG[dig(g.ug)] = true; });
+      if (faz('usinas')) ratLer_('geracao').forEach(g => { if (Number(g.ano) === ano) jaG[dig(g.ug)] = true; });
       const novasU = [], novasG = [];
       ti.v.slice(ti.i + 1).forEach(r => {
         const nome = String(r[cNome] || '').trim(); if (!nome) return;
         const ugTxt = cNova >= 0 && r[cNova] ? txt(r[cNova]) : txt(r[cUg]), ug = dig(ugTxt); if (ug.length < 7) return;
         const ger = cGer >= 0 ? num(r[cGer]) : null;
         invPorNome[up(nome)] = { ug: ugTxt, nome: nome };   // a UC fica escrita igual em todas as abas de rateio
-        if (!jaU[ug]) {
+        if (faz('usinas') && !jaU[ug]) {
           jaU[ug] = true;
           novasU.push([ugTxt, nome, ger ? Math.round(ger * 12) : '', cConc >= 0 ? txt(r[cConc]) : '', '',
             cSt >= 0 && /CANCEL|INATIV/i.test(String(r[cSt])) ? 'X' : '']);
         }
-        if (ger && !jaG[ug]) { jaG[ug] = true; novasG.push([ugTxt, ano].concat(Array(12).fill(Math.round(ger)))); }
+        if (faz('usinas') && ger && !jaG[ug]) { jaG[ug] = true; novasG.push([ugTxt, ano].concat(Array(12).fill(Math.round(ger)))); }
       });
       if (novasU.length) shU.getRange(shU.getLastRow() + 1, 1, novasU.length, novasU[0].length).setValues(novasU);
       if (novasG.length) shG.getRange(shG.getLastRow() + 1, 1, novasG.length, novasG[0].length).setValues(novasG);
@@ -1346,18 +1348,19 @@ function ratImportarControle(usuario) {
     };
 
     /* ---------- beneficiárias (CLIENTES) ---------- */
-    const tc = tabela('CLIENTES', ['CLIENTE', 'NOVA UC', 'INVESTIDOR']);
+    const tc = etapa === 'usinas' ? null : tabela('CLIENTES', ['CLIENTE', 'NOVA UC', 'INVESTIDOR']);
     const ucNova = {};   // UC antiga → nova, para ligar as outras abas
     if (tc) {
       const C = { nome: tc.col('CLIENTE'), nova: tc.col('NOVA UC'), antiga: tc.col('ANTIGA UC'), doc: tc.col('CPF/CNPJ') >= 0 ? tc.col('CPF/CNPJ') : tc.col('CPF CNPJ'),
         inv: tc.col('INVESTIDOR'), media: tc.col('MEDIA'), st: tc.col('STATUS'), resp: tc.col('RESPONSAVEL') };
       const shB = ratAba_('benef'), jaB = {};
-      ratLer_('benef').forEach(b => { jaB[dig(b.uc) + '|' + dig(b.ug)] = true; });   // a mesma UC pode receber de mais de uma usina
+      if (faz('benef')) ratLer_('benef').forEach(b => { jaB[dig(b.uc) + '|' + dig(b.ug)] = true; });   // a mesma UC pode receber de mais de uma usina
       const novas = [];
       tc.v.slice(tc.i + 1).forEach(r => {
         const nome = String(r[C.nome] || '').trim(); if (!nome || up(nome) === 'CLIENTE') return;
         const nova = C.nova >= 0 ? txt(r[C.nova]) : '', antiga = C.antiga >= 0 ? txt(r[C.antiga]) : '';
         if (dig(antiga) && dig(nova)) ucNova[dig(antiga)] = nova;
+        if (!faz('benef')) return;
         const st = C.st >= 0 ? up(r[C.st]) : '';
         if (st && st.indexOf('CONECTAD') !== 0) return;          // só quem já recebe crédito
         const uc = dig(nova) ? nova : antiga; if (dig(uc).length < 7) return;
@@ -1375,6 +1378,7 @@ function ratImportarControle(usuario) {
     const ucCerta = (nova, antiga) => dig(nova).length >= 7 ? txt(nova) : (ucNova[dig(antiga)] || txt(antiga));
 
     /* ---------- saldo e injetado (abas dos meses) ---------- */
+    if (faz('consumo')) {
     const MESES = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
     const shC = ratAba_('consumo'), larg = RAT_ABAS_.consumo.cols.length;
     const vC = shC.getLastRow() > 1 ? shC.getRange(2, 1, shC.getLastRow() - 1, larg).getValues() : [];
@@ -1415,10 +1419,11 @@ function ratImportarControle(usuario) {
     if (mudouC && vC.length) shC.getRange(2, 1, vC.length, larg).setValues(vC);
     if (novasC.length) shC.getRange(shC.getLastRow() + 1, 1, novasC.length, larg).setValues(novasC);
     res.consumo = novasC.length;
+    }
 
     /* ---------- último rateio enviado (RATEIOS) ---------- */
     const sr = ss.getSheetByName('RATEIOS');
-    if (sr && sr.getLastRow() > 2) {
+    if (faz('rateios') && sr && sr.getLastRow() > 2) {
       const v = sr.getDataRange().getValues();
       let cab = null, baixo = false;
       const grupos = { cima: {}, baixo: {} };
