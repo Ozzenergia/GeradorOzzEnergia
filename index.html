@@ -2142,6 +2142,7 @@ $('ratImportar').onclick=async()=>{
   const b=$('ratImportar');b.disabled=true;b.textContent='Puxando…';$('ratImpRes').innerHTML='<div>Lendo INVESTIDORES, CLIENTES, RATEIOS e as abas dos meses (pode levar até 1 minuto)…</div>';
   const r=await sheetApi('rat_importar',{},{espera:180000});
   b.disabled=false;b.textContent='⬇️ Puxar da planilha de controle';
+  if(r&&r.emAndamento){$('ratImpRes').innerHTML=`<div>⏳ A ${anaEsc(r.erro)} <br><small>Vou atualizar a tela sozinho em 1 minuto.</small></div>`;setTimeout(()=>ratCarregar(),60000);return}
   if(!r||!r.ok){$('ratImpRes').innerHTML=`<div>⚠️ ${anaEsc((r&&r.erro)||'não foi possível puxar')}</div>`;return}
   const n=(v,s,p)=>v+' '+(v===1?s:p);
   let h=`<div>✅ Acrescentado: ${n(r.usinas,'usina','usinas')} · ${n(r.geracao,'linha de geração','linhas de geração')} · ${n(r.benef,'beneficiária','beneficiárias')} · ${n(r.consumo,'mês de saldo/injetado','meses de saldo/injetado')} · ${n(r.rateios,'linha de rateio anterior','linhas de rateio anterior')}. Nada que já estava lançado foi mudado.</div>`;

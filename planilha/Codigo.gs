@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '22 (rateio: UC em mais de uma usina)';
+const VERSAO_SCRIPT = '23 (rateio: aviso de importação em andamento)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -1275,8 +1275,18 @@ function ucDaOzz(uc) {
  * Nunca apaga nem muda o que já foi lançado: só acrescenta linhas novas e completa células vazias.
  */
 function ratImportarControle(usuario) {
+  const cache = CacheService.getScriptCache();
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) return { ok: false, erro: 'outra gravação em andamento; tente de novo' };
+  if (!lock.tryLock(30000)) {
+    // quase sempre é um "Puxar" anterior que ainda está rodando (leva de 30 s a 2 min)
+    const em = cache.get('RAT_IMPORTANDO');
+    if (em) {
+      const [quando, quem] = em.split('|');
+      return { ok: false, emAndamento: true, erro: 'a importação que ' + (quem || 'alguém') + ' começou às ' + quando + ' ainda está rodando. Espere 1 ou 2 minutos e clique em Atualizar: não precisa puxar de novo.' };
+    }
+    return { ok: false, erro: 'a planilha está gravando outra coisa agora (outra pessoa salvando). Tente de novo em 1 minuto.' };
+  }
+  cache.put('RAT_IMPORTANDO', Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'HH:mm') + '|' + (usuario.nome || usuario.email), 600);
   try {
     let ss;
     try { ss = SpreadsheetApp.openById(idPlanilhaControle_()); } catch (e) { return { ok: false, erro: 'não consegui abrir a planilha de controle' }; }
@@ -1452,7 +1462,7 @@ function ratImportarControle(usuario) {
     res.semUsina = res.semUsina.slice(0, 30);
     console.log('Rateio: importação da planilha de controle por ' + usuario.email + ' → ' + JSON.stringify(res).slice(0, 400));
     return Object.assign({ ok: true }, res);
-  } finally { lock.releaseLock(); }
+  } finally { cache.remove('RAT_IMPORTANDO'); lock.releaseLock(); }
 }
 
 /* ======================================================================
