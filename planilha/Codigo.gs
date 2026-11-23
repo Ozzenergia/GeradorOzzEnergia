@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '20 (cadastrar usina no rateio)';
+const VERSAO_SCRIPT = '21 (rateio: problemas para conferir)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -1432,7 +1432,8 @@ function ratImportarControle(usuario) {
         if (!g) {
           g = grupos.cima[ug]; origem = 'IMPORTADO (bloco de cima — conferir)';
           const soma = Object.keys(g.linhas).reduce((t, k) => t + g.linhas[k].pct, 0);
-          if (Math.abs(soma - 1) > 0.02) { res.conferir.push(g.us.nome + ' (soma ' + Math.round(soma * 100) + '%)'); return; }
+          // não fecha 100%: entra mesmo assim, marcado "A CONFERIR" (o site não usa como rateio atual e lista em "Ver problemas")
+          if (Math.abs(soma - 1) > 0.02) { res.conferir.push(g.us.nome + ' (soma ' + Math.round(soma * 100) + '%)'); origem = 'A CONFERIR (soma ' + Math.round(soma * 100) + '%)'; }
         }
         const id = 'RAT-IMPORT-' + ug;
         Object.keys(g.linhas).forEach(k => {

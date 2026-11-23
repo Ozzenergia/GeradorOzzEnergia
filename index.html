@@ -152,6 +152,20 @@ main.wide{max-width:1180px}
 .tar-rapida::-webkit-inner-spin-button,.tar-rapida::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .tar-rapida:focus{outline:2px solid var(--primary);outline-offset:2px;border-bottom-color:transparent;cursor:text}
 #lfTabela,#lfErro{margin-top:16px}
+.rat-probs{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:16px}
+.rat-probs h3{margin:0 0 4px;font-size:17px}
+.rat-probs>p{margin:0 0 12px;color:var(--muted);font-size:13.5px}
+.rat-probgrupo{border-top:1px solid var(--line);padding:10px 0}
+.rat-probgrupo summary{cursor:pointer;list-style:revert}
+.rat-probgrupo summary h4{display:inline-flex;margin:0;font-size:14px;gap:8px;align-items:center}
+.rat-probgrupo ul{margin-top:8px!important}
+.rat-probgrupo ul{margin:0;padding:0;list-style:none;display:grid;gap:4px}
+.rat-probgrupo li{display:flex;gap:10px;align-items:baseline;font-size:14px;flex-wrap:wrap}
+.rat-probgrupo li small{color:var(--muted)}
+.rat-probgrupo li button{font:inherit;font-size:12.5px;font-weight:600;color:var(--primary);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline}
+.rat-nivel{font-size:11px;font-weight:700;border-radius:6px;padding:2px 7px}
+.rat-nivel.err{background:var(--err-soft);color:var(--err)}.rat-nivel.warn{background:var(--warn-soft);color:var(--warn)}.rat-nivel.info{background:var(--primary-soft);color:var(--primary)}
+#ratProbBtn .n{display:inline-block;min-width:18px;margin-left:4px;padding:0 5px;border-radius:9px;background:var(--err);color:#fff;font-size:11.5px;line-height:18px;text-align:center}
 .rat-usform{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 18px 4px;margin-bottom:16px}
 .rat-usform h3{margin:0 0 12px;font-size:17px}
 .rat-usgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
@@ -918,10 +932,11 @@ body.locked{overflow:hidden}
 <section id="tab-rateio" class="hidden">
   <div class="ana-top">
     <div><h2>Rateio de créditos <span class="rat-beta">em construção · só TI</span></h2><p id="ratSub">Divide a geração estimada da usina entre as UCs beneficiárias</p></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" id="ratImportar" type="button">⬇️ Puxar da planilha de controle</button><button class="btn sec sm" id="ratAtualizar" type="button">↻ Atualizar</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" id="ratProbBtn" type="button" aria-expanded="false" aria-controls="ratProbs">⚠️ Ver problemas</button><button class="btn sec sm" id="ratImportar" type="button">⬇️ Puxar da planilha de controle</button><button class="btn sec sm" id="ratAtualizar" type="button">↻ Atualizar</button></div>
   </div>
   <div class="alert" id="ratErro"></div>
   <div class="rat-avisos" id="ratImpRes" role="status" aria-live="polite"></div>
+  <section class="rat-probs" id="ratProbs" hidden aria-label="Problemas para conferir"></section>
   <div class="ana-filtros">
     <select id="ratUsina" aria-label="Usina"></select>
     <select id="ratMes" aria-label="Mês de referência"></select>
@@ -1924,8 +1939,9 @@ function ratOpcoes(){
   $('ratMes').innerHTML=ms.sort((a,b)=>b-a).map(m=>`<option value="${m}">${ratMesTxt(m)}${m===hoje?' (este mês)':''}</option>`).join('');
   $('ratMes').value=rat.mes;$('ratBase').value=rat.base;
 }
-function ratUltimo(ug){   // último rateio salvo da usina (as linhas entram na aba em ordem)
-  const g=rat.dados.gerados.filter(x=>ratDig(x.ug)===ratDig(ug));if(!g.length)return null;
+const ratConferir=x=>/^A CONFERIR/i.test(String(x.situacao||''));
+function ratUltimo(ug){   // último rateio salvo da usina (as linhas entram na aba em ordem); "A CONFERIR" não conta como rateio atual
+  const g=rat.dados.gerados.filter(x=>ratDig(x.ug)===ratDig(ug)&&!ratConferir(x));if(!g.length)return null;
   const id=g[g.length-1].id;return {id,linhas:g.filter(x=>x.id===id)};
 }
 function ratMontar(){
@@ -1997,6 +2013,7 @@ function ratRender(){
     :'<tr><td colspan="14" class="ana-vazio">Sem beneficiárias para calcular.</td></tr>';
   $('ratTot').innerHTML=L.length?`<tr><td>${L.length} UCs</td><td class="num">${ratN(L.reduce((t,l)=>t+l.consumo,0))}</td><td></td><td class="num">${ratN(c.L.reduce((t,r)=>t+r.O,0))}</td><td class="num">${ratN(L.reduce((t,l)=>t+l.saldo,0))}</td><td></td><td></td><td></td><td></td><td></td><td class="num fim">${ratP(c.soma)}</td><td class="num">${ratN(c.injecao)}</td><td></td><td></td></tr>`:'';
   $('ratSalvar').disabled=!fecha||!(M.ger>0)||rat.salvando;
+  ratProbRender();
   $('ratSub').textContent=`${M.usina.nome||'Usina'} · ${ratMesTxt(ref)} · base ${rat.base==='3M'?'média 3 meses':rat.base==='12M'?'média 12 meses':'mesmo mês do ano anterior'}`;
   // histórico
   const g=d.gerados.filter(x=>ratDig(x.ug)===ratDig(rat.ug)),ids=[...new Set(g.map(x=>x.id))].reverse();
@@ -2015,6 +2032,61 @@ $('ratUsina').onchange=e=>{rat.ug=e.target.value;$('ratMsg').textContent='';ratR
 $('ratMes').onchange=e=>{rat.mes=+e.target.value;$('ratMsg').textContent='';ratRender()};
 $('ratBase').onchange=e=>{rat.base=e.target.value;try{localStorage.setItem('ozz_rat_base',rat.base)}catch(x){}ratRender()};   // a escolha fica guardada no aparelho
 $('ratAtualizar').onclick=()=>ratCarregar();
+
+/* ----- Ver problemas: o que impede ou atrapalha o rateio, em todas as usinas ----- */
+function ratProblemas(){
+  const d=rat.dados;if(!d)return [];
+  const P=[],add=(grupo,nivel,ug,nome,texto)=>P.push({grupo,nivel,ug,nome,texto});
+  const us=d.usinas.filter(u=>!String(u.inativa||'').trim()),ugs=new Set(d.usinas.map(u=>ratDig(u.ug)));
+  const ref=rat.mes,ano=Math.floor(ref/100);
+  const comConsumo=new Set(d.consumo.filter(c=>c.consumo!==''&&c.consumo!=null&&+c.mes<=ref).map(c=>ratDig(c.uc)));
+  const comMinimo=new Set(d.consumo.filter(c=>c.minimo!==''&&c.minimo!=null).map(c=>ratDig(c.uc)));
+  const ativa=b=>(!b.inicio||+b.inicio<=ref)&&(!b.termino||+b.termino>=ref);
+  us.forEach(u=>{
+    const k=ratDig(u.ug),nome=u.nome||u.ug;
+    // rateio anterior
+    const g=d.gerados.filter(x=>ratDig(x.ug)===k);
+    const conf=g.filter(ratConferir);
+    if(conf.length){const ids=[...new Set(conf.map(x=>x.id))],l=conf.filter(x=>x.id===ids[ids.length-1]),soma=l.reduce((t,x)=>t+(+x.pct||0),0);
+      add('Rateio anterior não fecha 100%','err',u.ug,nome,`soma ${ratP(soma)} em ${l.length} UCs (aba RATEIOS, bloco de cima): confira qual % vale na RGE`)}
+    const ult=ratUltimo(u.ug);
+    if(ult){const soma=ult.linhas.reduce((t,x)=>t+(+x.pct||0),0);if(Math.abs(soma-1)>0.0005)add('Rateio anterior não fecha 100%','err',u.ug,nome,`último rateio soma ${ratP(soma)}`)}
+    else if(!conf.length)add('Sem rateio anterior','info',u.ug,nome,'não dá para comparar com o % atual nem marcar UCs novas');
+    // geração
+    const ger=d.geracao.filter(x=>ratDig(x.ug)===k);
+    if(!ger.length)add('Sem geração estimada','err',u.ug,nome,'nenhuma geração cadastrada (use Editar usina)');
+    else{const gl=ger.find(x=>+x.ano===ano);if(!gl||!(+gl['m'+(ref%100)]>0))add('Sem geração estimada','err',u.ug,nome,`sem geração de ${ratMesTxt(ref)}`);
+      else{const vs=[...Array(12)].map((_,i)=>+gl['m'+(i+1)]||0).filter(Boolean);if(vs.length===12&&new Set(vs).size===1)add('Geração sem sazonalidade','info',u.ug,nome,`mesmo valor nos 12 meses de ${ano} (${ratN(vs[0])} kWh)`)}}
+    // beneficiárias
+    const bs=d.benef.filter(b=>ratDig(b.ug)===k&&ativa(b));
+    if(!bs.length){add('Sem beneficiárias','err',u.ug,nome,`nenhuma beneficiária ativa em ${ratMesTxt(ref)}`);return}
+    const semC=bs.filter(b=>!comConsumo.has(ratDig(b.uc))).length;if(semC)add('Beneficiárias sem consumo mês a mês','warn',u.ug,nome,`${semC} de ${bs.length} UCs usam só a média antiga (passe as faturas no Leitor de faturas)`);
+    const semF=bs.filter(b=>!String(b.fornecimento||'').trim()&&!comMinimo.has(ratDig(b.uc))).length;if(semF)add('Sem tipo de fornecimento (mínimo 0)','warn',u.ug,nome,`${semF} de ${bs.length} UCs`);
+    const cont={};bs.forEach(b=>{const x=ratDig(b.uc);cont[x]=(cont[x]||0)+1});const rep=Object.keys(cont).filter(x=>cont[x]>1).length;if(rep)add('UC repetida na mesma usina','err',u.ug,nome,`${rep} UC${rep>1?'s':''} aparece${rep>1?'m':''} mais de uma vez`);
+  });
+  // beneficiárias ligadas a usina que não existe
+  const orf={};d.benef.forEach(b=>{if(!ugs.has(ratDig(b.ug)))(orf[b.ug]=orf[b.ug]||[]).push(b)});
+  Object.keys(orf).forEach(ug=>add('Beneficiária de usina não cadastrada','err','',ug||'(sem usina)',`${orf[ug].length} UC${orf[ug].length>1?'s':''} na aba Rateio Beneficiárias com a UC geradora ${ug||'vazia'}`));
+  return P;
+}
+function ratProbRender(){
+  const P=ratProblemas(),err=P.filter(p=>p.nivel==='err').length;
+  $('ratProbBtn').innerHTML='⚠️ Ver problemas'+(err?`<span class="n">${err}</span>`:'');
+  if($('ratProbs').hidden)return;
+  if(!rat.dados){$('ratProbs').innerHTML='<p>Carregando…</p>';return}
+  if(!P.length){$('ratProbs').innerHTML='<h3>Nenhum problema encontrado</h3><p>Todas as usinas ativas têm geração, beneficiárias e rateio anterior fechando 100%.</p>';return}
+  const ordem={err:0,warn:1,info:2},rot={err:'ERRO',warn:'ATENÇÃO',info:'INFO'};
+  const grupos=[...new Set(P.sort((a,b)=>ordem[a.nivel]-ordem[b.nivel]).map(p=>p.grupo))];
+  $('ratProbs').innerHTML=`<h3>Problemas para conferir</h3><p>${P.length} ${P.length===1?'item':'itens'} em ${new Set(P.map(p=>p.nome)).size} usinas · mês ${ratMesTxt(rat.mes)} · clique em "abrir" para ver a usina no rateio</p>`+
+    // erros abertos; atenção e informação recolhidos (clique no título para ver)
+    grupos.map(g=>{const l=P.filter(p=>p.grupo===g),aberto=l[0].nivel==='err'||rat.probAbertos.has(g);return `<details class="rat-probgrupo" data-grupo="${anaEsc(g)}"${aberto?' open':''}><summary><h4><span class="rat-nivel ${l[0].nivel}">${rot[l[0].nivel]}</span>${anaEsc(g)} <small>(${l.length})</small></h4></summary><ul>${
+      l.map(p=>`<li><b>${anaEsc(p.nome)}</b><small>${anaEsc(p.texto)}</small>${p.ug&&d_ugAtiva(p.ug)?`<button type="button" data-rat-abrir="${anaEsc(p.ug)}">abrir</button>`:''}</li>`).join('')}</ul></details>`}).join('');
+}
+rat.probAbertos=new Set();
+$('ratProbs').addEventListener('toggle',e=>{const d=e.target.closest('details[data-grupo]');if(d)d.open?rat.probAbertos.add(d.dataset.grupo):rat.probAbertos.delete(d.dataset.grupo)},true);
+const d_ugAtiva=ug=>rat.dados&&rat.dados.usinas.some(u=>ratDig(u.ug)===ratDig(ug)&&!String(u.inativa||'').trim());
+$('ratProbBtn').onclick=()=>{const p=$('ratProbs');p.hidden=!p.hidden;$('ratProbBtn').setAttribute('aria-expanded',String(!p.hidden));ratProbRender();if(!p.hidden)p.scrollIntoView({block:'nearest'})};
+$('ratProbs').addEventListener('click',e=>{const b=e.target.closest('button[data-rat-abrir]');if(!b)return;rat.ug=b.dataset.ratAbrir;ratOpcoes();ratRender();$('ratKpis').scrollIntoView({block:'start',behavior:'smooth'})});
 
 /* ----- Cadastrar / editar usina (grava nas abas Rateio Usinas e Rateio Geração) ----- */
 const RU_MES='Jan|Fev|Mar|Abr|Mai|Jun|Jul|Ago|Set|Out|Nov|Dez'.split('|');
@@ -2071,7 +2143,7 @@ $('ratImportar').onclick=async()=>{
   const n=(v,s,p)=>v+' '+(v===1?s:p);
   let h=`<div>✅ Acrescentado: ${n(r.usinas,'usina','usinas')} · ${n(r.geracao,'linha de geração','linhas de geração')} · ${n(r.benef,'beneficiária','beneficiárias')} · ${n(r.consumo,'mês de saldo/injetado','meses de saldo/injetado')} · ${n(r.rateios,'linha de rateio anterior','linhas de rateio anterior')}. Nada que já estava lançado foi mudado.</div>`;
   if(r.semUsina&&r.semUsina.length)h+=`<div>Clientes cujo INVESTIDOR não achei na aba INVESTIDORES (ficaram de fora): ${r.semUsina.map(anaEsc).join('; ')}</div>`;
-  if(r.conferir&&r.conferir.length)h+=`<div>Usinas sem bloco "NOVO RATEIO" e com o bloco de cima somando ≠ 100% (rateio anterior não importado): ${r.conferir.map(anaEsc).join('; ')}</div>`;
+  if(r.conferir&&r.conferir.length)h+=`<div>${r.conferir.length} usina${r.conferir.length>1?'s':''} com o rateio anterior somando ≠ 100%: entraram marcadas "A CONFERIR". Veja em ⚠️ Ver problemas.</div>`;
   if(r.avisos&&r.avisos.length)h+=`<div>${r.avisos.map(anaEsc).join(' · ')}</div>`;
   $('ratImpRes').innerHTML=h;ratCarregar();
 };
