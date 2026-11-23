@@ -2147,12 +2147,17 @@ $('ratImportar').onclick=async()=>{
     $('ratImpRes').innerHTML=`<div>⏳ Puxando ${i+1} de ${etapas.length}: ${etapas[i][1]}…</div>`;
     let x=await sheetApi('rat_importar',{etapa:etapas[i][0]},{espera:150000});
     if(x&&!x.ok&&!x.emAndamento&&/conex|demorou/.test(x.erro||''))x=await sheetApi('rat_importar',{etapa:etapas[i][0]},{espera:150000});   // uma nova tentativa (não duplica nada)
+    // a mesma etapa ainda rodando na planilha (a conexão anterior caiu): espera ela terminar e repete (não duplica nada)
+    for(let t=0;t<10&&x&&x.emAndamento;t++){
+      for(let seg=20;seg>0;seg--){$('ratImpRes').innerHTML=`<div>⏳ Etapa ${i+1} de ${etapas.length} (${etapas[i][1]}) ainda está terminando na planilha. Tento de novo em ${seg} s…</div>`;await new Promise(r=>setTimeout(r,1000))}
+      x=await sheetApi('rat_importar',{etapa:etapas[i][0]},{espera:150000});
+    }
     if(!x||!x.ok){Object.assign(r,x||{ok:false});r.ok=false;r.erro=((x&&x.erro)||'não foi possível puxar')+` (parou na etapa ${i+1}: ${etapas[i][1]}; o que veio antes já foi gravado)`;break}
     ['usinas','geracao','benef','consumo','rateios'].forEach(k=>{r[k]+=x[k]||0});['semUsina','conferir','avisos'].forEach(k=>{r[k]=r[k].concat(x[k]||[])});
   }
   r.avisos=[...new Set(r.avisos)];
   b.disabled=false;b.textContent='⬇️ Puxar da planilha de controle';
-  if(r&&r.emAndamento){$('ratImpRes').innerHTML=`<div>⏳ A ${anaEsc(r.erro)} <br><small>Vou atualizar a tela sozinho em 1 minuto.</small></div>`;setTimeout(()=>ratCarregar(),60000);return}
+  if(r&&r.emAndamento){$('ratImpRes').innerHTML=`<div>⏳ A planilha ainda está ocupada com a importação anterior. Espere uns minutos e clique em Puxar de novo (não duplica nada).</div>`;ratCarregar();return}
   if(!r||!r.ok){$('ratImpRes').innerHTML=`<div>⚠️ ${anaEsc((r&&r.erro)||'não foi possível puxar')}</div>`;return}
   const n=(v,s,p)=>v+' '+(v===1?s:p);
   let h=`<div>✅ Acrescentado: ${n(r.usinas,'usina','usinas')} · ${n(r.geracao,'linha de geração','linhas de geração')} · ${n(r.benef,'beneficiária','beneficiárias')} · ${n(r.consumo,'mês de saldo/injetado','meses de saldo/injetado')} · ${n(r.rateios,'linha de rateio anterior','linhas de rateio anterior')}. Nada que já estava lançado foi mudado.</div>`;

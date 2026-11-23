@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '24 (rateio: Puxar em etapas)';
+const VERSAO_SCRIPT = '25 (rateio: Puxar mais rápido)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -1282,13 +1282,13 @@ function ratImportarControle(usuario, etapa) {
   if (!lock.tryLock(30000)) {
     // quase sempre é um "Puxar" anterior que ainda está rodando (leva de 30 s a 2 min)
     const em = cache.get('RAT_IMPORTANDO');
-    if (em) {
+    if (em && Date.now() - Number(em.split('|')[2] || 0) < 6 * 60000) {
       const [quando, quem] = em.split('|');
       return { ok: false, emAndamento: true, erro: 'a importação que ' + (quem || 'alguém') + ' começou às ' + quando + ' ainda está rodando. Espere 1 ou 2 minutos e clique em Atualizar: não precisa puxar de novo.' };
     }
     return { ok: false, erro: 'a planilha está gravando outra coisa agora (outra pessoa salvando). Tente de novo em 1 minuto.' };
   }
-  cache.put('RAT_IMPORTANDO', Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'HH:mm') + '|' + (usuario.nome || usuario.email), 600);
+  cache.put('RAT_IMPORTANDO', Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'HH:mm') + '|' + (usuario.nome || usuario.email) + '|' + Date.now(), 400);
   try {
     let ss;
     try { ss = SpreadsheetApp.openById(idPlanilhaControle_()); } catch (e) { return { ok: false, erro: 'não consegui abrir a planilha de controle' }; }
@@ -1392,15 +1392,19 @@ function ratImportarControle(usuario, etapa) {
       let anoPg = anoAtual; if (m + 1 > mesAtual) anoPg--;
       let mesRef = m, anoRef = anoPg; if (mesRef === 0) { mesRef = 12; anoRef--; }
       const am = anoRef * 100 + mesRef;
-      const v = sh.getDataRange().getValues();
+      const nl = sh.getLastRow(), nc = sh.getLastColumn(); if (nl < 2 || nc < 1) return;
+      const topo = sh.getRange(1, 1, Math.min(6, nl), nc).getValues();
       let hi = -1, cab = [];
-      for (let i = 0; i < Math.min(v.length, 6); i++) { const c = v[i].map(up); if (c.indexOf('CLIENTE') >= 0 && c.indexOf('INJETADO') >= 0) { hi = i; cab = c; break; } }
-      if (hi < 0) return;
+      for (let i = 0; i < topo.length; i++) { const c = topo[i].map(up); if (c.indexOf('CLIENTE') >= 0 && c.indexOf('INJETADO') >= 0) { hi = i; cab = c; break; } }
+      if (hi < 0 || nl <= hi + 1) return;
       const cUc = cab.indexOf('UC'), cNova = cab.indexOf('NOVA UC'), cInj = cab.indexOf('INJETADO'), cSaldo = cab.indexOf('SALDO');
       if (cSaldo < 0) return;   // só as abas que têm SALDO servem para o rateio
-      v.slice(hi + 1).forEach(r => {
-        const uc = ucCerta(cNova >= 0 ? r[cNova] : '', cUc >= 0 ? r[cUc] : ''); if (dig(uc).length < 7) return;
-        const inj = num(r[cInj]), saldo = num(r[cSaldo]);
+      // só as colunas usadas (a aba inteira, com fórmulas, é o que demorava)
+      const col = c => c < 0 ? null : sh.getRange(hi + 2, c + 1, nl - hi - 1, 1).getValues();
+      const kUc = col(cUc), kNova = col(cNova), kInj = col(cInj), kSaldo = col(cSaldo);
+      kInj.forEach((_, j) => {
+        const uc = ucCerta(kNova ? kNova[j][0] : '', kUc ? kUc[j][0] : ''); if (dig(uc).length < 7) return;
+        const inj = num(kInj[j][0]), saldo = num(kSaldo[j][0]);
         if (inj == null && saldo == null) return;
         const k = dig(uc) + '|' + am;
         if (idxC[k] != null) {   // já existe (ex.: veio da proposta): só completa o que está vazio
