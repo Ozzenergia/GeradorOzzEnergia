@@ -152,6 +152,24 @@ main.wide{max-width:1180px}
 .tar-rapida::-webkit-inner-spin-button,.tar-rapida::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .tar-rapida:focus{outline:2px solid var(--primary);outline-offset:2px;border-bottom-color:transparent;cursor:text}
 #lfTabela,#lfErro{margin-top:16px}
+.rat-usform{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 18px 4px;margin-bottom:16px}
+.rat-usform h3{margin:0 0 12px;font-size:17px}
+.rat-usgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.rat-usgrid .larga{grid-column:span 2}
+.rat-usform label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--muted)}
+.rat-usform input,.rat-usform select{box-sizing:border-box;width:100%;min-width:0;font:inherit;font-size:15px;font-weight:400;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 10px}
+.rat-usform input:focus,.rat-usform select:focus{outline:2px solid var(--primary);outline-offset:0}
+.rat-usform input.erro{border-color:var(--err)}
+.rat-usform .rat-uschk{flex-direction:row;align-items:center;gap:8px;align-self:end;padding-bottom:10px}
+.rat-usform .rat-uschk input{width:18px;height:18px;flex:none}
+.rat-usgerbar label{width:auto}.rat-usgerbar select{width:auto}.rat-usgerbar #ru_todos{width:200px}
+.rat-usger{border:1px solid var(--line);border-radius:12px;margin:16px 0 0;padding:10px 14px 14px;min-width:0}
+.rat-usger legend{font-size:13px;font-weight:700;padding:0 6px}
+.rat-usgerbar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:12px}
+.rat-usmeses{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.rat-usmeses input{text-align:right}
+.rat-usger small{display:block;margin-top:8px;color:var(--muted)}
+@media(max-width:700px){.rat-usgrid{grid-template-columns:1fr 1fr}.rat-usmeses{grid-template-columns:repeat(3,1fr)}}
 /* ===== Marcar conta como paga ===== */
 .ana-chk{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap}
 .ana-chk input{width:18px;height:18px;margin:0;accent-color:var(--ok);cursor:pointer;flex-shrink:0}
@@ -912,7 +930,34 @@ body.locked{overflow:hidden}
       <option value="12M">Base: média dos últimos 12 meses</option>
       <option value="MMAA">Base: mesmo mês do ano anterior</option>
     </select>
+    <button class="btn sec sm" id="ratUsNova" type="button">➕ Nova usina</button>
+    <button class="btn sec sm" id="ratUsEditar" type="button">✏️ Editar usina</button>
   </div>
+  <form class="rat-usform" id="ratUsForm" hidden novalidate>
+    <h3 id="ratUsTit">Nova usina</h3>
+    <div class="rat-usgrid">
+      <label>UC geradora *<input id="ru_ug" required inputmode="numeric" placeholder="3.679.226.001-25" autocomplete="off"></label>
+      <label class="larga">Nome da usina / investidor *<input id="ru_nome" required placeholder="NELSON ANTONIO ARNHOLD" autocomplete="off"></label>
+      <label>Concessionária<input id="ru_conc" value="RGE" autocomplete="off"></label>
+      <label>Início da operação<input id="ru_inicio" type="month"></label>
+      <label class="rat-uschk" id="ru_inativaBox"><input id="ru_inativa" type="checkbox"> Inativa (some da lista)</label>
+    </div>
+    <fieldset class="rat-usger">
+      <legend>Geração estimada (kWh por mês)</legend>
+      <div class="rat-usgerbar">
+        <label>Ano<select id="ru_ano"></select></label>
+        <label>Mesmo valor em todos os meses<input id="ru_todos" type="number" min="0" step="1" placeholder="ex.: 12637"></label>
+        <button class="btn sec sm" id="ru_aplicar" type="button">Preencher os 12 meses</button>
+      </div>
+      <div class="rat-usmeses" id="ru_meses"></div>
+      <small>Deixe em branco o que não souber; dá para preencher depois. Meses diferentes = a sazonalidade da usina.</small>
+    </fieldset>
+    <div class="rat-acoes">
+      <button class="btn pri" id="ru_salvar" type="submit">💾 Salvar usina</button>
+      <button class="btn sec" id="ru_cancelar" type="button">Cancelar</button>
+      <span class="rat-msg" id="ru_msg" role="status" aria-live="polite"></span>
+    </div>
+  </form>
   <div class="rat-avisos" id="ratAvisos"></div>
   <div class="ana-kpis rat-kpis" id="ratKpis"></div>
   <div class="ana-tabela"><div class="ana-scroll"><table class="rat-t">
@@ -1872,7 +1917,7 @@ function ratOpcoes(){
   const d=rat.dados,us=d.usinas.filter(u=>!String(u.inativa||'').trim());
   if(!us.find(u=>ratDig(u.ug)===ratDig(rat.ug)))rat.ug=us[0]?us[0].ug:'';
   $('ratUsina').innerHTML=us.length?us.map(u=>`<option value="${anaEsc(u.ug)}">${anaEsc(u.ug)} · ${anaEsc(u.nome)}</option>`).join(''):'<option value="">Nenhuma usina cadastrada</option>';
-  $('ratUsina').value=rat.ug;
+  $('ratUsina').value=rat.ug;$('ratUsEditar').disabled=!us.length;
   // meses: 12 para trás e 3 para frente a partir de hoje
   const h=new Date(),hoje=h.getFullYear()*100+h.getMonth()+1;if(!rat.mes)rat.mes=hoje;
   const ms=[];for(let k=3;k>=-12;k--)ms.push(ratAM(hoje,k));if(!ms.includes(rat.mes))ms.push(rat.mes);
@@ -1970,6 +2015,54 @@ $('ratUsina').onchange=e=>{rat.ug=e.target.value;$('ratMsg').textContent='';ratR
 $('ratMes').onchange=e=>{rat.mes=+e.target.value;$('ratMsg').textContent='';ratRender()};
 $('ratBase').onchange=e=>{rat.base=e.target.value;ratRender()};
 $('ratAtualizar').onclick=()=>ratCarregar();
+
+/* ----- Cadastrar / editar usina (grava nas abas Rateio Usinas e Rateio Geração) ----- */
+const RU_MES='Jan|Fev|Mar|Abr|Mai|Jun|Jul|Ago|Set|Out|Nov|Dez'.split('|');
+$('ru_meses').innerHTML=RU_MES.map((m,k)=>`<label>${m}<input type="number" min="0" step="1" data-ru-mes="${k}" aria-label="Geração estimada de ${m} em kWh"></label>`).join('');
+let ruModo='nova';
+function ruAnos(sel){const a=new Date().getFullYear();$('ru_ano').innerHTML=[a-1,a,a+1].map(x=>`<option${x===sel?' selected':''}>${x}</option>`).join('')}
+function ruPreencherMeses(){
+  const ano=+$('ru_ano').value,g=ruModo==='editar'&&rat.dados?rat.dados.geracao.find(x=>ratDig(x.ug)===ratDig($('ru_ug').value)&&+x.ano===ano):null;
+  document.querySelectorAll('[data-ru-mes]').forEach(i=>{const v=g?g['m'+(+i.dataset.ruMes+1)]:'';i.value=v===''||v==null?'':v});
+}
+function ruAbrir(modo){
+  if(!rat.dados)return;
+  ruModo=modo;const u=modo==='editar'&&rat.dados?rat.dados.usinas.find(x=>ratDig(x.ug)===ratDig(rat.ug)):null;
+  if(modo==='editar'&&!u)return;
+  $('ratUsTit').textContent=u?'Editar usina':'Nova usina';
+  $('ru_ug').value=u?u.ug:'';$('ru_ug').readOnly=!!u;$('ru_nome').value=u?u.nome:'';$('ru_conc').value=u&&u.concessionaria?u.concessionaria:'RGE';
+  const ini=u&&String(u.inicio||'').replace(/\D/g,'');$('ru_inicio').value=ini&&ini.length===6?ini.slice(0,4)+'-'+ini.slice(4):'';
+  $('ru_inativa').checked=!!(u&&String(u.inativa||'').trim());$('ru_inativaBox').hidden=!u;
+  ruAnos(Math.floor((rat.mes||new Date().getFullYear()*100)/100));ruPreencherMeses();$('ru_todos').value='';$('ru_msg').textContent='';
+  document.querySelectorAll('#ratUsForm input.erro').forEach(i=>i.classList.remove('erro'));
+  $('ratUsForm').hidden=false;$('ratUsForm').scrollIntoView({block:'nearest'});(u?$('ru_nome'):$('ru_ug')).focus();
+}
+$('ratUsNova').onclick=()=>ruAbrir('nova');
+$('ratUsForm').addEventListener('input',e=>{if(e.target.classList.contains('erro')){e.target.classList.remove('erro');$('ru_msg').textContent=''}});
+$('ratUsEditar').onclick=()=>ruAbrir('editar');
+$('ru_cancelar').onclick=()=>{$('ratUsForm').hidden=true};
+$('ru_ano').onchange=ruPreencherMeses;
+$('ru_aplicar').onclick=()=>{const v=$('ru_todos').value;if(v==='')return $('ru_todos').focus();document.querySelectorAll('[data-ru-mes]').forEach(i=>{i.value=Math.round(+v)})};
+$('ratUsForm').onsubmit=async e=>{
+  e.preventDefault();
+  const ug=$('ru_ug'),nome=$('ru_nome');ug.classList.toggle('erro',ratDig(ug.value).length<7);nome.classList.toggle('erro',!nome.value.trim());
+  if(ratDig(ug.value).length<7){$('ru_msg').textContent='⚠️ Informe a UC geradora (pelo menos 7 números).';return ug.focus()}
+  if(!nome.value.trim()){$('ru_msg').textContent='⚠️ Informe o nome da usina.';return nome.focus()}
+  const meses=[...document.querySelectorAll('[data-ru-mes]')].map(i=>i.value===''?'':+i.value);
+  $('ru_salvar').disabled=true;$('ru_msg').textContent='Salvando…';
+  const r=await sheetApi('rat_usina',{usina:{novo:ruModo==='nova',ug:ug.value.trim(),nome:nome.value.trim(),concessionaria:$('ru_conc').value.trim(),
+    inicio:$('ru_inicio').value.replace('-',''),inativa:$('ru_inativa').checked,ano:+$('ru_ano').value,meses}},{espera:45000});
+  $('ru_salvar').disabled=false;
+  if(!r||!r.ok){$('ru_msg').textContent='⚠️ '+((r&&r.erro)||'não foi possível salvar');return}
+  // atualiza a lista da tela sem reler a planilha
+  const d=rat.dados,U=d.usinas,i=U.findIndex(x=>ratDig(x.ug)===ratDig(r.usina.ug));
+  if(i>=0)U[i]=r.usina;else U.push(r.usina);
+  if(r.geracao){const o={ug:r.geracao.ug,ano:r.geracao.ano};r.geracao.m.forEach((v,k)=>{o['m'+(k+1)]=v});
+    const j=d.geracao.findIndex(x=>ratDig(x.ug)===ratDig(o.ug)&&+x.ano===o.ano);if(j>=0)d.geracao[j]=o;else d.geracao.push(o)}
+  if(!r.usina.inativa)rat.ug=r.usina.ug;
+  ratOpcoes();ratRender();$('ratUsForm').hidden=true;
+  $('ratImpRes').innerHTML=`<div>✅ Usina ${r.criada?'cadastrada':'alterada'}: ${anaEsc(r.usina.nome)} (${anaEsc(r.usina.ug)}).${r.criada?' Agora cadastre as beneficiárias dela na aba Rateio Beneficiárias da planilha.':''}</div>`;
+};
 $('ratImportar').onclick=async()=>{
   const b=$('ratImportar');b.disabled=true;b.textContent='Puxando…';$('ratImpRes').innerHTML='<div>Lendo INVESTIDORES, CLIENTES, RATEIOS e as abas dos meses (pode levar até 1 minuto)…</div>';
   const r=await sheetApi('rat_importar',{},{espera:180000});
