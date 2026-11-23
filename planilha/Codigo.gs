@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '26 (rateio: puxar pelo editor)';
+const VERSAO_SCRIPT = '27 (rateio: etapa 3 rápida)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -1399,12 +1399,18 @@ function ratImportarControle(usuario, etapa) {
     vC.forEach((r, i) => { idxC[dig(r[0]) + '|' + dig(r[1])] = i; });
     const novasC = [];
     let mudouC = false;
+    // abas de meses que já entraram antes (pela coluna Origem) e o limite dos "últimos 3 meses"
+    const jaTemAba = {};
+    vC.forEach(r => { const m = String(r[larg - 1] || '').match(/aba ([^)]+)\)/); if (m) jaTemAba[up(m[1])] = true; });
+    const recentes = (() => { let y = anoAtual, m = mesAtual - 3; if (m < 1) { m += 12; y--; } return y * 100 + m; })();
     ss.getSheets().forEach(sh => {
       const m = MESES.indexOf(up(sh.getName())); if (m < 0) return;
       // aba = mês de pagamento; a fatura é do mês anterior. Abas de meses depois do atual são do ano passado.
       let anoPg = anoAtual; if (m + 1 > mesAtual) anoPg--;
       let mesRef = m, anoRef = anoPg; if (mesRef === 0) { mesRef = 12; anoRef--; }
       const am = anoRef * 100 + mesRef;
+      // abas antigas que já foram puxadas não mudam mais: só relê os últimos 3 meses (cada leitura na planilha de controle custa caro)
+      if (am < recentes && jaTemAba[up(sh.getName())]) return;
       const nl = sh.getLastRow(), nc = sh.getLastColumn(); if (nl < 2 || nc < 1) return;
       const topo = sh.getRange(1, 1, Math.min(6, nl), nc).getValues();
       let hi = -1, cab = [];
@@ -1412,8 +1418,10 @@ function ratImportarControle(usuario, etapa) {
       if (hi < 0 || nl <= hi + 1) return;
       const cUc = cab.indexOf('UC'), cNova = cab.indexOf('NOVA UC'), cInj = cab.indexOf('INJETADO'), cSaldo = cab.indexOf('SALDO');
       if (cSaldo < 0) return;   // só as abas que têm SALDO servem para o rateio
-      // só as colunas usadas (a aba inteira, com fórmulas, é o que demorava)
-      const col = c => c < 0 ? null : sh.getRange(hi + 2, c + 1, nl - hi - 1, 1).getValues();
+      // uma leitura só, do pedaço entre a primeira e a última coluna usada
+      const usadas = [cUc, cNova, cInj, cSaldo].filter(c => c >= 0), c0 = Math.min.apply(null, usadas), c1 = Math.max.apply(null, usadas);
+      const bloco = sh.getRange(hi + 2, c0 + 1, nl - hi - 1, c1 - c0 + 1).getValues();
+      const col = c => c < 0 ? null : bloco.map(r => [r[c - c0]]);
       const kUc = col(cUc), kNova = col(cNova), kInj = col(cInj), kSaldo = col(cSaldo);
       kInj.forEach((_, j) => {
         const uc = ucCerta(kNova ? kNova[j][0] : '', kUc ? kUc[j][0] : ''); if (dig(uc).length < 7) return;
