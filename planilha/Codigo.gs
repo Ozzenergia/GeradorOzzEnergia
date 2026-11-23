@@ -27,11 +27,12 @@ const COLS_USUARIOS = ['E-mail', 'Nome', 'Perfil', 'Ativo'];
 /* Perfis (coluna Perfil da aba Usuários) e as áreas do portal que cada um usa.
    ger = Geradores (propostas e termos) · pos = Pós-venda. O TI ainda pode "ver como" outro perfil no portal. */
 const PERFIS_ = {
-  ti:             { nome: 'TI',             areas: ['ger', 'pos', 'ana', 'cli', 'rat'] },   // rat = Rateio (em construção, só TI)
-  admin:          { nome: 'Admin',          areas: ['ger', 'pos', 'ana', 'cli'] },
+  ti:             { nome: 'TI',             areas: ['ger', 'pos', 'ana', 'cli', 'rat'] },   // rat = Rateio e Leitor de faturas (TI e Admin)
+  admin:          { nome: 'Admin',          areas: ['ger', 'pos', 'ana', 'cli', 'rat'] },
   administrativo: { nome: 'Administrativo', areas: ['ger', 'cli'] },
   vendedor:       { nome: 'Vendedor',       areas: ['ger', 'pos', 'cli'] }
 };
+function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
   cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
@@ -161,7 +162,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '27 (rateio: etapa 3 rápida)';
+const VERSAO_SCRIPT = '28 (rateio e leitor liberados para Admin)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -207,15 +208,15 @@ function doPost(e) {
     if (req.acao === 'prog_situacao') return json(programacaoSituacao(req, usuario));
     if (req.acao === 'uc_ozz') return json(ucDaOzz(req.uc));
     if (req.acao === 'rat_usina') {
-      if (!usuario.email || usuario.perfil !== 'ti') return json({ ok: false, erro: 'o rateio está em construção e só o TI tem acesso', perfil: true });
+      if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
       return json(ratUsinaSalvar(req.usina || {}, usuario));
     }
     if (req.acao === 'fat_salvar') {
-      if (!usuario.email || usuario.perfil !== 'ti') return json({ ok: false, erro: 'o leitor de faturas está em construção e só o TI tem acesso', perfil: true });
+      if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
       return json(faturasSalvar(req.faturas, usuario));
     }
     if (req.acao === 'rat_dados' || req.acao === 'rat_salvar' || req.acao === 'rat_importar') {
-      if (!usuario.email || usuario.perfil !== 'ti') return json({ ok: false, erro: 'o rateio está em construção e só o TI tem acesso', perfil: true });
+      if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
       if (req.acao === 'rat_importar') return json(ratImportarControle(usuario, req.etapa));
       return json(req.acao === 'rat_dados' ? ratDados() : ratSalvar(req, usuario));
     }
@@ -1105,7 +1106,7 @@ function limpa(x) {
 }
 
 /* ======================================================================
- * RATEIO DE CRÉDITOS (em construção — só TI)
+ * RATEIO DE CRÉDITOS (TI e Admin)
  * Divide a geração estimada de uma usina no mês entre as UCs beneficiárias. O CÁLCULO é feito no site
  * (igual ao Excel Fluxo_Rateio.xlsx); aqui ficam só os cadastros e o histórico, em abas da planilha do portal.
  * As abas são criadas sozinhas na primeira vez que o TI abre a tela. Preencha direto nelas (uma linha por item).
@@ -1496,7 +1497,7 @@ function ratImportarControle(usuario, etapa) {
 }
 
 /* ======================================================================
- * LEITOR DE FATURAS (só TI, em construção): o site lê os PDFs da CPFL/RGE e manda os dados para cá.
+ * LEITOR DE FATURAS (TI e Admin): o site lê os PDFs da CPFL/RGE e manda os dados para cá.
  *  - aba "Faturas Lidas": tudo o que a fatura traz (uma linha por UC e mês; ler de novo a mesma fatura atualiza a linha)
  *  - aba "Rateio Consumo": consumo, energia injetada, saldo, mínimo e datas do mês da fatura (a fatura vale mais que
  *    a planilha de controle e a proposta, então sobrescreve esses campos) + os 12 meses do histórico (só os que faltam)

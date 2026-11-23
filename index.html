@@ -897,10 +897,10 @@ body.locked{overflow:hidden}
 </section>
 
 <!-- =================== ANÁLISE · FLUXO DE CAIXA =================== -->
-<!-- =================== ANÁLISE · LEITOR DE FATURAS (em construção, só TI) =================== -->
+<!-- =================== ANÁLISE · LEITOR DE FATURAS (TI e Admin) =================== -->
 <section id="tab-leitor" class="hidden">
   <div class="ana-top">
-    <div><h2>Leitor de faturas <span class="rat-beta">em construção · só TI</span></h2><p>Lê os PDFs da CPFL/RGE e guarda tudo o que o rateio usa: consumo, energia injetada, saldo, participação, fornecimento e o histórico de 12 meses</p></div>
+    <div><h2>Leitor de faturas</h2><p>Lê os PDFs da CPFL/RGE e guarda tudo o que o rateio usa: consumo, energia injetada, saldo, participação, fornecimento e o histórico de 12 meses</p></div>
   </div>
   <div class="drop" id="lfDrop" tabindex="0" role="button" aria-label="Escolher PDFs de faturas">
     <div class="ic">📄</div>
@@ -928,10 +928,10 @@ body.locked{overflow:hidden}
   </details>
 </section>
 
-<!-- =================== ANÁLISE · RATEIO DE CRÉDITOS (em construção, só TI) =================== -->
+<!-- =================== ANÁLISE · RATEIO DE CRÉDITOS (TI e Admin) =================== -->
 <section id="tab-rateio" class="hidden">
   <div class="ana-top">
-    <div><h2>Rateio de créditos <span class="rat-beta">em construção · só TI</span></h2><p id="ratSub">Divide a geração estimada da usina entre as UCs beneficiárias</p></div>
+    <div><h2>Rateio de créditos</h2><p id="ratSub">Divide a geração estimada da usina entre as UCs beneficiárias</p></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" id="ratProbBtn" type="button" aria-expanded="false" aria-controls="ratProbs">⚠️ Ver problemas</button><button class="btn sec sm" id="ratImportar" type="button">⬇️ Puxar da planilha de controle</button><button class="btn sec sm" id="ratAtualizar" type="button">↻ Atualizar</button></div>
   </div>
   <div class="alert" id="ratErro"></div>
@@ -1361,8 +1361,8 @@ async function finishLogin(pl){
 }
 /* ===== Perfis (coluna Perfil da aba Usuários) — o mesmo quadro está no script da planilha ===== */
 const PERFIS={
-  ti:{nome:'TI',areas:['ger','pos','ana','cli','rat'],verComo:true},   // rat = Rateio (em construção)
-  admin:{nome:'Admin',areas:['ger','pos','ana','cli']},
+  ti:{nome:'TI',areas:['ger','pos','ana','cli','rat'],verComo:true},   // rat = Rateio e Leitor (TI e Admin)
+  admin:{nome:'Admin',areas:['ger','pos','ana','cli','rat']},
   administrativo:{nome:'Administrativo',areas:['ger','cli']},
   vendedor:{nome:'Vendedor',areas:['ger','pos','cli']}
 };
@@ -1832,7 +1832,7 @@ function ratCalcular(D,linhas){
   return {L,soma:soma(L,r=>r.AE),dif,ajustada,injecao:soma(L,r=>r.AG)};
 }
 
-/* ===== Leitor de faturas (só TI): lê PDFs da CPFL/RGE e guarda o que o rateio usa ===== */
+/* ===== Leitor de faturas (TI e Admin): lê PDFs da CPFL/RGE e guarda o que o rateio usa ===== */
 const MESES_ABR='JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ'.split('|');
 // o que a fatura traz além do que a proposta usa (saldo, participação, datas, valor…)
 function extrasFatura(t){
@@ -1911,7 +1911,7 @@ $('lfSalvar').onclick=async()=>{
   lfRender();
 };
 
-/* ===== Rateio de créditos (só TI): monta as linhas a partir das abas e calcula no navegador ===== */
+/* ===== Rateio de créditos (TI e Admin): monta as linhas a partir das abas e calcula no navegador ===== */
 const rat={dados:null,ug:'',mes:0,base:(()=>{try{const b=localStorage.getItem('ozz_rat_base');return ['3M','12M','MMAA'].includes(b)?b:'3M'}catch(e){return '3M'}})(),ed:{},ger:{},carregando:false,salvando:false,linhas:[],calc:null};
 const ratDig=v=>String(v==null?'':v).replace(/\D/g,'');
 const ratAM=(am,k)=>{let y=Math.floor(am/100),m=am%100+k;while(m<1){m+=12;y--}while(m>12){m-=12;y++}return y*100+m};
@@ -2498,8 +2498,8 @@ const MENU={
     {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
   ana:{nome:'📈 Análise',itens:[
     {id:'fluxo',ic:'💰',nome:'Fluxo de caixa',desc:'Entradas, saídas e saldo mês a mês',sec:'tab-fluxo',largo:true,aoAbrir:()=>fxAbrir()},
-    {id:'leitor',ic:'📄',nome:'Leitor de faturas',desc:'Lê PDFs de faturas e guarda os dados para o rateio (em construção, só TI)',sec:'tab-leitor',largo:true,area:'rat',aoAbrir:()=>lfAbrir()},
-    {id:'rateio',ic:'⚖️',nome:'Rateio de créditos',desc:'Divide a geração da usina entre as beneficiárias (em construção, só TI)',sec:'tab-rateio',largo:true,area:'rat',aoAbrir:()=>ratAbrir()}]}
+    {id:'leitor',ic:'📄',nome:'Leitor de faturas',desc:'Lê PDFs de faturas e guarda os dados para o rateio',sec:'tab-leitor',largo:true,area:'rat',aoAbrir:()=>lfAbrir()},
+    {id:'rateio',ic:'⚖️',nome:'Rateio de créditos',desc:'Divide a geração da usina entre as beneficiárias',sec:'tab-rateio',largo:true,area:'rat',aoAbrir:()=>ratAbrir()}]}
 };
 const nav=document.querySelector('nav.nwrap');
 nav.innerHTML=Object.entries(MENU).map(([c,v])=>`<div class="mcat" data-cat="${c}">
