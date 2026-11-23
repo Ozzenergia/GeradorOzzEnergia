@@ -132,6 +132,16 @@ main.wide{max-width:1180px}
 .rat-t input{width:76px;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 7px;text-align:right}
 .rat-t input:focus{outline:2px solid var(--primary);outline-offset:0}
 .rat-t td.fim{font-weight:700;color:var(--primary)}
+.rat-t tr.lf-det>td{white-space:normal;background:var(--bg);padding:14px 16px}
+.lf-det-in{position:sticky;left:16px;width:calc(var(--lfw,100%) - 32px);max-width:100%}
+@media(max-width:700px){.lf-det-in{position:static;width:auto}}
+.lf-campos{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px 18px;margin:0 0 14px}
+.lf-campos div{min-width:0}.lf-campos dt{font-size:12px;color:var(--muted)}.lf-campos dd{margin:2px 0 0;font-weight:600;overflow-wrap:anywhere}
+.lf-det .vazio{color:var(--muted);font-weight:400;font-style:italic}
+.lf-hist b{display:block;font-size:13px;margin-bottom:6px}
+.lf-hist ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px}
+.lf-hist li{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-variant-numeric:tabular-nums}
+.lf-hist li span{display:block;font-size:12px;color:var(--muted)}
 .rat-t tfoot td{font-weight:700;border-top:2px solid var(--line)}
 .rat-tag{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 6px;margin:3px 4px 0 0;background:var(--warn-soft);color:var(--warn)}
 .rat-tag.err{background:var(--err-soft);color:var(--err)}.rat-tag.info{background:var(--primary-soft);color:var(--primary)}
@@ -1876,6 +1886,19 @@ async function lfLer(files){
     lfRender();
   }
 }
+function lfDetalhe(i){
+  const E=anaEsc,n=(v,d=0)=>v==null||v===''||isNaN(v)?'':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:d}),
+    mm=m=>m?String(m%100).padStart(2,'0')+'/'+Math.floor(m/100):'',kwh=v=>n(v)?n(v)+' kWh':'';
+  const campos=[['UC',i.uc],['Titular',i.titular],['CPF/CNPJ',i.doc],['Distribuidora',i.distribuidora],['Classe',i.classe],
+    ['Tipo de fornecimento',i.fornecimento],['Tensão',n(i.tensao)?n(i.tensao)+' V':''],['Mês de referência',mm(i.mes)],['Vencimento',i.vencimento],
+    ['Total a pagar',i.valor!=null&&i.valor!==''?brl(i.valor):''],['Consumo',kwh(i.consumo)],['Energia injetada',kwh(i.injetada)],
+    ['Injetada por mês',i.injetadaMeses],['Saldo',n(i.saldo,1)?n(i.saldo,1)+' kWh':''],['Saldo a expirar',n(i.saldoExpirar,1)?n(i.saldoExpirar,1)+' kWh':''],
+    ['Participação na geração',n(i.participacao,2)?n(i.participacao,2)+'%':''],['Custo mínimo',kwh(i.minimo)],
+    ['Leitura anterior',i.leituraAnt],['Leitura atual',i.leitura],['Dias',n(i.dias)],['Data de emissão',i.emissao],['Nota fiscal',i.nf],['Arquivo',i.arquivo]];
+  const h=(i.historico||[]).slice().sort((a,b)=>a.mes-b.mes);
+  return `<dl class="lf-campos">${campos.map(([l,v])=>`<div><dt>${l}</dt><dd${v==null||v===''?' class="vazio"':''}>${v==null||v===''?'não encontrado':E(v)}</dd></div>`).join('')}</dl>
+    <div class="lf-hist"><b>Consumo dos últimos 12 meses</b>${h.length?`<ol>${h.map(x=>`<li><span>${mm(x.mes)}</span>${n(x.kwh)} kWh</li>`).join('')}</ol>`:'<p class="vazio">não encontrado na fatura</p>'}</div>`;
+}
 function lfRender(){
   const L=lf.itens,ok=L.filter(i=>i.estado==='ok'),E=anaEsc,n=(v,d=0)=>v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:d});
   $('lfTabela').hidden=!L.length;$('lfAcoes').hidden=!L.length;
@@ -1886,17 +1909,20 @@ function lfRender(){
       <td class="num" data-l="Injetada" title="${E(i.injetadaMeses||'')}">${n(i.injetada)}</td><td class="num" data-l="Saldo">${n(i.saldo,1)}</td>
       <td class="num" data-l="Particip.">${i.participacao!=null?n(i.participacao,2)+'%':'—'}</td><td data-l="Fornecimento">${E(i.fornecimento||'—')}</td>
       <td class="num" data-l="Mínimo">${n(i.minimo)}</td><td data-l="Vencimento">${E(i.vencimento||'—')}</td><td class="num" data-l="Valor">${i.valor!=null?brl(i.valor):'—'}</td>
-      <td><div class="ana-acoes"><button type="button" data-lf-tira="${k}">Tirar</button></div></td></tr>`).join('');
+      <td><div class="ana-acoes"><button type="button" data-lf-ver="${k}" aria-expanded="${i.aberta?'true':'false'}">${i.aberta?'Fechar':'Ver tudo'}</button><button type="button" data-lf-tira="${k}">Tirar</button></div></td></tr>`
+      +(i.aberta?`<tr class="lf-det"><td colspan="11"><div class="lf-det-in">${lfDetalhe(i)}</div></td></tr>`:'')).join('');
+  const sc=$('lfTabela').querySelector('.ana-scroll');if(sc&&sc.clientWidth)$('lfTabela').style.setProperty('--lfw',sc.clientWidth+'px');
   const pend=ok.filter(i=>!i.salva).length;
   $('lfSalvar').disabled=!pend||lf.salvando;$('lfSalvar').textContent=pend?`💾 Guardar ${pend} fatura${pend>1?'s':''} na planilha`:'💾 Guardar na planilha';
 }
+addEventListener('resize',()=>{if(lf.itens.some(i=>i.aberta))lfRender()});
 $('lfDrop').onclick=()=>$('lfFile').click();
 $('lfDrop').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('lfFile').click()}};
 $('lfFile').onchange=e=>{const f=[...e.target.files];e.target.value='';if(f.length)lfLer(f)};
 ['dragover','dragenter'].forEach(ev=>$('lfDrop').addEventListener(ev,e=>{e.preventDefault();$('lfDrop').classList.add('over')}));
 ['dragleave','drop'].forEach(ev=>$('lfDrop').addEventListener(ev,e=>{e.preventDefault();$('lfDrop').classList.remove('over')}));
 $('lfDrop').addEventListener('drop',e=>{const f=[...(e.dataTransfer&&e.dataTransfer.files||[])];if(f.length)lfLer(f)});
-$('lfCorpo').addEventListener('click',e=>{const b=e.target.closest('button[data-lf-tira]');if(!b)return;lf.itens.splice(+b.dataset.lfTira,1);lfRender()});
+$('lfCorpo').addEventListener('click',e=>{const v=e.target.closest('button[data-lf-ver]');if(v){const it=lf.itens[+v.dataset.lfVer];it.aberta=!it.aberta;lfRender();return}const b=e.target.closest('button[data-lf-tira]');if(!b)return;lf.itens.splice(+b.dataset.lfTira,1);lfRender()});
 $('lfLimpar').onclick=()=>{lf.itens=[];$('lfMsg').textContent='';lfRender()};
 $('lfSalvar').onclick=async()=>{
   const pend=lf.itens.filter(i=>i.estado==='ok'&&!i.salva);if(!pend.length||lf.salvando)return;
