@@ -1897,7 +1897,7 @@ $('lfSalvar').onclick=async()=>{
 };
 
 /* ===== Rateio de créditos (só TI): monta as linhas a partir das abas e calcula no navegador ===== */
-const rat={dados:null,ug:'',mes:0,base:'3M',ed:{},ger:{},carregando:false,salvando:false,linhas:[],calc:null};
+const rat={dados:null,ug:'',mes:0,base:(()=>{try{const b=localStorage.getItem('ozz_rat_base');return ['3M','12M','MMAA'].includes(b)?b:'3M'}catch(e){return '3M'}})(),ed:{},ger:{},carregando:false,salvando:false,linhas:[],calc:null};
 const ratDig=v=>String(v==null?'':v).replace(/\D/g,'');
 const ratAM=(am,k)=>{let y=Math.floor(am/100),m=am%100+k;while(m<1){m+=12;y--}while(m>12){m-=12;y++}return y*100+m};
 const ratMesTxt=am=>am?String(am%100).padStart(2,'0')+'/'+Math.floor(am/100):'—';
@@ -2013,7 +2013,7 @@ $('ratCorpo').addEventListener('change',e=>{const i=e.target.closest('input[data
 });
 $('ratUsina').onchange=e=>{rat.ug=e.target.value;$('ratMsg').textContent='';ratRender()};
 $('ratMes').onchange=e=>{rat.mes=+e.target.value;$('ratMsg').textContent='';ratRender()};
-$('ratBase').onchange=e=>{rat.base=e.target.value;ratRender()};
+$('ratBase').onchange=e=>{rat.base=e.target.value;try{localStorage.setItem('ozz_rat_base',rat.base)}catch(x){}ratRender()};   // a escolha fica guardada no aparelho
 $('ratAtualizar').onclick=()=>ratCarregar();
 
 /* ----- Cadastrar / editar usina (grava nas abas Rateio Usinas e Rateio Geração) ----- */
