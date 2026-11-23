@@ -2064,6 +2064,9 @@ function ratProblemas(){
     const semF=bs.filter(b=>!String(b.fornecimento||'').trim()&&!comMinimo.has(ratDig(b.uc))).length;if(semF)add('Sem tipo de fornecimento (mínimo 0)','warn',u.ug,nome,`${semF} de ${bs.length} UCs`);
     const cont={};bs.forEach(b=>{const x=ratDig(b.uc);cont[x]=(cont[x]||0)+1});const rep=Object.keys(cont).filter(x=>cont[x]>1).length;if(rep)add('UC repetida na mesma usina','err',u.ug,nome,`${rep} UC${rep>1?'s':''} aparece${rep>1?'m':''} mais de uma vez`);
   });
+  // a mesma UC recebendo de mais de uma usina (pode ser certo, mas a soma dos % dela passa a valer em cada usina)
+  const porUc={};d.benef.filter(b=>ativa(b)&&ugs.has(ratDig(b.ug))).forEach(b=>{const k=ratDig(b.uc);(porUc[k]=porUc[k]||[]).push(b)});
+  Object.values(porUc).filter(l=>new Set(l.map(b=>ratDig(b.ug))).size>1).forEach(l=>add('UC em mais de uma usina','info',l[0].ug,l[0].uc+' · '+(l[0].titular||''),'recebe de: '+[...new Set(l.map(b=>b.nomeUg||b.ug))].join(' e ')));
   // beneficiárias ligadas a usina que não existe
   const orf={};d.benef.forEach(b=>{if(!ugs.has(ratDig(b.ug)))(orf[b.ug]=orf[b.ug]||[]).push(b)});
   Object.keys(orf).forEach(ug=>add('Beneficiária de usina não cadastrada','err','',ug||'(sem usina)',`${orf[ug].length} UC${orf[ug].length>1?'s':''} na aba Rateio Beneficiárias com a UC geradora ${ug||'vazia'}`));

@@ -161,7 +161,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '21 (rateio: problemas para conferir)';
+const VERSAO_SCRIPT = '22 (rateio: UC em mais de uma usina)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -1342,7 +1342,7 @@ function ratImportarControle(usuario) {
       const C = { nome: tc.col('CLIENTE'), nova: tc.col('NOVA UC'), antiga: tc.col('ANTIGA UC'), doc: tc.col('CPF/CNPJ') >= 0 ? tc.col('CPF/CNPJ') : tc.col('CPF CNPJ'),
         inv: tc.col('INVESTIDOR'), media: tc.col('MEDIA'), st: tc.col('STATUS'), resp: tc.col('RESPONSAVEL') };
       const shB = ratAba_('benef'), jaB = {};
-      ratLer_('benef').forEach(b => { jaB[dig(b.uc)] = true; });
+      ratLer_('benef').forEach(b => { jaB[dig(b.uc) + '|' + dig(b.ug)] = true; });   // a mesma UC pode receber de mais de uma usina
       const novas = [];
       tc.v.slice(tc.i + 1).forEach(r => {
         const nome = String(r[C.nome] || '').trim(); if (!nome || up(nome) === 'CLIENTE') return;
@@ -1350,10 +1350,11 @@ function ratImportarControle(usuario) {
         if (dig(antiga) && dig(nova)) ucNova[dig(antiga)] = nova;
         const st = C.st >= 0 ? up(r[C.st]) : '';
         if (st && st.indexOf('CONECTAD') !== 0) return;          // só quem já recebe crédito
-        const uc = dig(nova) ? nova : antiga; if (dig(uc).length < 7 || jaB[dig(uc)]) return;
+        const uc = dig(nova) ? nova : antiga; if (dig(uc).length < 7) return;
         const us = usinaDe(r[C.inv]);
         if (!us) { if (String(r[C.inv] || '').trim()) res.semUsina.push(nome + ' (' + String(r[C.inv]).trim() + ')'); return; }
-        jaB[dig(uc)] = true;
+        if (jaB[dig(uc) + '|' + dig(us.ug)]) return;
+        jaB[dig(uc) + '|' + dig(us.ug)] = true;
         const media = C.media >= 0 ? num(r[C.media]) : null;
         novas.push([uc, C.doc >= 0 ? txt(r[C.doc]) : '', 'CONSÓRCIO', us.ug, us.nome, nome, '', media ? Math.round(media) : '', '', '', '', '',
           'Importado da planilha de controle' + (antiga && dig(nova) ? ' · UC antiga ' + antiga : ''), '']);
