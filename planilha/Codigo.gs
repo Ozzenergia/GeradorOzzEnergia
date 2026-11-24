@@ -162,7 +162,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '29 (aba Cobranças: só leitura da planilha de controle)';
+const VERSAO_SCRIPT = '30 (Cobranças em segundo plano)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -683,11 +683,45 @@ function lerFluxo() {
  * ========================================================= */
 const CACHE_COB_ = 'cob_v1';
 
+/* Ler as abas dos meses da planilha de controle leva 1–2 min (passa do tempo que o site espera e dá "sem conexão").
+   Por isso a leitura roda em segundo plano: o acionador de 10 em 10 min (atualizarCacheProgramacao) deixa o cache pronto,
+   e quando falta cache ou alguém clica em Atualizar, um acionador de uma vez (cobrancasPreparar) lê e o site vai perguntando. */
 function cobrancasComCache_(forcar) {
-  if (!forcar) { const c = lerCacheGrande_(CACHE_COB_); if (c) { c.doCache = true; return c; } }
-  const r = lerCobrancas();
-  if (r.ok) gravarCacheGrande_(CACHE_COB_, r);
+  const props = PropertiesService.getScriptProperties();
+  const c = lerCacheGrande_(CACHE_COB_);
+  if (c && !forcar) { c.doCache = true; return c; }
+  let est = {}; try { est = JSON.parse(props.getProperty('COB_ESTADO') || '{}'); } catch (e) {}
+  const rodando = est.estado === 'rodando' && Date.now() - (est.desde || 0) < 7 * 60000;
+  if (!rodando) {
+    // terminou com erro há pouco e não há dados: mostra o erro (Atualizar tenta de novo)
+    if (!forcar && !c && est.estado === 'erro' && Date.now() - (est.fim || 0) < 2 * 60000) return { ok: false, erro: est.erro };
+    props.setProperty('COB_ESTADO', JSON.stringify({ estado: 'rodando', desde: Date.now() }));
+    try {
+      ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'cobrancasPreparar').forEach(t => ScriptApp.deleteTrigger(t));
+      ScriptApp.newTrigger('cobrancasPreparar').timeBased().after(1000).create();
+    } catch (e) {
+      props.deleteProperty('COB_ESTADO');
+      return { ok: false, erro: 'não consegui iniciar a leitura em segundo plano: ' + e.message + ' (rode a função "configurar" no editor do Apps Script uma vez para autorizar)' };
+    }
+    est = { desde: Date.now() };
+  }
+  const r = c || { ok: true };
+  r.preparando = true; r.desde = est.desde;
   return r;
+}
+
+/** Roda pelo acionador de uma vez (ou no editor, para testar): lê as cobranças e guarda no cache. */
+function cobrancasPreparar() {
+  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'cobrancasPreparar').forEach(t => ScriptApp.deleteTrigger(t));
+  const props = PropertiesService.getScriptProperties(), t0 = Date.now();
+  let est;
+  try {
+    const r = lerCobrancas();
+    if (r.ok) { gravarCacheGrande_(CACHE_COB_, r); est = { estado: 'pronto', fim: Date.now() }; }
+    else est = { estado: 'erro', erro: r.erro, fim: Date.now() };
+  } catch (e) { est = { estado: 'erro', erro: String(e && e.message || e).slice(0, 300), fim: Date.now() }; }
+  props.setProperty('COB_ESTADO', JSON.stringify(est));
+  Logger.log('Cobranças: ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s → ' + JSON.stringify(est));
 }
 
 function lerCobrancas(ssAberta) {
@@ -1119,6 +1153,7 @@ function atualizarCacheProgramacao() {
   const r = lerProgramacao();
   if (r.ok) gravarCacheGrande_(CACHE_PROG_, r); else Logger.log('Programação: ' + r.erro);
   try { const f = lerFluxo(); if (f.ok) gravarCacheGrande_(CACHE_FLUXO_, f); else Logger.log('Fluxo: ' + f.erro); } catch (e) { Logger.log('Fluxo: ' + e.message); }
+  try { const c = lerCobrancas(); if (c.ok) gravarCacheGrande_(CACHE_COB_, c); else Logger.log('Cobranças: ' + c.erro); } catch (e) { Logger.log('Cobranças: ' + e.message); }
 }
 
 /** Guarda um objeto grande no cache, em pedaços de 90 KB (25 min: sobra tempo entre uma renovação e outra). */

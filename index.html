@@ -2621,11 +2621,21 @@ async function cbCarregar(forcar){
   const bt=$('cbAtualizar');bt.disabled=true;bt.textContent='Carregando…';$('cbErro').style.display='none';
   if(!cb.dados)$('cbCorpo').innerHTML='<tr><td colspan="6" class="ana-vazio">Lendo a planilha…</td></tr>';
   const aviso=setTimeout(()=>{if(cb.carregando)bt.textContent='Lendo a planilha… (pode levar até 1 min)'},6000);
-  const r=await sheetApi('cobrancas',{forcar:!!forcar},{espera:120000});clearTimeout(aviso);
+  let r=await sheetApi('cobrancas',{forcar:!!forcar},{espera:60000});
+  // a planilha de controle é lenta: o script lê em segundo plano e aqui a gente vai perguntando até ficar pronto
+  const t0=Date.now();
+  while(r&&r.ok&&r.preparando&&Date.now()-t0<8*60000){
+    if(r.clientes){cbPreparar(r);cbRender()}
+    bt.textContent='Lendo a planilha de controle… ('+Math.max(1,Math.round((Date.now()-(r.desde||t0))/1000))+' s)';
+    await new Promise(ok=>setTimeout(ok,8000));
+    r=await sheetApi('cobrancas',{},{espera:60000});
+  }
+  clearTimeout(aviso);
   cb.carregando=false;bt.disabled=false;bt.textContent='↻ Atualizar';
+  if(r&&r.ok&&r.preparando)r={ok:false,erro:'a leitura da planilha de controle está demorando mais que o normal. Clique em Atualizar daqui a pouco.'};
   if(!r||!r.ok){
     let e=(r&&r.erro)||'não foi possível ler a planilha';
-    if(/ação desconhecida/.test(e))e='a planilha do portal ainda está com o script antigo (atualize o Apps Script para a versão 29 e implante uma Nova versão)';
+    if(/ação desconhecida/.test(e))e='a planilha do portal ainda está com o script antigo (atualize o Apps Script para a versão 30 e implante uma Nova versão)';
     $('cbErro').textContent='⚠️ '+e;$('cbErro').style.display='block';
     if(!cb.dados)$('cbCorpo').innerHTML='<tr><td colspan="6" class="ana-vazio">Sem dados para mostrar.</td></tr>';
     return;
