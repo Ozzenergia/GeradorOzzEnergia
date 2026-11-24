@@ -318,6 +318,13 @@ main.wide{max-width:1180px}
 .cb-and{display:block;font-size:12px;color:var(--ok);margin-top:3px}
 .cb-link{font:600 12.5px Outfit,sans-serif;color:var(--primary);white-space:nowrap}
 #cbAcModal{z-index:20}
+.cb-ac-dica{font-size:13px!important;color:var(--muted);margin:-4px 0 10px!important;line-height:1.45}
+.cb-calc td{padding:7px 16px}.cb-calc tr.tot td{border-top:1px solid var(--line)}.cb-calc tr.cb-ok td{color:var(--primary);font-size:15px}
+.cb-calc small{display:inline!important}.cb-dif{color:var(--err)!important;font-weight:700}
+.cb-plano{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:8px;font-size:14px}
+.cb-plano small{color:var(--muted)}
+.cb-plano-campos{display:flex;flex-wrap:wrap;gap:10px}.cb-plano-campos label{flex:1 1 140px}
+.cb-edit select{font:inherit;font-size:14.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
 .cb-ac h3{font-size:18px;margin:0 0 4px}.cb-ac>p{color:var(--muted);font-size:13.5px;margin:0 0 12px}
 .cb-ac label{display:grid;gap:4px;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:10px}
 .cb-ac input{font:inherit;font-size:15px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
@@ -2000,6 +2007,41 @@ function extrasFatura(t){
   x.injetadaMeses=inj.join(' · ');
   return x;
 }
+/* Itens da conta (linhas da tabela da fatura CPFL/RGE): tarifas e valores de TUSD e TE, bandeira, iluminação pública,
+   energia injetada e os outros débitos/créditos. É o que o cálculo da cobrança usa (conferido com a aba ASSINATURA). */
+function itensFatura(t){
+  const n=v=>+String(v).replace(/\./g,'').replace(',','.');
+  const L=t.split('\n').map(s=>s.replace(/\s+/g,' ').trim());
+  const i0=L.findIndex(s=>/^Consumo (Uso Sistema|- TE)/i.test(s)),i1=L.findIndex((s,i)=>i>i0&&/^Indicadores de continuidade/i.test(s));
+  if(i0<0)return null;
+  const x={tusd:null,te:null,bandeira:0,bandeiraCred:0,cip:0,injKwh:0,injValor:0,outros:[]};
+  const linhaKwh=/kWh\s+([\d.]+,\d+)\s+([\d.]+,\d+)\s+([\d.]+,\d+)\s+([\d.]+,\d{2})(-?)/i;
+  for(const s of L.slice(i0,i1<0?undefined:i1)){
+    let m;
+    if(/^Consumo Uso Sistema.*TUSD/i.test(s)&&(m=s.match(linhaKwh))){x.tusd={kwh:n(m[1]),tarifa:n(m[3]),valor:n(m[4])};continue}
+    if(/^Consumo - TE/i.test(s)&&(m=s.match(linhaKwh))){x.te={kwh:n(m[1]),tarifa:n(m[3]),valor:n(m[4])};continue}
+    if(/Inj/i.test(s)&&(m=s.match(linhaKwh))){if(/\bTE\b/.test(s))x.injKwh+=n(m[1]);x.injValor+=n(m[4]);continue}
+    if(/^Adicional de Bandeira/i.test(s)&&(m=s.match(/([\d.]+,\d{2})\s/))){x.bandeira+=n(m[1]);continue}
+    if(/^Cred\.? Adc\.? Band/i.test(s)&&(m=s.match(/([\d.]+,\d{2})-/))){x.bandeiraCred+=n(m[1]);continue}
+    if(/Custeio IP|Ilumina[çc][ãa]o P[úu]blica|\bCIP\b/i.test(s)&&(m=s.match(/([\d.]+,\d{2})(-?)$/))){x.cip+=n(m[1])*(m[2]?-1:1);continue}
+    if(/kWh|^Total|^D[ÉE]BITOS|^CR[ÉE]DITOS|CDE Escassez|^(ICMS|PIS|COFINS)\b/i.test(s))continue;   // resumo dos impostos: já estão nas tarifas
+    if((m=s.match(/^(.*?[A-Za-zÀ-ú].*?)\s+([\d.]+,\d{2})(-?)$/))){
+      const desc=m[1].trim(),valor=n(m[2])*(m[3]?-1:1);
+      // padrão (conferido com a ASSINATURA): parcelamento da distribuidora (Art. 321/323) e ajuste de saldo não vão para o cliente
+      const repassa=!/Art\.?\s*32[13]|Ajuste Saldo/i.test(desc);
+      x.outros.push({desc,valor,repassa});
+    }
+  }
+  return x;
+}
+function calcCobranca(x,plano){
+  const r2=v=>Math.round(v*100)/100;
+  const tt=x.tusd.valor+x.te.valor,rep=x.outros.filter(o=>o.repassa).reduce((a,o)=>a+o.valor,0);
+  const semDesc=tt+x.bandeira+x.cip+rep;
+  const base=plano.sobre==='injetado'?x.injKwh*(x.tusd.tarifa+x.te.tarifa)+x.bandeira:tt+x.bandeira;
+  const desconto=plano.pct*base,cobranca=semDesc-desconto,investidor=x.injKwh*plano.vlKwh;
+  return {semDesc:r2(semDesc),desconto:r2(desconto),cobranca:r2(cobranca),investidor:r2(investidor),repassado:r2(rep)};
+}
 const lf={itens:[],salvando:false};
 function lfAbrir(){lfRender()}
 async function lfLer(files){
@@ -2010,7 +2052,9 @@ async function lfLer(files){
       if(!/\.pdf$/i.test(file.name))throw new Error('não é PDF');
       const t=await readPdf(file),d=parseCPFL(t);
       if(!d)throw new Error('não parece uma fatura da CPFL/RGE (ou é um PDF escaneado, sem texto)');
-      const e=extrasFatura(t),M=MESES_ABR;
+      const e=extrasFatura(t),M=MESES_ABR,ic=itensFatura(t);
+      if(ic&&ic.tusd&&ic.te)Object.assign(e,{tusdTarifa:ic.tusd.tarifa,teTarifa:ic.te.tarifa,tusdValor:ic.tusd.valor,teValor:ic.te.valor,
+        bandeira:ic.bandeira,bandeiraCred:ic.bandeiraCred,cip:ic.cip,injKwh:ic.injKwh,outros:ic.outros.map(o=>o.desc+' = '+o.valor.toFixed(2)).join(' | ')});
       const hist=(d.histMes||[]).map((mm,i)=>{const k=M.indexOf(String(mm).slice(0,3)),y=+String(mm).slice(4);return {mes:k<0?0:(2000+y)*100+k+1,kwh:(d.hist||[])[i]}}).filter(h=>h.mes&&isFinite(h.kwh));
       Object.assign(it,{estado:'ok',uc:d.codigo_uc,titular:d.titular,distribuidora:d.distribuidora,classe:d.classe_uc,tensao:d.tensao,
         consumo:num(d.consumo_te),injetada:num(d.inj_te)||0,historico:hist},e);
@@ -2030,7 +2074,10 @@ function lfDetalhe(i){
     ['Total a pagar',i.valor!=null&&i.valor!==''?brl(i.valor):''],['Consumo',kwh(i.consumo)],['Energia injetada',kwh(i.injetada)],
     ['Injetada por mês',i.injetadaMeses],['Saldo',n(i.saldo,1)?n(i.saldo,1)+' kWh':''],['Saldo a expirar',n(i.saldoExpirar,1)?n(i.saldoExpirar,1)+' kWh':''],
     ['Participação na geração',n(i.participacao,2)?n(i.participacao,2)+'%':''],['Custo mínimo',kwh(i.minimo)],
-    ['Leitura anterior',i.leituraAnt],['Leitura atual',i.leitura],['Dias',n(i.dias)],['Data de emissão',i.emissao],['Nota fiscal',i.nf],['Arquivo',i.arquivo]];
+    ['Leitura anterior',i.leituraAnt],['Leitura atual',i.leitura],['Dias',n(i.dias)],['Data de emissão',i.emissao],['Nota fiscal',i.nf],
+    ['TUSD (R$/kWh com tributos)',i.tusdTarifa?String(i.tusdTarifa).replace('.',','):''],['TE (R$/kWh com tributos)',i.teTarifa?String(i.teTarifa).replace('.',','):''],
+    ['TUSD + TE do consumo',i.tusdValor!=null&&i.tusdValor!==''?brl(i.tusdValor)+' + '+brl(i.teValor):''],['Adicional de bandeira',i.bandeira?brl(i.bandeira):''],
+    ['Iluminação pública',i.cip?brl(i.cip):''],['Outros débitos e créditos',i.outros||''],['Arquivo',i.arquivo]];
   const h=(i.historico||[]).slice().sort((a,b)=>a.mes-b.mes);
   return `<dl class="lf-campos">${campos.map(([l,v])=>`<div><dt>${l}</dt><dd${v==null||v===''?' class="vazio"':''}>${v==null||v===''?'não encontrado':E(v)}</dd></div>`).join('')}</dl>
     <div class="lf-hist"><b>Consumo dos últimos 12 meses</b>${h.length?`<ol>${h.map(x=>`<li><span>${mm(x.mes)}</span>${n(x.kwh)} kWh</li>`).join('')}</ol>`:'<p class="vazio">não encontrado na fatura</p>'}</div>`;
@@ -2063,7 +2110,7 @@ $('lfLimpar').onclick=()=>{lf.itens=[];$('lfMsg').textContent='';lfRender()};
 $('lfSalvar').onclick=async()=>{
   const pend=lf.itens.filter(i=>i.estado==='ok'&&!i.salva);if(!pend.length||lf.salvando)return;
   lf.salvando=true;lfRender();$('lfMsg').textContent='Guardando…';
-  const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','emissao','nf','historico'];
+  const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','emissao','nf','historico','tusdTarifa','teTarifa','tusdValor','teValor','bandeira','bandeiraCred','cip','injKwh','outros'];
   const r=await sheetApi('fat_salvar',{faturas:pend.map(i=>Object.fromEntries(campos.map(c=>[c,i[c]==null?'':i[c]])))},{espera:90000});
   lf.salvando=false;
   if(!r||!r.ok){$('lfMsg').textContent='⚠️ '+((r&&r.erro)||'não foi possível guardar');lfRender();return}
@@ -2751,7 +2798,8 @@ function cbMotivo(x,hoje){
     }
     const fl=(c.fats||[]).length?c.fats[c.fats.length-1]:null;
     const fInfo=f=>' ('+[f.inj!=null?'injetado '+Math.round(f.inj).toLocaleString('pt-BR')+' kWh':'',f.valor!=null?brl(f.valor):'',f.venc?'venc. '+cbDM(f.venc):''].filter(Boolean).join(', ')+')';
-    if(fl&&((ultRef&&fl.ref>ultRef)||!ant.length)){x.chegou=true;p.push('<span class="ok">A fatura da RGE de '+cbRef(fl.ref)+' já foi lida no portal</span>'+fInfo(fl)+': dá para emitir.')}
+    if(fl&&((ultRef&&fl.ref>ultRef)||!ant.length)){x.chegou=true;const cc=cbCalcFatura(fl,c.plano);
+      p.push('<span class="ok">A fatura da RGE de '+cbRef(fl.ref)+' já foi lida no portal</span>'+fInfo(fl)+': dá para emitir'+(cc?' — <b>cobrança calculada: '+brl(cc.cobranca)+'</b>':'')+'.')}
     else if(c.rge){
       const g=c.rge,info=' (venc. '+cbDM(g.venc)+(g.valor!=null?', '+brl(g.valor):'')+')';
       if(ultRef&&g.ref>ultRef){x.chegou=true;p.push('<span class="ok">A conta da RGE de '+cbRef(g.ref)+' já chegou no e-mail</span>'+info+': dá para emitir (o PDF ainda não foi lido no Leitor).')}
@@ -2888,6 +2936,29 @@ function cbRenderFaturas(){
 }
 $('cbFatRef').onchange=e=>{cb.fatRef=e.target.value;cbRenderFaturas()};
 $('cbIrLeitor').onclick=()=>window.abrirTab&&window.abrirTab('leitor');
+/* ===== Cálculo da cobrança pela fatura lida e pelo plano do cliente (a mesma conta da aba ASSINATURA) =====
+   fatura sem a OZZ = TUSD + TE + adicional de bandeira + iluminação pública + outros débitos repassados
+   desconto = % × (TUSD + TE + bandeira)  ou, "sobre o injetado", % × (injetado × (tarifa TUSD + tarifa TE) + bandeira)
+   cobrança = sem a OZZ − desconto · investidor = injetado × R$/kWh · lucro = cobrança − conta da RGE − investidor
+   Parcelamento da distribuidora (Art. 321/323) e "Ajuste Saldo" não são repassados (como na ASSINATURA). */
+const CB_NAO_REPASSA=/Art\.?\s*32[13]|Ajuste Saldo/i;
+function cbCalcFatura(f,plano){
+  if(!f||!f.itens||!plano||plano.pct==null)return null;
+  const it=f.itens,outros=(it.outros||[]).map(o=>({...o,repassa:!CB_NAO_REPASSA.test(o.desc)}));
+  const r=calcCobranca({tusd:{tarifa:it.tusdTarifa||0,valor:it.tusd},te:{tarifa:it.teTarifa||0,valor:it.te},bandeira:it.bandeira||0,cip:it.cip||0,injKwh:it.injKwh||0,outros},
+    {pct:plano.pct,sobre:plano.sobre||'total',vlKwh:plano.vlKwh||0});
+  r.contaRGE=f.valor;r.lucro=f.valor!=null?Math.round((r.cobranca-f.valor-(plano.vlKwh!=null?r.investidor:0))*100)/100:null;
+  r.outros=outros;r.plano=plano;r.f=f;return r;
+}
+// a fatura da RGE que corresponde a esta cobrança: a do mesmo mês de referência; sem referência (ainda não emitida), a mais nova ainda não cobrada
+function cbFaturaDa(x){
+  const fs=x.cli.fats||[];if(!fs.length)return null;
+  if(x.ref)return fs.find(f=>f.ref===x.ref)||null;
+  if(x.e==='pago')return null;
+  const cobradas=x.cli.lista.filter(o=>o!==x&&o.ref&&o.v>0).map(o=>o.ref).sort().pop()||'';
+  const l=fs.filter(f=>f.ref>cobradas);return l.length?l[l.length-1]:null;
+}
+const cbCalcDe=x=>cbCalcFatura(cbFaturaDa(x),x.cli.plano);
 /* ===== Fluxo da cobrança no portal: emitida → enviada → paga (aba Cobranças Andamento da planilha do portal) ===== */
 function cbProximo(x){
   if(x.e==='pago'||x.fora&&!(x.v>0)&&x.e==='aguarda_1a')return null;
@@ -2908,9 +2979,12 @@ function cbAcao(x,ac){
   if(!x)return;const E=anaEsc;cbAcAtual={x,ac};
   const tit={emitida:'Marcar como emitida',enviada:'Marcar como enviada ao cliente',paga:'Marcar como paga',desfazer:'Desfazer o último passo'}[ac];
   $('cbAcTit').textContent=tit;$('cbAcSub').textContent=x.cli.n+' · '+fxMesNome(x.c)+(x.ref?' · ref. RGE '+cbRef(x.ref):'');
-  const val=x.v>0?String(x.v.toFixed(2)):'';
-  $('cbAcCampos').innerHTML=ac==='emitida'?`<label>Valor da cobrança (R$)<input id="cbAcValor" inputmode="decimal" value="${E(val.replace('.',','))}" placeholder="0,00"></label>`
-    :ac==='enviada'?`<label>Vencimento da cobrança<input type="date" id="cbAcData" value="${E(x.cob||'')}"></label>`+(x.and&&x.and.emitida?'':`<label>Valor da cobrança (R$)<input id="cbAcValor" inputmode="decimal" value="${E(val.replace('.',','))}" placeholder="0,00"></label>`)
+  const cc=(ac==='emitida'||ac==='enviada')?cbCalcDe(x):null;
+  const val=x.v>0?String(x.v.toFixed(2)):cc?String(cc.cobranca.toFixed(2)):'';
+  const dica=cc?`<p class="cb-ac-dica">Calculado pelo portal: <b>${brl(cc.cobranca)}</b> (fatura de ${cbRef(cc.f.ref)}, ${Math.round(cc.plano.pct*100)}% sobre ${cc.plano.sobre==='injetado'?'o injetado':'o total'})${x.v>0?' · planilha de controle: <b>'+brl(x.v)+'</b>':''}</p>`
+    :(ac==='emitida'&&!(x.v>0)?'<p class="cb-ac-dica">Sem cálculo: '+(!cbFaturaDa(x)?'a fatura da RGE deste mês ainda não foi lida no Leitor.':!x.cli.plano?'o plano do cliente (% de desconto) não está preenchido na ficha.':'leia a fatura de novo no Leitor (versão nova).')+'</p>':'');
+  $('cbAcCampos').innerHTML=ac==='emitida'?`<label>Valor da cobrança (R$)<input id="cbAcValor" inputmode="decimal" value="${E(val.replace('.',','))}" placeholder="0,00"></label>${dica}`
+    :ac==='enviada'?`<label>Vencimento da cobrança<input type="date" id="cbAcData" value="${E(x.cob||'')}"></label>`+(x.and&&x.and.emitida?'':`<label>Valor da cobrança (R$)<input id="cbAcValor" inputmode="decimal" value="${E(val.replace('.',','))}" placeholder="0,00"></label>${dica}`)
     :ac==='paga'?`<label>Dia do pagamento<input type="date" id="cbAcData" value="${cb.hoje}"></label>`
     :`<p style="margin:0 0 10px;font-size:14px">Volta o último passo que foi marcado no portal (${x.and&&x.and.paga?'paga':x.and&&x.and.enviada?'enviada':'emitida'}).</p>`;
   $('cbAcMsg').textContent='';$('cbAcOk').disabled=false;
@@ -2952,17 +3026,36 @@ function cbDetalhe(k,volta){
     <div><small>Entrada no rateio</small>${c.anexo?anaDataBR(c.anexo)+' · há '+cbDias(c.anexo,cb.hoje)+' dias'+(c.anexoManual?' (ajustada no portal)':''):(E(c.anexoTxt)||'—')}</div>
     <div style="grid-column:1/-1"><small>Última conta da RGE na PROGRAMAÇÃO</small>${g?'ref. '+cbRef(g.ref)+(g.est?' (pelo vencimento)':'')+' · venc. '+anaDataBR(g.venc)+(g.valor!=null?' · '+brl(g.valor):'')+' · '+E(g.sit)+(g.link?` · <a class="cb-link" href="${E(g.link)}" target="_blank" rel="noopener">Abrir conta ↗</a>`:''):'nenhuma conta desta UC'}</div>
   </div></section>`;
+  const pl=c.plano||{},pm=pl.manual||{};
+  const ccU=(()=>{const f=(c.fats||[]).slice().reverse().find(o=>o.itens);return f?cbCalcFatura(f,c.plano):null})();
+  if(ccU){const r=ccU,f=r.f,it=f.itens,lin=(t,v,cls)=>`<tr${cls?` class="${cls}"`:''}><td>${t}</td><td class="num">${v}</td></tr>`;
+    const naPlan=c.lista.find(o=>o.ref===f.ref&&o.v>0);
+    h+=`<section class="ficha-bloco"><h3>Cálculo da cobrança<span>fatura da RGE de ${cbRef(f.ref)}</span></h3><div class="ana-tabela cb-calc"><table><tbody>`+
+      lin('TUSD + TE do consumo',brl(it.tusd+it.te))+lin('Adicional de bandeira',brl(it.bandeira||0))+lin('Iluminação pública',brl(it.cip||0))+
+      r.outros.map(o=>lin(E(o.desc)+(o.repassa?'':' <small>(não repassado)</small>'),o.repassa?brl(o.valor):'<s>'+brl(o.valor)+'</s>')).join('')+
+      lin('<b>Fatura sem a OZZ</b>','<b>'+brl(r.semDesc)+'</b>','tot')+
+      lin('Desconto: '+Math.round(r.plano.pct*1000)/10+'% sobre '+(r.plano.sobre==='injetado'?'o injetado ('+Math.round(it.injKwh).toLocaleString('pt-BR')+' kWh × tarifas) + bandeira':'TUSD + TE + bandeira'),'− '+brl(r.desconto))+
+      lin('<b>Cobrança da OZZ</b>','<b>'+brl(r.cobranca)+'</b>','tot cb-ok')+
+      (naPlan?lin('Na planilha de controle (aba '+fxMesNome(naPlan.c)+')',brl(naPlan.v)+(Math.abs(naPlan.v-r.cobranca)>0.05?' <small class="cb-dif">diferença '+brl(r.cobranca-naPlan.v)+'</small>':' ✓')):'')+
+      lin('Conta da RGE (paga pela OZZ)','− '+brl(r.contaRGE||0))+(r.plano.vlKwh!=null?lin('Investidor: '+Math.round(it.injKwh).toLocaleString('pt-BR')+' kWh × '+brl(r.plano.vlKwh),'− '+brl(r.investidor)):'')+
+      (r.lucro!=null?lin('<b>Lucro</b>','<b>'+brl(r.lucro)+'</b>','tot'):'')+'</tbody></table></div></section>';
+  }
   h+=`<section class="ficha-bloco"><h3>Entrada no rateio e anotação<span>${c.notaEm?'salvo por '+E(c.notaPor)+' em '+E(c.notaEm):'fica na aba Cobranças Clientes'}</span></h3><div class="cb-edit">
     <label>Entrada no rateio<input type="date" id="cbEdEnt" value="${c.anexoManual?E(c.anexo):''}"></label>
     <p>Anexo G na planilha de controle: <b>${c.anexoG?anaDataBR(c.anexoG):(c.anexoManual||!c.anexo?'sem data':anaDataBR(c.anexo))}</b>. Preencha só para corrigir; vazio = vale o Anexo G. Cliente que nunca teve fatura fica em "Aguardando 1ª fatura" até ${cb.prazo} dias depois dessa data.</p>
+    <div class="cb-plano"><b>Plano do cliente</b> <small>${pl.mes?'da aba ASSINATURA (bloco de '+anaDataBR(pl.mes)+')':'não encontrado na ASSINATURA'}${pm.pct||pm.sobre||pm.vlKwh?' · com ajuste manual':''}</small>
+      <div class="cb-plano-campos"><label>Desconto (%)<input id="cbEdPct" inputmode="decimal" value="${pl.pct!=null?String(Math.round(pl.pct*10000)/100).replace('.',','):''}"></label>
+      <label>Desconto sobre<select id="cbEdSobre"><option value="total"${pl.sobre!=='injetado'?' selected':''}>o total (TUSD + TE + bandeira)</option><option value="injetado"${pl.sobre==='injetado'?' selected':''}>o injetado</option></select></label>
+      <label>Investidor (R$/kWh)<input id="cbEdVl" inputmode="decimal" value="${pl.vlKwh!=null?String(pl.vlKwh).replace('.',','):''}"></label></div></div>
     <label>Anotação<textarea id="cbEdNota" rows="3" maxlength="2000" placeholder="Ex.: liguei dia 25, prometeu pagar até sexta">${E(c.nota)}</textarea></label>
     <div class="cb-edit-acoes"><button class="btn sm" type="button" id="cbEdSalvar">Salvar</button><span id="cbEdMsg"></span></div>
   </div></section>`;
   const fs=(c.fats||[]).slice().reverse(),kw=v=>v==null?'—':Math.round(v).toLocaleString('pt-BR');
   h+=`<section class="ficha-bloco"><h3>Faturas da RGE lidas no portal<span>${fs.length?fs.length+' fatura'+(fs.length===1?'':'s'):'aba Faturas Lidas'}</span></h3>`+(fs.length?`<div class="ana-tabela cb-hist"><div class="ana-scroll"><table>
-    <thead><tr><th>Ref.</th><th>Vencimento</th><th class="num">Valor</th><th class="num">Consumo</th><th class="num">Injetada</th><th class="num">Saldo</th></tr></thead><tbody>`+
+    <thead><tr><th>Ref.</th><th>Vencimento</th><th class="num">Conta RGE</th><th class="num">Consumo</th><th class="num">Injetada</th><th class="num">Saldo</th><th class="num">Cobrança calculada</th></tr></thead><tbody>`+
     fs.map(f=>`<tr><td data-l="Ref."><b>${cbRef(f.ref)}</b></td><td data-l="Vencimento">${f.venc?anaDataBR(f.venc):'—'}</td><td class="num" data-l="Valor">${f.valor!=null?brl(f.valor):'—'}</td>
-      <td class="num" data-l="Consumo">${kw(f.cons)} kWh</td><td class="num" data-l="Injetada">${kw(f.inj)} kWh</td><td class="num" data-l="Saldo">${kw(f.saldo)} kWh</td></tr>`).join('')+'</tbody></table></div></div>'
+      <td class="num" data-l="Consumo">${kw(f.cons)} kWh</td><td class="num" data-l="Injetada">${kw(f.inj)} kWh</td><td class="num" data-l="Saldo">${kw(f.saldo)} kWh</td>
+      <td class="num" data-l="Cobrança calculada">${(()=>{const cc=cbCalcFatura(f,c.plano);return cc?brl(cc.cobranca):'<small>'+(f.itens?'sem plano':'ler de novo')+'</small>'})()}</td></tr>`).join('')+'</tbody></table></div></div>'
     :'<div class="ficha-vazio">Nenhuma fatura desta UC foi lida no Leitor de faturas ainda.</div>')+'</section>';
   const lista=c.lista.slice().reverse();
   h+=`<section class="ficha-bloco"><h3>Todos os meses<span>${c.lista.length} linha${c.lista.length===1?'':'s'}</span></h3><div class="ana-tabela cb-hist"><div class="ana-scroll"><table>
@@ -2982,10 +3075,18 @@ function cbDetalhe(k,volta){
 async function cbSalvarCliente(c){
   const bt=$('cbEdSalvar'),msg=$('cbEdMsg'),ent=$('cbEdEnt').value,nota=$('cbEdNota').value.trim();
   bt.disabled=true;msg.textContent='Salvando…';msg.className='';
-  const r=await sheetApi('cob_cliente',{cliente:{k:c.k,entrada:ent,nota}},{espera:40000});
+  const num=v=>{v=String(v||'').trim().replace(',','.');return v===''?'':Number(v)};
+  const pct=num($('cbEdPct').value),vl=num($('cbEdVl').value),sobre=$('cbEdSobre').value,pl=c.plano||{};
+  if(pct!==''&&!(pct>=0&&pct<=100)||vl!==''&&!(vl>=0&&vl<10)){msg.textContent='⚠️ confira o % de desconto e o R$/kWh';msg.className='erro';bt.disabled=false;return}
+  // só vira "ajuste manual" o que for diferente do que veio da ASSINATURA
+  const pctDec=pct===''?'':Math.round(pct/100*10000)/10000,ig=(a,b)=>a!==''&&b!=null&&Math.abs(a-b)<1e-6;
+  const plano={pct:pctDec===''||(!(pl.manual||{}).pct&&ig(pctDec,pl.pct))?'':pctDec,sobre:!(pl.manual||{}).sobre&&sobre===(pl.sobre||'total')?'':sobre,
+    vlKwh:vl===''||(!(pl.manual||{}).vlKwh&&ig(vl,pl.vlKwh))?'':vl};
+  const r=await sheetApi('cob_cliente',{cliente:{k:c.k,entrada:ent,nota,plano}},{espera:40000});
   bt.disabled=false;
-  if(!r||!r.ok){let e=(r&&r.erro)||'não foi possível salvar';if(/ação desconhecida/.test(e))e='atualize o script da planilha do portal para a versão 31';msg.textContent='⚠️ '+e;msg.className='erro';return}
+  if(!r||!r.ok){let e=(r&&r.erro)||'não foi possível salvar';if(/ação desconhecida/.test(e))e='atualize o script da planilha do portal para a versão 34';msg.textContent='⚠️ '+e;msg.className='erro';return}
   c.anexoManual=!!ent;c.anexo=ent||c.anexoG||'';c.nota=nota;c.notaPor=r.notaPor;c.notaEm=r.notaEm;
+  if(pctDec!==''||vl!==''){c.plano={...pl,pct:pctDec!==''?pctDec:pl.pct,sobre,vlKwh:vl!==''?vl:pl.vlKwh,manual:{pct:plano.pct!=='',sobre:plano.sobre!=='',vlKwh:plano.vlKwh!==''}}}
   cbCalcCliente(c);cbRender();cbDetalhe(c.k,cb.volta);
   $('cbEdMsg').textContent='✓ Salvo na aba Cobranças Clientes';
 }

@@ -23,6 +23,11 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   **Fluxo da cobrança no portal:** botões *Marcar emitida* (com o valor), *Marcar enviada* (com o vencimento) e *Marcar paga*
   (com o dia), e *Desfazer* na ficha do cliente. Fica na aba **Cobranças Andamento** da planilha do portal, que a cópia nunca
   apaga, e vale quando está mais adiantado que o STATUS da planilha de controle.
+  **Cálculo da cobrança:** o Leitor extrai as linhas da conta (TUSD, TE, bandeira, iluminação pública, injetado e outros
+  débitos/créditos) e o portal faz a mesma conta da aba ASSINATURA: fatura sem a OZZ − desconto (% do plano sobre o total
+  ou sobre o injetado). Parcelamento da distribuidora (Art. 321/323) e "Ajuste Saldo" não são repassados. O plano de cada
+  cliente (% de desconto, base e R$/kWh do investidor) vem do último bloco dele na ASSINATURA e pode ser ajustado na ficha.
+  A ficha mostra a conta passo a passo e compara com o valor da planilha de controle; "Marcar emitida" já vem preenchido.
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
   instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho
