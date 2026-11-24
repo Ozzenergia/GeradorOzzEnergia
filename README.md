@@ -28,6 +28,9 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   ou sobre o injetado). Parcelamento da distribuidora (Art. 321/323) e "Ajuste Saldo" não são repassados. O plano de cada
   cliente (% de desconto, base e R$/kWh do investidor) vem do último bloco dele na ASSINATURA e pode ser ajustado na ficha.
   A ficha mostra a conta passo a passo e compara com o valor da planilha de controle; "Marcar emitida" já vem preenchido.
+  **PDFs das faturas:** ao guardar no Leitor, o PDF vai para a pasta **Faturas RGE (portal OZZ)** no Google Drive de quem
+  implantou o script (uma subpasta por mês de referência; ler de novo substitui o arquivo). A pasta fica privada: no portal,
+  o botão **Ver PDF** (ficha do cliente e checklist de faturas) abre o arquivo pelo próprio script.
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
   instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho

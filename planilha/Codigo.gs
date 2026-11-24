@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -162,7 +162,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '34 (cálculo da cobrança pela fatura lida e pelo plano do cliente)';
+const VERSAO_SCRIPT = '35 (PDFs das faturas guardados no Drive de quem implantou)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -210,6 +210,14 @@ function doPost(e) {
     if (req.acao === 'rat_usina') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
       return json(ratUsinaSalvar(req.usina || {}, usuario));
+    }
+    if (req.acao === 'fat_pdf') {
+      if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
+      return json(faturaPdfSalvar(req.pdf || {}, usuario));
+    }
+    if (req.acao === 'fat_pdf_ler') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a fatura', auth: true });
+      return json(faturaPdfLer(req.fatura || {}));
     }
     if (req.acao === 'fat_salvar') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
@@ -960,7 +968,7 @@ function cobDados_() {
     if (uc.length < 7 || m.length !== 6) return null;
     const n = x => typeof x === 'number' && isFinite(x) ? x : null, vc = o['Vencimento'];
     return { uc: uc, ref: m.slice(0, 4) + '-' + m.slice(4), venc: vc instanceof Date ? Utilities.formatDate(vc, tz, 'yyyy-MM-dd') : String(vc || '').trim().replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1'),
-      valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']),
+      pdf: /\/d\//.test(t(o['PDF (Drive)'])), valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']),
       // linhas da conta (faturas lidas a partir da versão 34): o cálculo da cobrança usa
       itens: n(o['TUSD R$']) != null && n(o['TE R$']) != null ? { tusdTarifa: n(o['TUSD R$/kWh']), teTarifa: n(o['TE R$/kWh']), tusd: n(o['TUSD R$']), te: n(o['TE R$']),
         bandeira: n(o['Bandeira R$']) || 0, cip: n(o['Iluminação pública R$']) || 0, injKwh: n(o['Injetada (TE) kWh']) != null ? n(o['Injetada (TE) kWh']) : n(o['Energia Injetada kWh']),
@@ -2075,7 +2083,69 @@ const COLS_FATURAS = ['Lido em', 'Lido por', 'Arquivo', 'UC', 'Titular', 'CPF/CN
   'Mês Ref (AAAAMM)', 'Vencimento', 'Valor Total (R$)', 'Consumo kWh', 'Energia Injetada kWh', 'Injetada por mês', 'Saldo kWh', 'Saldo a Expirar kWh',
   'Participação na Geração %', 'Custo Mínimo kWh', 'Leitura Anterior', 'Leitura Atual', 'Dias', 'Data Emissão', 'Nota Fiscal', 'Histórico 12 meses (kWh)',
   // a partir da versão 34: as linhas da conta, para o cálculo da cobrança
-  'TUSD R$/kWh', 'TE R$/kWh', 'TUSD R$', 'TE R$', 'Bandeira R$', 'Crédito bandeira R$', 'Iluminação pública R$', 'Injetada (TE) kWh', 'Outros débitos e créditos'];
+  'TUSD R$/kWh', 'TE R$/kWh', 'TUSD R$', 'TE R$', 'Bandeira R$', 'Crédito bandeira R$', 'Iluminação pública R$', 'Injetada (TE) kWh', 'Outros débitos e créditos',
+  // a partir da versão 35: o PDF guardado no Drive de quem implantou o script
+  'PDF (Drive)'];
+
+/* ---------- PDFs das faturas: pasta "Faturas RGE (portal OZZ)" no Drive de quem implantou o script ----------
+   Uma subpasta por mês de referência (AAAA-MM); o arquivo se chama "UC - Titular.pdf". Ler a mesma fatura de novo
+   substitui o arquivo (o antigo vai para a lixeira). A pasta fica privada: o portal abre o PDF pelo próprio script. */
+const PASTA_FATURAS_NOME = 'Faturas RGE (portal OZZ)';
+function pastaFaturas_() {
+  const props = PropertiesService.getScriptProperties(), id = props.getProperty('PASTA_FATURAS');
+  if (id) { try { const f = DriveApp.getFolderById(id); if (!f.isTrashed()) return f; } catch (e) {} }
+  const f = DriveApp.createFolder(PASTA_FATURAS_NOME);
+  props.setProperty('PASTA_FATURAS', f.getId());
+  return f;
+}
+function linhaFatura_(sh, uc, mes) {   // linha (1-based) da UC e mês AAAAMM na aba Faturas Lidas; 0 = não tem
+  const dig = x => String(x == null ? '' : x).replace(/\.0+$/, '').replace(/\D/g, '');
+  if (!sh || sh.getLastRow() < 2) return 0;
+  const v = sh.getRange(2, 1, sh.getLastRow() - 1, 11).getValues();
+  for (let i = v.length - 1; i >= 0; i--) if (dig(v[i][3]) === dig(uc) && dig(v[i][10]) === String(mes)) return i + 2;
+  return 0;
+}
+/** Guarda o PDF de uma fatura já gravada pelo Leitor (d = { uc, mes: AAAAMM, titular, b64 }). */
+function faturaPdfSalvar(d, usuario) {
+  const uc = String(d && d.uc || '').trim(), mes = String(d && d.mes || '').replace(/\D/g, '');
+  if (uc.replace(/\D/g, '').length < 7 || !/^20\d{2}(0[1-9]|1[0-2])$/.test(mes)) return { ok: false, erro: 'fatura sem UC ou mês' };
+  const b64 = String(d.b64 || '');
+  if (!b64 || b64.length > 20 * 1024 * 1024) return { ok: false, erro: 'PDF vazio ou grande demais (máx. 15 MB)' };
+  let bytes; try { bytes = Utilities.base64Decode(b64); } catch (e) { return { ok: false, erro: 'PDF inválido' }; }
+  if (String.fromCharCode.apply(null, bytes.slice(0, 4).map(b => (b + 256) % 256)) !== '%PDF') return { ok: false, erro: 'o arquivo não é um PDF' };
+  const sh = SpreadsheetApp.getActive().getSheetByName('Faturas Lidas'), linha = linhaFatura_(sh, uc, mes);
+  if (!linha) return { ok: false, erro: 'guarde os dados da fatura antes do PDF' };
+  const nome = (uc + ' - ' + String(d.titular || '').replace(/[\\/:*?"<>|]+/g, ' ').trim()).slice(0, 120) + '.pdf';
+  let url;
+  try {
+    const raiz = pastaFaturas_(), sub = mes.slice(0, 4) + '-' + mes.slice(4);
+    const it = raiz.getFoldersByName(sub), pasta = it.hasNext() ? it.next() : raiz.createFolder(sub);
+    // substitui o PDF anterior da mesma UC neste mês (o nome pode ter mudado se o titular mudou)
+    const velhos = pasta.searchFiles('title contains "' + uc.replace(/"/g, '') + ' - "');
+    while (velhos.hasNext()) velhos.next().setTrashed(true);
+    const arq = pasta.createFile(Utilities.newBlob(bytes, 'application/pdf', nome));
+    arq.setDescription('Lido no portal por ' + (usuario.nome || usuario.email || '?') + ' em ' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'));
+    url = arq.getUrl();
+  } catch (e) {
+    return { ok: false, erro: 'não consegui gravar no Google Drive (' + e.message + '). Rode a função "configurar" no editor do Apps Script uma vez para autorizar o Drive.' };
+  }
+  const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim()), c = cab.indexOf('PDF (Drive)') + 1;
+  if (c > 0) sh.getRange(linha, c).setValue(url);
+  return { ok: true, url: url };
+}
+/** Devolve o PDF guardado de uma fatura (d = { uc, ref: AAAA-MM }) em base64, para o portal abrir sem compartilhar a pasta. */
+function faturaPdfLer(d) {
+  const uc = String(d && d.uc || ''), mes = String(d && d.ref || '').replace(/\D/g, '');
+  const sh = SpreadsheetApp.getActive().getSheetByName('Faturas Lidas'), linha = linhaFatura_(sh, uc, mes);
+  if (!linha) return { ok: false, erro: 'fatura não encontrada' };
+  const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim()), c = cab.indexOf('PDF (Drive)') + 1;
+  const url = c > 0 ? String(sh.getRange(linha, c).getValue() || '') : '', m = url.match(/\/d\/([\w-]{20,})/);
+  if (!m) return { ok: false, erro: 'o PDF desta fatura não foi guardado (leia de novo no Leitor)' };
+  try {
+    const b = DriveApp.getFileById(m[1]).getBlob();
+    return { ok: true, nome: b.getName(), b64: Utilities.base64Encode(b.getBytes()) };
+  } catch (e) { return { ok: false, erro: 'não consegui abrir o PDF no Drive: ' + e.message }; }
+}
 
 function faturasSalvar(lista, usuario) {
   lista = Array.isArray(lista) ? lista.slice(0, 200) : [];
@@ -2111,8 +2181,9 @@ function faturasSalvar(lista, usuario) {
         nv(f.dias), String(f.emissao || ''), String(f.nf || ''),
         hist.map(h => String(h.mes).slice(4) + '/' + String(h.mes).slice(0, 4) + ': ' + h.kwh).join(' · '),
         nv(f.tusdTarifa), nv(f.teTarifa), nv(f.tusdValor), nv(f.teValor), nv(f.bandeira), nv(f.bandeiraCred), nv(f.cip), nv(f.injKwh), String(f.outros || '').slice(0, 1000)].map(limpa);
+      linha.push('');   // coluna PDF (Drive): o link é gravado depois, por faturaPdfSalvar
       const kF = dig(uc) + '|' + mes;
-      if (idxF[kF] != null) { vF[idxF[kF]] = linha; res.atualizadas++; } else { idxF[kF] = -1; novasF.push(linha); res.faturas++; }
+      if (idxF[kF] != null) { const pdfAntes = vF[idxF[kF]][larg - 1]; vF[idxF[kF]] = linha; vF[idxF[kF]][larg - 1] = pdfAntes; res.atualizadas++; } else { idxF[kF] = -1; novasF.push(linha); res.faturas++; }
       // mês da fatura → Rateio Consumo (a fatura sobrescreve consumo, injetada, saldo, mínimo e datas)
       const dados = { 2: nv(f.consumo), 3: nv(f.injetada), 4: nv(f.saldo), 5: nv(f.minimo), 6: String(f.leitura || ''), 7: String(f.emissao || ''), 8: String(f.leituraAnt || '') };
       const origem = 'Fatura PDF (' + Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy') + ')';

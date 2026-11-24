@@ -1007,7 +1007,7 @@ body.locked{overflow:hidden}
   <div class="drop" id="lfDrop" tabindex="0" role="button" aria-label="Escolher PDFs de faturas">
     <div class="ic">📄</div>
     <strong>Arraste os PDFs das faturas aqui ou clique para selecionar</strong>
-    <small>Pode mandar várias de uma vez · é lido no próprio aparelho; só os dados vão para a planilha</small>
+    <small>Pode mandar várias de uma vez · os dados vão para a planilha e o PDF para a pasta "Faturas RGE (portal OZZ)" no Google Drive</small>
     <input type="file" id="lfFile" accept=".pdf,application/pdf" multiple hidden>
   </div>
   <div class="alert" id="lfErro"></div>
@@ -1025,6 +1025,7 @@ body.locked{overflow:hidden}
       <li><b>Faturas Lidas</b> (aba nova na planilha do portal): tudo o que a fatura traz, uma linha por UC e mês. Ler de novo a mesma fatura atualiza a linha.</li>
       <li><b>Rateio Consumo</b>: o mês da fatura (consumo, energia injetada, saldo, mínimo e datas; a fatura vale mais que a planilha de controle) e os 12 meses do histórico que ainda faltam.</li>
       <li><b>Rateio Beneficiárias</b>: completa o tipo de fornecimento quando estiver vazio.</li>
+      <li><b>Google Drive</b>: o PDF vai para a pasta <i>Faturas RGE (portal OZZ)</i>, uma subpasta por mês de referência, no Drive de quem implantou o script. A pasta é privada; no portal a fatura abre pelo botão <i>Ver PDF</i> (ficha do cliente e checklist de faturas).</li>
     </ul>
     <p>Custo mínimo: pelo tipo de fornecimento (monofásico 30, bifásico 50, trifásico 100 kWh).</p>
   </details>
@@ -2047,7 +2048,7 @@ function lfAbrir(){lfRender()}
 async function lfLer(files){
   $('lfErro').style.display='none';
   for(const file of files){
-    const it={arquivo:file.name,estado:'lendo'};lf.itens.unshift(it);lfRender();
+    const it={arquivo:file.name,estado:'lendo',file};/* o arquivo fica guardado para subir ao Drive depois */lf.itens.unshift(it);lfRender();
     try{
       if(!/\.pdf$/i.test(file.name))throw new Error('não é PDF');
       const t=await readPdf(file),d=parseCPFL(t);
@@ -2119,6 +2120,17 @@ $('lfSalvar').onclick=async()=>{
   if(typeof rat!=='undefined')rat.dados=null;   // o rateio relê as abas na próxima vez que abrir
   try{cb.dados=null}catch(e){}                   // as cobranças também (usam as faturas lidas)
   lfRender();
+  // depois dos dados, os PDFs vão um a um para a pasta "Faturas RGE (portal OZZ)" no Drive de quem implantou o script
+  const base=$('lfMsg').textContent,comPdf=pend.filter(i=>i.file&&!i.pdfOk);let ok=0;const erros=[];
+  for(let n=0;n<comPdf.length;n++){
+    const i=comPdf[n];$('lfMsg').textContent=base+` · guardando os PDFs no Drive (${n+1}/${comPdf.length})…`;
+    try{
+      const b=new Uint8Array(await i.file.arrayBuffer());let bin='';for(let k=0;k<b.length;k+=0x8000)bin+=String.fromCharCode.apply(null,b.subarray(k,k+0x8000));
+      const rp=await sheetApi('fat_pdf',{pdf:{uc:i.uc,mes:i.mes,titular:i.titular||'',b64:btoa(bin)}},{espera:120000});
+      if(rp&&rp.ok){ok++;i.pdfOk=true}else erros.push(i.arquivo+': '+((rp&&rp.erro)||'falhou'));
+    }catch(e){erros.push(i.arquivo+': '+e.message)}
+  }
+  if(comPdf.length)$('lfMsg').textContent=base+` · ${ok} PDF${ok===1?'':'s'} guardado${ok===1?'':'s'} no Drive`+(erros.length?` · ⚠️ ${erros.join('; ').replace(/ação desconhecida/,'atualize o script da planilha para a versão 35')}`:'');
 };
 
 /* ===== Rateio de créditos (TI e Admin): monta as linhas a partir das abas e calcula no navegador ===== */
@@ -2927,12 +2939,13 @@ function cbRenderFaturas(){
     else if(st==='falta')oq=(c.rge?'Última conta no e-mail: '+cbRef(c.rge.ref)+'. ':'Nenhuma conta desta UC na PROGRAMAÇÃO. ')+(ultF?'Última fatura lida: '+cbRef(ultF.ref)+'.':'');
     else if(st==='novo')oq='Aguardando a 1ª fatura (entrou no rateio em '+anaDataBR(c.anexo)+').';
     else if(!cobr)oq='Fatura lida; esta referência ainda não aparece nas abas de cobrança.';
+    if(f&&f.pdf)oq+=(oq?' ':'')+cbBtPdf(f);
     else if(cobr.e==='nao_emitiu'||cobr.e==='sem_fatura')oq='<span class="ok">Fatura lida: dá para emitir a cobrança.</span>';
     const cob=cobr?`<span class="cb-st ${cobr.e}">${CB_ST[cobr.e]||cobr.e}</span><small>aba ${fxMesNome(cobr.c)}${cobr.v>0?' · '+brl(cobr.v):''}</small>`:'—';
     return `<tr data-k="${E(c.k)}"><td><b>${E(c.n)}</b><small>${E(c.uc)}${c.inv?' · '+E(c.inv):''}</small></td><td data-l="Fatura">${fat}</td><td data-l="Cobrança">${cob}</td><td class="cb-motivo">${oq}</td></tr>`}).join('')
     :'<tr><td colspan="4" class="ana-vazio">Nenhum cliente com esses filtros.</td></tr>';
   $('cbFatRodape').innerHTML=`<span>Ref. ${cbRef(M)}: <b>${cnt('lida')}</b> lida${cnt('lida')===1?'':'s'} de ${linhas.length} clientes ativos</span>`+(cb.fatSemCliente?`<span>${cb.fatSemCliente} fatura${cb.fatSemCliente===1?'':'s'} lida${cb.fatSemCliente===1?'':'s'} de UC que não está nas cobranças</span>`:'');
-  $('cbFatCorpo').querySelectorAll('tr[data-k]').forEach(tr=>tr.onclick=e=>{if(e.target.closest('a'))return;cbDetalhe(tr.dataset.k,tr)});
+  $('cbFatCorpo').querySelectorAll('tr[data-k]').forEach(tr=>tr.onclick=e=>{if(e.target.closest('a,button'))return;cbDetalhe(tr.dataset.k,tr)});cbLigaPdf($('cbFatCorpo'));
 }
 $('cbFatRef').onchange=e=>{cb.fatRef=e.target.value;cbRenderFaturas()};
 $('cbIrLeitor').onclick=()=>window.abrirTab&&window.abrirTab('leitor');
@@ -2959,6 +2972,20 @@ function cbFaturaDa(x){
   const l=fs.filter(f=>f.ref>cobradas);return l.length?l[l.length-1]:null;
 }
 const cbCalcDe=x=>cbCalcFatura(cbFaturaDa(x),x.cli.plano);
+/* PDF da fatura guardado no Drive: vem pelo script (a pasta não precisa ser compartilhada) */
+async function cbVerPdf(uc,ref,bt){
+  const w=window.open('','_blank');if(w)w.document.write('<p style="font:16px sans-serif;padding:20px">Abrindo a fatura…</p>');
+  if(bt){bt.disabled=true;bt.textContent='Abrindo…'}
+  const r=await sheetApi('fat_pdf_ler',{fatura:{uc,ref}},{espera:60000});
+  if(bt){bt.disabled=false;bt.textContent='Ver PDF'}
+  if(!r||!r.ok){if(w)w.close();alert('Não deu para abrir o PDF: '+((r&&r.erro)||'erro'));return}
+  const bin=atob(r.b64),u8=new Uint8Array(bin.length);for(let k=0;k<bin.length;k++)u8[k]=bin.charCodeAt(k);
+  const url=URL.createObjectURL(new Blob([u8],{type:'application/pdf'}));
+  if(w)w.location.href=url;else window.open(url,'_blank');
+  setTimeout(()=>URL.revokeObjectURL(url),120000);
+}
+function cbLigaPdf(raiz){raiz.querySelectorAll('.cb-pdf').forEach(b=>b.onclick=e=>{e.stopPropagation();cbVerPdf(b.dataset.uc,b.dataset.ref,b)})}
+const cbBtPdf=f=>f&&f.pdf?`<button type="button" class="cb-passo sec cb-pdf" data-uc="${anaEsc(f.uc)}" data-ref="${anaEsc(f.ref)}">Ver PDF</button>`:'';
 /* ===== Fluxo da cobrança no portal: emitida → enviada → paga (aba Cobranças Andamento da planilha do portal) ===== */
 function cbProximo(x){
   if(x.e==='pago'||x.fora&&!(x.v>0)&&x.e==='aguarda_1a')return null;
@@ -3052,10 +3079,10 @@ function cbDetalhe(k,volta){
   </div></section>`;
   const fs=(c.fats||[]).slice().reverse(),kw=v=>v==null?'—':Math.round(v).toLocaleString('pt-BR');
   h+=`<section class="ficha-bloco"><h3>Faturas da RGE lidas no portal<span>${fs.length?fs.length+' fatura'+(fs.length===1?'':'s'):'aba Faturas Lidas'}</span></h3>`+(fs.length?`<div class="ana-tabela cb-hist"><div class="ana-scroll"><table>
-    <thead><tr><th>Ref.</th><th>Vencimento</th><th class="num">Conta RGE</th><th class="num">Consumo</th><th class="num">Injetada</th><th class="num">Saldo</th><th class="num">Cobrança calculada</th></tr></thead><tbody>`+
+    <thead><tr><th>Ref.</th><th>Vencimento</th><th class="num">Conta RGE</th><th class="num">Consumo</th><th class="num">Injetada</th><th class="num">Saldo</th><th class="num">Cobrança calculada</th><th></th></tr></thead><tbody>`+
     fs.map(f=>`<tr><td data-l="Ref."><b>${cbRef(f.ref)}</b></td><td data-l="Vencimento">${f.venc?anaDataBR(f.venc):'—'}</td><td class="num" data-l="Valor">${f.valor!=null?brl(f.valor):'—'}</td>
       <td class="num" data-l="Consumo">${kw(f.cons)} kWh</td><td class="num" data-l="Injetada">${kw(f.inj)} kWh</td><td class="num" data-l="Saldo">${kw(f.saldo)} kWh</td>
-      <td class="num" data-l="Cobrança calculada">${(()=>{const cc=cbCalcFatura(f,c.plano);return cc?brl(cc.cobranca):'<small>'+(f.itens?'sem plano':'ler de novo')+'</small>'})()}</td></tr>`).join('')+'</tbody></table></div></div>'
+      <td class="num" data-l="Cobrança calculada">${(()=>{const cc=cbCalcFatura(f,c.plano);return cc?brl(cc.cobranca):'<small>'+(f.itens?'sem plano':'ler de novo')+'</small>'})()}</td><td>${cbBtPdf(f)}</td></tr>`).join('')+'</tbody></table></div></div>'
     :'<div class="ficha-vazio">Nenhuma fatura desta UC foi lida no Leitor de faturas ainda.</div>')+'</section>';
   const lista=c.lista.slice().reverse();
   h+=`<section class="ficha-bloco"><h3>Todos os meses<span>${c.lista.length} linha${c.lista.length===1?'':'s'}</span></h3><div class="ana-tabela cb-hist"><div class="ana-scroll"><table>
@@ -3068,7 +3095,7 @@ function cbDetalhe(k,volta){
         <td class="cb-motivo">${det||'—'}${(x.e!=='pago'||x.and)&&x.motBase?'<br>'+x.motBase:''}</td><td>${cbBotoes(x,true)}</td></tr>`}).join('')+'</tbody></table></div></div></section>';
   $('cbMCorpo').innerHTML=h;
   $('cbEdSalvar').onclick=()=>cbSalvarCliente(c);
-  cbLigaBotoes($('cbMCorpo'));
+  cbLigaBotoes($('cbMCorpo'));cbLigaPdf($('cbMCorpo'));
   $('cbModal').classList.remove('hidden');document.body.style.overflow='hidden';
   setTimeout(()=>{const f=$('cbModal').querySelector('.ficha');f.scrollTop=0;f.focus({preventScroll:true})},0);
 }
