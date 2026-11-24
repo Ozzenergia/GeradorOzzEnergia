@@ -312,6 +312,9 @@ main.wide{max-width:1180px}
 .cb-hist td{font-size:13.5px}
 .cb-dica{font-size:13px;color:var(--muted);margin:-4px 0 12px}
 .cb-st.aguarda_1a{background:#e6f4f1;color:#0f766e}
+.cb-fat-top{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;justify-content:space-between;margin-bottom:10px}
+.cb-fat-top label{display:grid;gap:4px;font-size:12.5px;font-weight:600;color:var(--muted)}
+.cb-fat-top select{font:inherit;font-size:14px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .cb-st.aguarda_1a{background:#0f2b28;color:#5eead4}}
 :root[data-theme="dark"] .cb-st.aguarda_1a{background:#0f2b28;color:#5eead4}
 .cb-edit{padding:14px 16px;display:grid;gap:10px}
@@ -1127,6 +1130,7 @@ body.locked{overflow:hidden}
     <div class="cb-vistas" role="group" aria-label="Como mostrar">
       <button type="button" data-v="lista" class="on" aria-pressed="true">Lista</button>
       <button type="button" data-v="grade" aria-pressed="false">Por cliente (meses)</button>
+      <button type="button" data-v="faturas" aria-pressed="false">Faturas da RGE</button>
     </div>
   </div>
   <div class="fx-tipos" id="cbTipos"></div>
@@ -1137,6 +1141,17 @@ body.locked{overflow:hidden}
       <tbody id="cbCorpo"><tr><td colspan="6" class="ana-vazio">Lendo a planilha…</td></tr></tbody>
     </table></div>
     <div class="ana-rodape" id="cbRodape"></div>
+  </div>
+  <div class="hidden" id="cbFatBox">
+    <div class="cb-fat-top">
+      <label>Mês de referência da fatura <select id="cbFatRef" aria-label="Mês de referência da fatura da RGE"></select></label>
+      <button class="btn sec sm" type="button" id="cbIrLeitor">📄 Ler faturas no Leitor</button>
+    </div>
+    <div class="fx-tipos" id="cbFatTipos"></div>
+    <div class="ana-tabela cb-lista"><div class="ana-scroll"><table>
+      <thead><tr><th>Cliente</th><th>Fatura da RGE</th><th>Cobrança da OZZ</th><th>O que fazer</th></tr></thead>
+      <tbody id="cbFatCorpo"></tbody>
+    </table></div><div class="ana-rodape" id="cbFatRodape"></div></div>
   </div>
   <div class="cb-grade hidden" id="cbGradeBox"><div class="ana-tabela">
     <div class="ana-scroll"><table>
@@ -2035,6 +2050,7 @@ $('lfSalvar').onclick=async()=>{
   pend.forEach(i=>{i.salva=true});
   $('lfMsg').textContent=`✓ ${r.faturas} nova${r.faturas===1?'':'s'}, ${r.atualizadas} atualizada${r.atualizadas===1?'':'s'} · ${r.historico} meses de histórico acrescentados`+(r.fornecimento?` · fornecimento preenchido em ${r.fornecimento} beneficiária${r.fornecimento>1?'s':''}`:'')+(r.ignoradas&&r.ignoradas.length?` · ignoradas: ${r.ignoradas.join('; ')}`:'');
   if(typeof rat!=='undefined')rat.dados=null;   // o rateio relê as abas na próxima vez que abrir
+  try{cb.dados=null}catch(e){}                   // as cobranças também (usam as faturas lidas)
   lfRender();
 };
 
@@ -2662,6 +2678,10 @@ function cbPreparar(r){
   const meses=r.meses.map(m=>m.comp),ult=meses[meses.length-1];
   // script antigo (sem as linhas "fora das abas"): conectado na CLIENTES e fora de todas as abas entra como "sem fatura" no último mês
   Object.values(cli).forEach(c=>{if(c.fora&&ult&&!c.lista.some(x=>x.fora)){const x={k:c.k,c:ult,l:0,v:null,s:'sem_fatura',st:'',ref:'',cob:'',vr:'',conf:'',rge:'',pg:'',refPg:'',obs:'',fora:true,cli:c};L.push(x);c.lista.push(x)}});
+  // faturas da RGE lidas pelo Leitor: ligadas ao cliente pela UC nova ou antiga
+  const porDig={};Object.values(cli).forEach(c=>{c.fats=[];[c.k,c.uc,c.ucA].forEach(u=>{const d=String(u||'').replace(/\D/g,'');if(d.length>=7)porDig[d]=c})});
+  cb.fatSemCliente=0;(r.faturas||[]).forEach(f=>{const c=porDig[f.uc];if(c)c.fats.push(f);else cb.fatSemCliente++});
+  Object.values(cli).forEach(c=>c.fats.sort((a,b)=>a.ref<b.ref?-1:1));
   cb.dados=r;cb.L=L;cb.cli=cli;cb.meses=meses;cb.hoje=hoje;cb.prazo=r.prazoDias||90;
   Object.values(cli).forEach(c=>{c.lista.sort((a,b)=>a.c<b.c?-1:a.c>b.c?1:a.l-b.l);cbCalcCliente(c)});
   if(!cb.mes||(cb.mes!=='*'&&!meses.includes(cb.mes)))cb.mes=ult||'*';
@@ -2694,9 +2714,12 @@ function cbMotivo(x,hoje){
         p.push(fora+'Cliente novo: entrou no rateio em <b>'+anaDataBR(c.anexo)+'</b>'+de+', há '+d+' dias. '+(x.e==='aguarda_1a'?'Dentro do prazo de '+cb.prazo+' dias para sair a 1ª fatura.':d>cb.prazo?'<span class="alerta">Já passou do prazo de '+cb.prazo+' dias: verificar.</span>':''))}
       else p.push(fora+'Cliente novo: sem data de entrada no rateio (Anexo G'+(c.anexoTxt?' = "'+E(c.anexoTxt)+'"':' vazio')+'). Dá para preencher na ficha do cliente.');
     }
-    if(c.rge){
+    const fl=(c.fats||[]).length?c.fats[c.fats.length-1]:null;
+    const fInfo=f=>' ('+[f.inj!=null?'injetado '+Math.round(f.inj).toLocaleString('pt-BR')+' kWh':'',f.valor!=null?brl(f.valor):'',f.venc?'venc. '+cbDM(f.venc):''].filter(Boolean).join(', ')+')';
+    if(fl&&((ultRef&&fl.ref>ultRef)||!ant.length)){x.chegou=true;p.push('<span class="ok">A fatura da RGE de '+cbRef(fl.ref)+' já foi lida no portal</span>'+fInfo(fl)+': dá para emitir.')}
+    else if(c.rge){
       const g=c.rge,info=' (venc. '+cbDM(g.venc)+(g.valor!=null?', '+brl(g.valor):'')+')';
-      if(ultRef&&g.ref>ultRef){x.chegou=true;p.push('<span class="ok">A conta da RGE de '+cbRef(g.ref)+' já chegou</span>'+info+': dá para emitir.')}
+      if(ultRef&&g.ref>ultRef){x.chegou=true;p.push('<span class="ok">A conta da RGE de '+cbRef(g.ref)+' já chegou no e-mail</span>'+info+': dá para emitir (o PDF ainda não foi lido no Leitor).')}
       else if(ultRef)p.push('A RGE ainda não emitiu a conta de <b>'+cbRef(cbMaisUm(ultRef))+'</b>. A última que chegou ('+cbRef(g.ref)+') já foi cobrada.');
       else if(!ant.length){x.chegou=true;p.push('<span class="ok">Já chegou conta da RGE desta UC</span>: ref. '+cbRef(g.ref)+info+'.')}
       else p.push('Última conta da RGE que chegou: ref. '+cbRef(g.ref)+info+'.');
@@ -2751,6 +2774,8 @@ function cbRender(){
   $('cbTipos').querySelectorAll('button').forEach(b=>b.onclick=()=>{cb.grupo=b.dataset.g;cbRender()});
   document.querySelectorAll('.cb-vistas button').forEach(b=>{const on=b.dataset.v===cb.vista;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)});
   $('cbListaBox').classList.toggle('hidden',cb.vista!=='lista');$('cbGradeBox').classList.toggle('hidden',cb.vista!=='grade');
+  $('cbFatBox').classList.toggle('hidden',cb.vista!=='faturas');$('cbTipos').classList.toggle('hidden',cb.vista==='faturas');$('cbMes').classList.toggle('hidden',cb.vista==='faturas');
+  if(cb.vista==='faturas'){$('cbDica').textContent='Para cada cliente ativo: a fatura da RGE do mês de referência já foi lida no portal? Clique num cliente para ver os detalhes.';cbRenderFaturas();return}
   $('cbDica').textContent=cb.vista==='lista'?'Clique num cliente para ver todos os meses dele.':'Cada coluna é uma aba da planilha (mês da cobrança). Clique num cliente para ver os detalhes.';
   const pill=(e,curto)=>`<span class="cb-st ${e}">${(curto?CB_CURTO:CB_ST)[e]||e}</span>`;
   if(cb.vista==='lista'){
@@ -2783,6 +2808,50 @@ function cbRender(){
     $('cbGrade').querySelectorAll('tr[data-k]').forEach(tr=>tr.onclick=()=>cbDetalhe(tr.dataset.k,tr));
   }
 }
+/* Faturas da RGE: checklist do mês de referência (lida no Leitor / chegou no e-mail e falta ler / não chegou) */
+const CB_FAT={email:{nome:'Chegou no e-mail, falta ler',cls:'enviar',pri:0},falta:{nome:'Ainda não chegou',cls:'nao_emitiu',pri:1},
+  novo:{nome:'Cliente novo',cls:'aguarda_1a',pri:2},lida:{nome:'Lida',cls:'pago',pri:3}};
+function cbRenderFaturas(){
+  const E=anaEsc,hoje=cb.hoje;
+  // meses de referência: os das faturas lidas, das cobranças e da PROGRAMAÇÃO, até o mês passado
+  let y=+hoje.slice(0,4),m=+hoje.slice(5,7)-1;if(m<1){m=12;y--}const passado=y+'-'+String(m).padStart(2,'0');
+  const refs=new Set([passado]);Object.values(cb.cli).forEach(c=>{(c.fats||[]).forEach(f=>refs.add(f.ref));c.lista.forEach(x=>{if(x.ref)refs.add(x.ref)});if(c.rge)refs.add(c.rge.ref)});
+  const lr=[...refs].filter(r=>r<=hoje.slice(0,7)).sort().reverse().slice(0,8);
+  if(!cb.fatRef||!lr.includes(cb.fatRef))cb.fatRef=passado;
+  $('cbFatRef').innerHTML=lr.map(r=>`<option value="${r}"${r===cb.fatRef?' selected':''}>${cbRef(r)}</option>`).join('');
+  const M=cb.fatRef,ult2=cb.meses.slice(-2);
+  // clientes ativos: aparecem numa das 2 últimas abas, estão conectados fora das abas ou têm fatura lida deste mês
+  const ativos=Object.values(cb.cli).filter(c=>!/CANCEL/i.test(c.stCli||'')&&(c.lista.some(x=>!x.fora&&ult2.includes(x.c))||c.fora||(c.fats||[]).some(f=>f.ref===M))&&cbFiltroBase(c.lista[0]||{cli:c}));
+  const linhas=ativos.map(c=>{
+    const f=(c.fats||[]).find(o=>o.ref===M),cobr=c.lista.filter(x=>x.ref===M).pop();
+    const novo=c.lista.some(x=>x.e==='aguarda_1a');
+    const st=f?'lida':c.rge&&c.rge.ref>=M?'email':novo?'novo':'falta';
+    return {c,f,cobr,st};
+  });
+  const cnt=k=>linhas.filter(l=>l.st===k).length;
+  if(!cb.fatSt)cb.fatSt='todos';
+  $('cbFatTipos').innerHTML=[['todos','Todos',linhas.length],...Object.entries(CB_FAT).map(([k,o])=>[k,o.nome,cnt(k)])].map(([k,n,q])=>`<button type="button" data-s="${k}" class="${cb.fatSt===k?'on':''}" aria-pressed="${cb.fatSt===k}">${n} (${q})</button>`).join('');
+  $('cbFatTipos').querySelectorAll('button').forEach(b=>b.onclick=()=>{cb.fatSt=b.dataset.s;cbRenderFaturas()});
+  const vis=linhas.filter(l=>cb.fatSt==='todos'||l.st===cb.fatSt).sort((a,b)=>CB_FAT[a.st].pri-CB_FAT[b.st].pri||a.c.n.localeCompare(b.c.n,'pt-BR'));
+  const kw=v=>v==null?'':Math.round(v).toLocaleString('pt-BR')+' kWh';
+  $('cbFatCorpo').innerHTML=vis.length?vis.map(({c,f,cobr,st})=>{
+    let fat=`<span class="cb-st ${CB_FAT[st].cls}">${CB_FAT[st].nome}</span>`,oq='';
+    if(f)fat+=`<small>${[f.valor!=null?brl(f.valor):'',f.inj!=null?'injetado '+kw(f.inj):'',f.venc?'venc. '+cbDM(f.venc):''].filter(Boolean).join(' · ')}</small>`;
+    else if(st==='email')fat+=`<small>conta de ${cbRef(c.rge.ref)} na PROGRAMAÇÃO · venc. ${cbDM(c.rge.venc)}${c.rge.valor!=null?' · '+brl(c.rge.valor):''}</small>`;
+    const ultF=(c.fats||[]).length?c.fats[c.fats.length-1]:null;
+    if(st==='email')oq='Baixar o PDF da conta e ler no Leitor de faturas.';
+    else if(st==='falta')oq=(c.rge?'Última conta no e-mail: '+cbRef(c.rge.ref)+'. ':'Nenhuma conta desta UC na PROGRAMAÇÃO. ')+(ultF?'Última fatura lida: '+cbRef(ultF.ref)+'.':'');
+    else if(st==='novo')oq='Aguardando a 1ª fatura (entrou no rateio em '+anaDataBR(c.anexo)+').';
+    else if(!cobr)oq='Fatura lida; esta referência ainda não aparece nas abas de cobrança.';
+    else if(cobr.e==='nao_emitiu'||cobr.e==='sem_fatura')oq='<span class="ok">Fatura lida: dá para emitir a cobrança.</span>';
+    const cob=cobr?`<span class="cb-st ${cobr.e}">${CB_ST[cobr.e]||cobr.e}</span><small>aba ${fxMesNome(cobr.c)}${cobr.v>0?' · '+brl(cobr.v):''}</small>`:'—';
+    return `<tr data-k="${E(c.k)}"><td><b>${E(c.n)}</b><small>${E(c.uc)}${c.inv?' · '+E(c.inv):''}</small></td><td data-l="Fatura">${fat}</td><td data-l="Cobrança">${cob}</td><td class="cb-motivo">${oq}</td></tr>`}).join('')
+    :'<tr><td colspan="4" class="ana-vazio">Nenhum cliente com esses filtros.</td></tr>';
+  $('cbFatRodape').innerHTML=`<span>Ref. ${cbRef(M)}: <b>${cnt('lida')}</b> lida${cnt('lida')===1?'':'s'} de ${linhas.length} clientes ativos</span>`+(cb.fatSemCliente?`<span>${cb.fatSemCliente} fatura${cb.fatSemCliente===1?'':'s'} lida${cb.fatSemCliente===1?'':'s'} de UC que não está nas cobranças</span>`:'');
+  $('cbFatCorpo').querySelectorAll('tr[data-k]').forEach(tr=>tr.onclick=()=>cbDetalhe(tr.dataset.k,tr));
+}
+$('cbFatRef').onchange=e=>{cb.fatRef=e.target.value;cbRenderFaturas()};
+$('cbIrLeitor').onclick=()=>window.abrirTab&&window.abrirTab('leitor');
 function cbDetalhe(k,volta){
   const c=cb.cli[k];if(!c)return;const E=anaEsc;cb.volta=volta;
   $('cbMNome').textContent=c.n;
@@ -2807,6 +2876,12 @@ function cbDetalhe(k,volta){
     <label>Anotação<textarea id="cbEdNota" rows="3" maxlength="2000" placeholder="Ex.: liguei dia 25, prometeu pagar até sexta">${E(c.nota)}</textarea></label>
     <div class="cb-edit-acoes"><button class="btn sm" type="button" id="cbEdSalvar">Salvar</button><span id="cbEdMsg"></span></div>
   </div></section>`;
+  const fs=(c.fats||[]).slice().reverse(),kw=v=>v==null?'—':Math.round(v).toLocaleString('pt-BR');
+  h+=`<section class="ficha-bloco"><h3>Faturas da RGE lidas no portal<span>${fs.length?fs.length+' fatura'+(fs.length===1?'':'s'):'aba Faturas Lidas'}</span></h3>`+(fs.length?`<div class="ana-tabela cb-hist"><div class="ana-scroll"><table>
+    <thead><tr><th>Ref.</th><th>Vencimento</th><th class="num">Valor</th><th class="num">Consumo</th><th class="num">Injetada</th><th class="num">Saldo</th></tr></thead><tbody>`+
+    fs.map(f=>`<tr><td data-l="Ref."><b>${cbRef(f.ref)}</b></td><td data-l="Vencimento">${f.venc?anaDataBR(f.venc):'—'}</td><td class="num" data-l="Valor">${f.valor!=null?brl(f.valor):'—'}</td>
+      <td class="num" data-l="Consumo">${kw(f.cons)} kWh</td><td class="num" data-l="Injetada">${kw(f.inj)} kWh</td><td class="num" data-l="Saldo">${kw(f.saldo)} kWh</td></tr>`).join('')+'</tbody></table></div></div>'
+    :'<div class="ficha-vazio">Nenhuma fatura desta UC foi lida no Leitor de faturas ainda.</div>')+'</section>';
   const lista=c.lista.slice().reverse();
   h+=`<section class="ficha-bloco"><h3>Todos os meses<span>${c.lista.length} linha${c.lista.length===1?'':'s'}</span></h3><div class="ana-tabela cb-hist"><div class="ana-scroll"><table>
     <thead><tr><th>Mês</th><th class="num">Fatura</th><th>Cobrança</th><th>Situação</th><th>Detalhes</th></tr></thead><tbody>`+

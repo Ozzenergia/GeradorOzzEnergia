@@ -162,7 +162,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '31 (Cobranças guardadas nas abas Cobranças e Cobranças Clientes)';
+const VERSAO_SCRIPT = '32 (Cobranças usam as faturas lidas pelo Leitor)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -835,8 +835,16 @@ function cobDados_() {
   });
   let sync = {}; try { sync = JSON.parse(PropertiesService.getScriptProperties().getProperty('COB_SYNC') || '{}'); } catch (e) {}
   const agora = new Date();
+  // faturas da RGE lidas pelo Leitor (aba Faturas Lidas): uma por UC e mês de referência
+  const faturas = lerAbaCob_(ss.getSheetByName('Faturas Lidas')).map(o => {
+    const uc = String(o['UC'] == null ? '' : o['UC']).replace(/\.0+$/, '').replace(/\D/g, ''), m = String(o['Mês Ref (AAAAMM)'] || '').replace(/\D/g, '');
+    if (uc.length < 7 || m.length !== 6) return null;
+    const n = x => typeof x === 'number' && isFinite(x) ? x : null, vc = o['Vencimento'];
+    return { uc: uc, ref: m.slice(0, 4) + '-' + m.slice(4), venc: vc instanceof Date ? Utilities.formatDate(vc, tz, 'yyyy-MM-dd') : String(vc || '').trim().replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1'),
+      valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']) };
+  }).filter(Boolean);
   return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: sync.em || '', avisos: sync.avisos || [],
-    prazoDias: PRAZO_1A_FATURA_DIAS, meses: Object.keys(meses).sort().map(c => ({ comp: c, aba: meses[c] })), clientes: clientes, cobrancas: cobs };
+    prazoDias: PRAZO_1A_FATURA_DIAS, meses: Object.keys(meses).sort().map(c => ({ comp: c, aba: meses[c] })), clientes: clientes, cobrancas: cobs, faturas: faturas };
 }
 
 /** Pedido do site. Sem forcar: devolve o que está nas abas (e começa a primeira cópia se estiverem vazias).

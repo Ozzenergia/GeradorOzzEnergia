@@ -15,6 +15,9 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   de controle. A tela mostra o que falta emitir, enviar e receber, com o motivo. Cliente novo (sem nenhuma fatura) fica em
   "Aguardando 1ª fatura" até 90 dias depois da entrada no rateio (Anexo G). Na ficha do cliente dá para corrigir a data
   de entrada no rateio e escrever uma anotação: essas duas colunas da aba Cobranças Clientes nunca são apagadas na cópia.
+  A visão **Faturas da RGE** é o checklist do mês: para cada cliente ativo, mostra se a fatura da RGE daquele mês de
+  referência já foi lida no Leitor, se chegou no e-mail (PROGRAMAÇÃO) e falta ler, ou se ainda não chegou. As faturas lidas
+  também entram no motivo da cobrança ("a fatura de 10/2026 já foi lida: dá para emitir") e na ficha do cliente.
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
   instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho
