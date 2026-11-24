@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -162,7 +162,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '30 (Cobranças em segundo plano)';
+const VERSAO_SCRIPT = '31 (Cobranças guardadas nas abas Cobranças e Cobranças Clientes)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -231,6 +231,10 @@ function doPost(e) {
     if (req.acao === 'cobrancas') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver as cobranças', auth: true });
       return json(cobrancasComCache_(!!req.forcar));
+    }
+    if (req.acao === 'cob_cliente') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para salvar', auth: true });
+      return json(cobSalvarCliente(req.cliente || {}, usuario));
     }
     if (req.acao === 'clientes') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para buscar clientes', auth: true });
@@ -681,20 +685,174 @@ function lerFluxo() {
  *   para saber se a RGE já emitiu a conta que falta cobrar.
  *   Não devolve CPF/CNPJ.
  * ========================================================= */
-const CACHE_COB_ = 'cob_v1';
+/* As cobranças ficam guardadas em duas abas DESTA planilha (a do portal), criadas sozinhas:
+ *   "Cobranças"          uma linha por UC e aba de mês, copiada da planilha de controle (é reescrita a cada atualização)
+ *   "Cobranças Clientes" uma linha por UC: dados do cliente + colunas do portal que NUNCA são apagadas na atualização
+ *                        ("Entrada no rateio (ajuste manual)" e "Anotação")
+ * Ler as abas dos meses da planilha de controle leva 1–2 min (passa do tempo que o site espera e dá "sem conexão").
+ * Por isso a cópia roda em segundo plano: o acionador de 10 em 10 min (atualizarCacheProgramacao) e, quando alguém clica em
+ * Atualizar, um acionador de uma vez (cobrancasPreparar). O site lê as abas daqui, que é rápido, e vai perguntando enquanto copia.
+ * Cliente novo (nunca teve fatura) com entrada no rateio há até PRAZO_1A_FATURA_DIAS dias fica "Aguardando 1ª fatura",
+ * fora das pendências. */
+const PRAZO_1A_FATURA_DIAS = 90;
+const ABA_COB = 'Cobranças';
+const ABA_COB_CLI = 'Cobranças Clientes';
+const COLS_COB = ['Chave', 'Mês', 'Aba', 'Linha', 'Mês ref. RGE', 'UC (chave)', 'Cliente', 'UC', 'Investidor', 'Vendedor', 'Fatura (R$)', 'Cobrança',
+  'Vencimento RGE', 'STATUS (planilha)', 'Situação', 'Conta RGE', 'CONF', 'PGTO', 'REF PGTO', 'Observações'];
+const COLS_COB_CLI = ['UC (chave)', 'Cliente', 'UC', 'UC antiga', 'Investidor', 'Vendedor', 'Responsável', 'Telefone', 'Cidade', 'Status na CLIENTES',
+  'Anexo G (planilha de controle)', 'Entrada no rateio (ajuste manual)', 'Anotação', 'Última conta RGE: ref.', 'Última conta RGE: vencimento',
+  'Última conta RGE: valor', 'Última conta RGE: situação', 'Fora das abas', 'Não está na CLIENTES', 'Anotado por', 'Anotado em'];
+const SIT_COB_ = { pago: 'Pago', atrasado: 'Atrasado', vencida: 'Vencida', aguardando: 'Aguardando', enviar: 'A enviar', nao_emitiu: 'Não emitida',
+  sem_fatura: 'Sem fatura', sem_status: 'Sem status', outro: 'Outro', aguarda_1a: 'Aguardando 1ª fatura' };
 
-/* Ler as abas dos meses da planilha de controle leva 1–2 min (passa do tempo que o site espera e dá "sem conexão").
-   Por isso a leitura roda em segundo plano: o acionador de 10 em 10 min (atualizarCacheProgramacao) deixa o cache pronto,
-   e quando falta cache ou alguém clica em Atualizar, um acionador de uma vez (cobrancasPreparar) lê e o site vai perguntando. */
+/** STATUS da aba do mês → código. */
+function cobStatus_(st, fat) {
+  const s = String(st == null ? '' : st).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/^PAGO/.test(s)) return 'pago';
+  if (/ATRAS|INADIMP/.test(s)) return 'atrasado';
+  if (/^AGUARD/.test(s)) return 'aguardando';
+  if (/ENVIAR/.test(s)) return 'enviar';
+  if (/NAO EMIT|N EMIT/.test(s)) return 'nao_emitiu';
+  if (!s) return fat > 0 ? 'sem_status' : 'sem_fatura';
+  return 'outro';
+}
+
+/** Situação de cada linha de um cliente (as linhas dele, a data de entrada no rateio e hoje, tudo em AAAA-MM-DD). */
+function cobSituacoes_(linhas, entrada, hoje) {
+  const faturado = linhas.some(x => x.v > 0 && x.s !== 'nao_emitiu' && x.s !== 'sem_fatura');
+  const dias = entrada ? Math.round((Date.parse(hoje + 'T12:00:00') - Date.parse(entrada + 'T12:00:00')) / 864e5) : null;
+  const novoNoPrazo = !faturado && dias != null && dias >= 0 && dias <= PRAZO_1A_FATURA_DIAS;
+  return linhas.map(x => {
+    if (x.s === 'aguardando' && x.cob && x.cob < hoje) return 'vencida';
+    if ((x.s === 'nao_emitiu' || x.s === 'sem_fatura') && novoNoPrazo) return 'aguarda_1a';
+    return x.s;
+  });
+}
+
+function abaCob_(nome, cols) {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(nome);
+  if (!sh) {
+    sh = ss.insertSheet(nome);
+    sh.getRange(1, 1, 1, cols.length).setValues([cols]).setFontWeight('bold').setBackground('#ede7f6');
+    sh.setFrozenRows(1);
+  } else completaCabecalho_(sh, cols);
+  return sh;
+}
+
+/** Lê uma aba de cobranças como lista de objetos {coluna: valor}, achando as colunas pelo título. */
+function lerAbaCob_(sh) {
+  if (!sh || sh.getLastRow() < 2) return [];
+  const v = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues(), cab = v[0].map(x => String(x).trim());
+  return v.slice(1).map((r, i) => { const o = { _linha: i + 2 }; cab.forEach((c, j) => { if (c) o[c] = r[j]; }); return o; });
+}
+
+/** Copia o resultado da leitura da planilha de controle para as duas abas daqui (mantém as colunas do portal). */
+function cobGravarAbas_(r) {
+  const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  const hoje = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const data = iso => iso ? new Date(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)), 12) : '';
+  const isoDe = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(60000)) throw new Error('outra gravação das cobranças está em andamento');
+  try {
+    // ---- clientes: guarda o que o portal escreveu (entrada manual e anotação) antes de reescrever
+    const shC = abaCob_(ABA_COB_CLI, COLS_COB_CLI), antes = {};
+    lerAbaCob_(shC).forEach(o => { const k = String(o['UC (chave)'] || ''); if (k) antes[k] = o; });
+    const ultMes = r.meses.length ? r.meses[r.meses.length - 1] : null;
+    const entradaDe = {}, linhasC = r.clientes.map(c => {
+      const a = antes[c.k] || {}, man = a['Entrada no rateio (ajuste manual)'];
+      entradaDe[c.k] = isoDe(man) || c.anexo || '';
+      const g = c.rge || {};
+      return [c.k, c.n, c.uc, c.ucA, c.inv, c.vend, c.resp, c.tel, c.cid, c.stCli, c.anexo ? data(c.anexo) : c.anexoTxt, man || '', a['Anotação'] || '',
+        g.ref || '', g.venc ? data(g.venc) : '', g.valor == null ? '' : g.valor, g.sit || '', c.fora ? 'SIM' : '', c.semCad ? 'SIM' : '',
+        a['Anotado por'] || '', a['Anotado em'] || ''];
+    });
+    // cliente que saiu da leitura mas tem algo escrito pelo portal: a linha continua (não perde a anotação)
+    Object.keys(antes).forEach(k => {
+      if (r.clientes.some(c => c.k === k)) return;
+      const a = antes[k];
+      if (a['Entrada no rateio (ajuste manual)'] || a['Anotação']) linhasC.push(COLS_COB_CLI.map(c => a[c] === undefined ? '' : a[c]));
+    });
+    escreveAbaCob_(shC, COLS_COB_CLI, linhasC, [11, 12, 15], { 16: '#,##0.00' });
+    // ---- cobranças: reescreve tudo
+    const porCli = {};
+    r.cobrancas.forEach(x => { (porCli[x.k] = porCli[x.k] || []).push(x); });
+    r.clientes.forEach(c => { if (c.fora && ultMes) (porCli[c.k] = porCli[c.k] || []).push({ k: c.k, c: ultMes.comp, l: '', v: null, s: 'sem_fatura', st: '', ref: '', cob: '', vr: '', conf: '', rge: '', pg: '', refPg: '', obs: '', fora: true }); });
+    const nomes = {}; r.clientes.forEach(c => { nomes[c.k] = c; });
+    const abaDe = {}; r.meses.forEach(m => { abaDe[m.comp] = m.aba; });
+    const linhas = [];
+    Object.keys(porCli).forEach(k => {
+      const l = porCli[k], sit = cobSituacoes_(l, entradaDe[k], hoje), c = nomes[k] || {};
+      l.forEach((x, i) => linhas.push([k + '|' + x.c + '|' + (x.l || 'fora'), x.c, x.fora ? '(fora das abas)' : abaDe[x.c] || '', x.l || '', x.ref || '', k, c.n || '', c.uc || '',
+        c.inv || '', c.vend || '', x.v == null ? '' : x.v, x.cob ? data(x.cob) : '', x.vr ? data(x.vr) : '', x.st || '', SIT_COB_[sit[i]] || sit[i],
+        x.rge || '', /^\d{4}-\d{2}-\d{2}$/.test(x.conf) ? data(x.conf) : x.conf || '', x.pg || '', x.refPg || '', x.obs || '']));
+    });
+    linhas.sort((a, b) => a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : String(a[6]).localeCompare(String(b[6])));
+    escreveAbaCob_(abaCob_(ABA_COB, COLS_COB), COLS_COB, linhas, [12, 13, 17], { 11: '#,##0.00' });
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('COB_SYNC', JSON.stringify({ em: Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'), avisos: r.avisos || [] }));
+  } finally { lock.releaseLock(); }
+}
+
+/** Reescreve o corpo de uma aba (cabeçalho fica), com formato de data/número nas colunas indicadas (1 = primeira). */
+function escreveAbaCob_(sh, cols, linhas, colsData, colsNum) {
+  const larg = Math.max(sh.getLastColumn(), cols.length), cab = sh.getRange(1, 1, 1, larg).getValues()[0].map(x => String(x).trim());
+  // a ordem das colunas pode ter mudado à mão: escreve cada coluna no lugar do seu título
+  const pos = cols.map(c => cab.indexOf(c));
+  const corpo = linhas.map(l => { const row = Array(larg).fill(''); pos.forEach((p, i) => { if (p >= 0) row[p] = l[i] === undefined || l[i] === null ? '' : l[i]; }); return row; });
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, larg).clearContent();
+  if (corpo.length) {
+    sh.getRange(2, 1, corpo.length, larg).setValues(corpo);
+    colsData.forEach(c => { const p = pos[c - 1]; if (p >= 0) sh.getRange(2, p + 1, corpo.length, 1).setNumberFormat('dd/MM/yyyy'); });
+    Object.keys(colsNum || {}).forEach(c => { const p = pos[Number(c) - 1]; if (p >= 0) sh.getRange(2, p + 1, corpo.length, 1).setNumberFormat(colsNum[c]); });
+  }
+}
+
+/** Lê as duas abas daqui e devolve no formato que a tela usa. null = ainda não foram preenchidas. */
+function cobDados_() {
+  const ss = SpreadsheetApp.getActive(), tz = ss.getSpreadsheetTimeZone();
+  const shC = ss.getSheetByName(ABA_COB_CLI), shL = ss.getSheetByName(ABA_COB);
+  if (!shL || shL.getLastRow() < 2) return null;
+  const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
+  const t = x => x instanceof Date ? Utilities.formatDate(x, tz, 'dd/MM/yyyy') : String(x == null ? '' : x).trim();
+  const clientes = lerAbaCob_(shC).filter(o => o['UC (chave)']).map(o => {
+    const man = iso(o['Entrada no rateio (ajuste manual)']), anexo = iso(o['Anexo G (planilha de controle)']);
+    const ref = t(o['Última conta RGE: ref.']);
+    return { k: t(o['UC (chave)']), n: t(o['Cliente']), uc: t(o['UC']), ucA: t(o['UC antiga']), inv: t(o['Investidor']), vend: t(o['Vendedor']),
+      resp: t(o['Responsável']), tel: t(o['Telefone']), cid: t(o['Cidade']), stCli: t(o['Status na CLIENTES']),
+      anexo: man || anexo, anexoG: anexo, anexoManual: !!man, anexoTxt: anexo ? '' : t(o['Anexo G (planilha de controle)']),
+      nota: t(o['Anotação']), notaPor: t(o['Anotado por']), notaEm: t(o['Anotado em']),
+      rge: ref ? { ref: ref, venc: iso(o['Última conta RGE: vencimento']), valor: typeof o['Última conta RGE: valor'] === 'number' ? o['Última conta RGE: valor'] : null, sit: t(o['Última conta RGE: situação']) } : null,
+      fora: t(o['Fora das abas']) === 'SIM', semCad: t(o['Não está na CLIENTES']) === 'SIM' };
+  });
+  const meses = {}, cobs = lerAbaCob_(shL).filter(o => o['UC (chave)'] && o['Mês']).map(o => {
+    const fora = t(o['Aba']) === '(fora das abas)', c = t(o['Mês']), v = typeof o['Fatura (R$)'] === 'number' ? o['Fatura (R$)'] : null, st = t(o['STATUS (planilha)']);
+    if (!fora) meses[c] = t(o['Aba']);
+    return { k: t(o['UC (chave)']), c: c, l: Number(o['Linha']) || 0, v: v, s: fora ? 'sem_fatura' : cobStatus_(st, v), st: st, ref: t(o['Mês ref. RGE']),
+      cob: iso(o['Cobrança']), vr: iso(o['Vencimento RGE']), conf: iso(o['CONF']) || t(o['CONF']), rge: t(o['Conta RGE']), pg: t(o['PGTO']), refPg: t(o['REF PGTO']),
+      obs: t(o['Observações']), fora: fora };
+  });
+  let sync = {}; try { sync = JSON.parse(PropertiesService.getScriptProperties().getProperty('COB_SYNC') || '{}'); } catch (e) {}
+  const agora = new Date();
+  return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: sync.em || '', avisos: sync.avisos || [],
+    prazoDias: PRAZO_1A_FATURA_DIAS, meses: Object.keys(meses).sort().map(c => ({ comp: c, aba: meses[c] })), clientes: clientes, cobrancas: cobs };
+}
+
+/** Pedido do site. Sem forcar: devolve o que está nas abas (e começa a primeira cópia se estiverem vazias).
+    Com forcar: começa uma cópia nova em segundo plano e devolve o que já existe, com preparando = true. */
 function cobrancasComCache_(forcar) {
   const props = PropertiesService.getScriptProperties();
-  const c = lerCacheGrande_(CACHE_COB_);
-  if (c && !forcar) { c.doCache = true; return c; }
+  const d = cobDados_();
   let est = {}; try { est = JSON.parse(props.getProperty('COB_ESTADO') || '{}'); } catch (e) {}
   const rodando = est.estado === 'rodando' && Date.now() - (est.desde || 0) < 7 * 60000;
+  if (d && !forcar && !rodando) return d;
   if (!rodando) {
-    // terminou com erro há pouco e não há dados: mostra o erro (Atualizar tenta de novo)
-    if (!forcar && !c && est.estado === 'erro' && Date.now() - (est.fim || 0) < 2 * 60000) return { ok: false, erro: est.erro };
+    // terminou com erro há pouco: mostra o erro (Atualizar tenta de novo)
+    if (!forcar && est.estado === 'erro' && Date.now() - (est.fim || 0) < 2 * 60000) {
+      if (d) { d.avisos = (d.avisos || []).concat('a última cópia da planilha de controle deu erro: ' + est.erro); return d; }
+      return { ok: false, erro: est.erro };
+    }
     props.setProperty('COB_ESTADO', JSON.stringify({ estado: 'rodando', desde: Date.now() }));
     try {
       ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'cobrancasPreparar').forEach(t => ScriptApp.deleteTrigger(t));
@@ -705,23 +863,61 @@ function cobrancasComCache_(forcar) {
     }
     est = { desde: Date.now() };
   }
-  const r = c || { ok: true };
+  const r = d || { ok: true };
   r.preparando = true; r.desde = est.desde;
   return r;
 }
 
-/** Roda pelo acionador de uma vez (ou no editor, para testar): lê as cobranças e guarda no cache. */
+/** Roda pelo acionador de uma vez (ou no editor, para testar): lê a planilha de controle e grava as abas de cobranças. */
 function cobrancasPreparar() {
   ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'cobrancasPreparar').forEach(t => ScriptApp.deleteTrigger(t));
   const props = PropertiesService.getScriptProperties(), t0 = Date.now();
   let est;
   try {
     const r = lerCobrancas();
-    if (r.ok) { gravarCacheGrande_(CACHE_COB_, r); est = { estado: 'pronto', fim: Date.now() }; }
+    if (r.ok) { cobGravarAbas_(r); est = { estado: 'pronto', fim: Date.now() }; }
     else est = { estado: 'erro', erro: r.erro, fim: Date.now() };
   } catch (e) { est = { estado: 'erro', erro: String(e && e.message || e).slice(0, 300), fim: Date.now() }; }
   props.setProperty('COB_ESTADO', JSON.stringify(est));
   Logger.log('Cobranças: ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s → ' + JSON.stringify(est));
+}
+
+/** O site salva a entrada no rateio (ajuste manual; vazio = volta a valer o Anexo G) e a anotação de um cliente,
+    e recalcula a Situação das linhas dele na aba Cobranças. */
+function cobSalvarCliente(d, usuario) {
+  const k = String(d && d.k || '').trim();
+  if (!k) return { ok: false, erro: 'cliente não informado' };
+  const ent = String(d.entrada || '').trim();
+  if (ent && !/^\d{4}-\d{2}-\d{2}$/.test(ent)) return { ok: false, erro: 'data inválida' };
+  const nota = String(d.nota == null ? '' : d.nota).trim().slice(0, 2000);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'a planilha está gravando as cobranças agora; tente de novo em 1 minuto' };
+  try {
+    const ss = SpreadsheetApp.getActive(), tz = ss.getSpreadsheetTimeZone();
+    const shC = ss.getSheetByName(ABA_COB_CLI), shL = ss.getSheetByName(ABA_COB);
+    if (!shC || !shL) return { ok: false, erro: 'as abas de cobranças ainda não existem: clique em Atualizar' };
+    const cab = shC.getRange(1, 1, 1, shC.getLastColumn()).getValues()[0].map(x => String(x).trim()), c = n => cab.indexOf(n) + 1;
+    const o = lerAbaCob_(shC).find(x => String(x['UC (chave)']) === k);
+    if (!o) return { ok: false, erro: 'não achei este cliente na aba ' + ABA_COB_CLI + ': clique em Atualizar' };
+    const quando = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm');
+    const dt = ent ? new Date(Number(ent.slice(0, 4)), Number(ent.slice(5, 7)) - 1, Number(ent.slice(8, 10)), 12) : '';
+    shC.getRange(o._linha, c('Entrada no rateio (ajuste manual)')).setValue(dt).setNumberFormat('dd/MM/yyyy');
+    shC.getRange(o._linha, c('Anotação')).setValue(nota ? limpa(nota) : '');
+    shC.getRange(o._linha, c('Anotado por')).setValue(usuario.nome || usuario.email || '');
+    shC.getRange(o._linha, c('Anotado em')).setValue(quando);
+    // recalcula a Situação das linhas deste cliente
+    const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
+    const entrada = ent || iso(o['Anexo G (planilha de controle)']);
+    const hoje = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+    const cabL = shL.getRange(1, 1, 1, shL.getLastColumn()).getValues()[0].map(x => String(x).trim()), cSit = cabL.indexOf('Situação') + 1;
+    const minhas = lerAbaCob_(shL).filter(x => String(x['UC (chave)']) === k).map(x => {
+      const v = typeof x['Fatura (R$)'] === 'number' ? x['Fatura (R$)'] : null;
+      return { _linha: x._linha, v: v, s: x['Aba'] === '(fora das abas)' ? 'sem_fatura' : cobStatus_(x['STATUS (planilha)'], v), cob: iso(x['Cobrança']) };
+    });
+    const sit = cobSituacoes_(minhas, entrada, hoje);
+    if (cSit > 0) minhas.forEach((x, i) => shL.getRange(x._linha, cSit).setValue(SIT_COB_[sit[i]] || sit[i]));
+    return { ok: true, k: k, entrada: ent, nota: nota, notaPor: usuario.nome || usuario.email || '', notaEm: quando };
+  } finally { lock.releaseLock(); }
 }
 
 function lerCobrancas(ssAberta) {
@@ -1153,7 +1349,7 @@ function atualizarCacheProgramacao() {
   const r = lerProgramacao();
   if (r.ok) gravarCacheGrande_(CACHE_PROG_, r); else Logger.log('Programação: ' + r.erro);
   try { const f = lerFluxo(); if (f.ok) gravarCacheGrande_(CACHE_FLUXO_, f); else Logger.log('Fluxo: ' + f.erro); } catch (e) { Logger.log('Fluxo: ' + e.message); }
-  try { const c = lerCobrancas(); if (c.ok) gravarCacheGrande_(CACHE_COB_, c); else Logger.log('Cobranças: ' + c.erro); } catch (e) { Logger.log('Cobranças: ' + e.message); }
+  try { const c = lerCobrancas(); if (c.ok) cobGravarAbas_(c); else Logger.log('Cobranças: ' + c.erro); } catch (e) { Logger.log('Cobranças: ' + e.message); }
 }
 
 /** Guarda um objeto grande no cache, em pedaços de 90 KB (25 min: sobra tempo entre uma renovação e outra). */

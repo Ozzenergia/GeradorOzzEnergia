@@ -311,6 +311,16 @@ main.wide{max-width:1180px}
 .cb-aberto{font-weight:700;color:var(--err)}
 .cb-hist td{font-size:13.5px}
 .cb-dica{font-size:13px;color:var(--muted);margin:-4px 0 12px}
+.cb-st.aguarda_1a{background:#e6f4f1;color:#0f766e}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .cb-st.aguarda_1a{background:#0f2b28;color:#5eead4}}
+:root[data-theme="dark"] .cb-st.aguarda_1a{background:#0f2b28;color:#5eead4}
+.cb-edit{padding:14px 16px;display:grid;gap:10px}
+.cb-edit label{display:grid;gap:4px;font-size:12.5px;color:var(--muted);font-weight:600}
+.cb-edit input,.cb-edit textarea{font:inherit;font-size:14.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px;max-width:100%}
+.cb-edit input{max-width:220px}
+.cb-edit p{font-size:13px;color:var(--muted);margin:0;line-height:1.45}
+.cb-edit-acoes{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--ok)}
+.cb-edit-acoes .erro{color:var(--err)}
 #tab-cob .ana-filtros select{flex:0 1 auto;max-width:280px}
 @media(max-width:760px){
   .cb-grade .ana-tabela thead{display:table-header-group}
@@ -2605,17 +2615,17 @@ $('fxCustos').onchange=e=>{fx.custos=e.target.checked;if(!fx.custos&&fx.tipo==='
    Junta as abas dos meses (uma linha por UC e aba) e mostra o que falta emitir, enviar e receber.
    "Mês" = a aba da planilha (mês da cobrança); "ref. RGE" = a coluna REF* (mês da conta da RGE). */
 const cb={dados:null,L:[],cli:{},meses:[],mes:null,grupo:'pend',vista:'lista',busca:'',vend:'',inv:'',carregando:false};
-const CB_ST={pago:'Pago',atrasado:'Atrasado',vencida:'Vencida',aguardando:'Aguardando',enviar:'A enviar',nao_emitiu:'Não emitida',sem_fatura:'Sem fatura',sem_status:'Sem status',outro:'Outro'};
-const CB_CURTO={pago:'Pago',atrasado:'Atras.',vencida:'Venc.',aguardando:'Aguard.',enviar:'Enviar',nao_emitiu:'Não emit.',sem_fatura:'Sem fat.',sem_status:'S/ status',outro:'?'};
+const CB_ST={pago:'Pago',atrasado:'Atrasado',vencida:'Vencida',aguardando:'Aguardando',enviar:'A enviar',nao_emitiu:'Não emitida',sem_fatura:'Sem fatura',sem_status:'Sem status',outro:'Outro',aguarda_1a:'Aguardando 1ª fatura'};
+const CB_CURTO={pago:'Pago',atrasado:'Atras.',vencida:'Venc.',aguardando:'Aguard.',enviar:'Enviar',nao_emitiu:'Não emit.',sem_fatura:'Sem fat.',sem_status:'S/ status',outro:'?',aguarda_1a:'1ª fat.'};
 const CB_GRUPOS={pend:{nome:'Pendentes',e:['atrasado','vencida','nao_emitiu','sem_fatura','enviar','aguardando','sem_status','outro']},
   nemit:{nome:'Não emitidas',e:['nao_emitiu','sem_fatura']},env:{nome:'A enviar',e:['enviar']},agu:{nome:'Aguardando pagamento',e:['aguardando','sem_status','outro']},
-  atr:{nome:'Atrasadas',e:['atrasado','vencida']},pago:{nome:'Pagas',e:['pago']},todas:{nome:'Todas',e:null}};
-const CB_PRI={atrasado:0,vencida:0,enviar:2,aguardando:3,sem_status:3,outro:3,nao_emitiu:4,sem_fatura:4,pago:9};
+  atr:{nome:'Atrasadas',e:['atrasado','vencida']},novo:{nome:'Aguardando 1ª fatura',e:['aguarda_1a']},pago:{nome:'Pagas',e:['pago']},todas:{nome:'Todas',e:null}};
+const CB_PRI={atrasado:0,vencida:0,enviar:2,aguardando:3,sem_status:3,outro:3,nao_emitiu:4,sem_fatura:4,aguarda_1a:6,pago:9};
 const cbRef=r=>r?r.slice(5,7)+'/'+r.slice(0,4):'';
 const cbMaisUm=r=>{let y=+r.slice(0,4),m=+r.slice(5,7)+1;if(m>12){m=1;y++}return y+'-'+String(m).padStart(2,'0')};
 const cbDias=(a,b)=>Math.round((Date.parse(b+'T12:00:00')-Date.parse(a+'T12:00:00'))/864e5);
 const cbDM=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7):'';
-const cbAberto=e=>e!=='pago';
+const cbAberto=e=>e!=='pago'&&e!=='aguarda_1a';
 async function cbCarregar(forcar){
   if(cb.carregando)return;cb.carregando=true;
   const bt=$('cbAtualizar');bt.disabled=true;bt.textContent='Carregando…';$('cbErro').style.display='none';
@@ -2635,7 +2645,7 @@ async function cbCarregar(forcar){
   if(r&&r.ok&&r.preparando)r={ok:false,erro:'a leitura da planilha de controle está demorando mais que o normal. Clique em Atualizar daqui a pouco.'};
   if(!r||!r.ok){
     let e=(r&&r.erro)||'não foi possível ler a planilha';
-    if(/ação desconhecida/.test(e))e='a planilha do portal ainda está com o script antigo (atualize o Apps Script para a versão 30 e implante uma Nova versão)';
+    if(/ação desconhecida/.test(e))e='a planilha do portal ainda está com o script antigo (atualize o Apps Script para a versão 31 e implante uma Nova versão)';
     $('cbErro').textContent='⚠️ '+e;$('cbErro').style.display='block';
     if(!cb.dados)$('cbCorpo').innerHTML='<tr><td colspan="6" class="ana-vazio">Sem dados para mostrar.</td></tr>';
     return;
@@ -2647,14 +2657,13 @@ async function cbCarregar(forcar){
 function cbPreparar(r){
   const hoje=r.hoje,cli={};
   r.clientes.forEach(c=>{cli[c.k]={...c,lista:[]}});
-  const L=r.cobrancas.filter(x=>cli[x.k]).map(x=>({...x,cli:cli[x.k],e:x.s==='aguardando'&&x.cob&&x.cob<hoje?'vencida':x.s}));
+  const L=r.cobrancas.filter(x=>cli[x.k]).map(x=>({...x,cli:cli[x.k]}));
   L.forEach(x=>x.cli.lista.push(x));
   const meses=r.meses.map(m=>m.comp),ult=meses[meses.length-1];
-  // conectado na CLIENTES mas fora de todas as abas: entra como "sem fatura" no último mês
-  Object.values(cli).forEach(c=>{if(c.fora&&ult){const x={k:c.k,c:ult,l:0,v:null,s:'sem_fatura',e:'sem_fatura',st:'',ref:'',cob:'',vr:'',conf:'',rge:'',pg:'',refPg:'',obs:'',fora:true,cli:c};L.push(x);c.lista.push(x)}});
-  Object.values(cli).forEach(c=>{c.lista.sort((a,b)=>a.c<b.c?-1:a.c>b.c?1:a.l-b.l);c.abertos=c.lista.filter(x=>cbAberto(x.e))});
-  L.forEach(x=>{x.mot=cbMotivo(x,hoje);x.pri=CB_PRI[x.e]!=null?CB_PRI[x.e]:5;if(x.chegou)x.pri=1});
-  cb.dados=r;cb.L=L;cb.cli=cli;cb.meses=meses;cb.hoje=hoje;
+  // script antigo (sem as linhas "fora das abas"): conectado na CLIENTES e fora de todas as abas entra como "sem fatura" no último mês
+  Object.values(cli).forEach(c=>{if(c.fora&&ult&&!c.lista.some(x=>x.fora)){const x={k:c.k,c:ult,l:0,v:null,s:'sem_fatura',st:'',ref:'',cob:'',vr:'',conf:'',rge:'',pg:'',refPg:'',obs:'',fora:true,cli:c};L.push(x);c.lista.push(x)}});
+  cb.dados=r;cb.L=L;cb.cli=cli;cb.meses=meses;cb.hoje=hoje;cb.prazo=r.prazoDias||90;
+  Object.values(cli).forEach(c=>{c.lista.sort((a,b)=>a.c<b.c?-1:a.c>b.c?1:a.l-b.l);cbCalcCliente(c)});
   if(!cb.mes||(cb.mes!=='*'&&!meses.includes(cb.mes)))cb.mes=ult||'*';
   const op=(l,sel,nome)=>`<option value="">${nome}</option>`+l.map(v=>`<option${v===sel?' selected':''}>${anaEsc(v)}</option>`).join('');
   const uniq=f=>[...new Set(Object.values(cli).map(f).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
@@ -2662,19 +2671,28 @@ function cbPreparar(r){
   $('cbMes').value=cb.mes;
   $('cbVend').innerHTML=op(uniq(c=>c.vend),cb.vend,'Todos os vendedores');
   $('cbInv').innerHTML=op(uniq(c=>c.inv),cb.inv,'Todos os investidores');
-  $('cbSub').textContent='Abas '+fxMesNome(meses[0]||'')+' a '+fxMesNome(ult||'')+' da planilha de controle · lido em '+(r.lidoEm||'')+(r.doCache?' (guardado)':'');
+  $('cbSub').textContent='Abas '+fxMesNome(meses[0]||'')+' a '+fxMesNome(ult||'')+' da planilha de controle, copiadas para a aba "Cobranças" da planilha do portal'+(r.lidoEm?' em '+r.lidoEm:'');
+}
+/* situação de cada linha do cliente: vencida (aguardando com cobrança passada) e "aguardando 1ª fatura"
+   (cliente que nunca teve fatura e entrou no rateio há até cb.prazo dias) — a mesma regra do script da planilha */
+function cbCalcCliente(c){
+  const faturado=c.lista.some(x=>x.v>0&&x.s!=='nao_emitiu'&&x.s!=='sem_fatura');
+  const d=c.anexo?cbDias(c.anexo,cb.hoje):null,novo=!faturado&&d!=null&&d>=0&&d<=cb.prazo;
+  c.lista.forEach(x=>{x.e=x.s==='aguardando'&&x.cob&&x.cob<cb.hoje?'vencida':(x.s==='nao_emitiu'||x.s==='sem_fatura')&&novo?'aguarda_1a':x.s});
+  c.abertos=c.lista.filter(x=>cbAberto(x.e));
+  c.lista.forEach(x=>{x.chegou=false;x.mot=cbMotivo(x,cb.hoje);x.pri=CB_PRI[x.e]!=null?CB_PRI[x.e]:5;if(x.chegou&&x.e!=='aguarda_1a')x.pri=1});
 }
 /* o que está acontecendo com esta cobrança (texto curto, com HTML) */
 function cbMotivo(x,hoje){
   const E=anaEsc,c=x.cli,p=[];
   const fora=x.fora?'Está <b>'+E(c.stCli||'CONECTADO')+'</b> na aba CLIENTES, mas não aparece em nenhuma aba de mês. ':'';
-  if(x.e==='nao_emitiu'||x.e==='sem_fatura'||(x.e==='enviar'&&!(x.v>0))){
+  if(x.e==='nao_emitiu'||x.e==='sem_fatura'||x.e==='aguarda_1a'||(x.e==='enviar'&&!(x.v>0))){
     const ant=c.lista.filter(o=>o.c<x.c&&o.v>0&&o.e!=='nao_emitiu'&&o.e!=='sem_fatura');
     const ultRef=ant.map(o=>o.ref).filter(Boolean).sort().pop()||'',ultAba=ant.length?ant[ant.length-1].c:'';
     if(!ant.length){
-      if(c.anexo){const d=cbDias(c.anexo,hoje);
-        p.push(fora+'Cliente novo: entrou no rateio (Anexo G) em <b>'+anaDataBR(c.anexo)+'</b>, há '+d+' dias. '+(d<=75?'A 1ª fatura com crédito costuma sair 1 a 3 meses depois.':'<span class="alerta">Já passou do prazo normal: verificar.</span>'))}
-      else p.push(fora+'Cliente novo: sem data do Anexo G na aba CLIENTES'+(c.anexoTxt?' ("'+E(c.anexoTxt)+'")':'')+'.');
+      if(c.anexo){const d=cbDias(c.anexo,hoje),de=c.anexoManual?' (data ajustada no portal)':' (Anexo G)';
+        p.push(fora+'Cliente novo: entrou no rateio em <b>'+anaDataBR(c.anexo)+'</b>'+de+', há '+d+' dias. '+(x.e==='aguarda_1a'?'Dentro do prazo de '+cb.prazo+' dias para sair a 1ª fatura.':d>cb.prazo?'<span class="alerta">Já passou do prazo de '+cb.prazo+' dias: verificar.</span>':''))}
+      else p.push(fora+'Cliente novo: sem data de entrada no rateio (Anexo G'+(c.anexoTxt?' = "'+E(c.anexoTxt)+'"':' vazio')+'). Dá para preencher na ficha do cliente.');
     }
     if(c.rge){
       const g=c.rge,info=' (venc. '+cbDM(g.venc)+(g.valor!=null?', '+brl(g.valor):'')+')';
@@ -2702,6 +2720,7 @@ function cbMotivo(x,hoje){
   if(cbAberto(x.e)&&outros.length){const ms=[...new Set(outros.map(o=>o.c))].sort().reverse();
     p.push('<b>Também em aberto: '+ms.slice(0,4).map(fxMesNome).join(', ')+(ms.length>4?' e mais '+(ms.length-4):'')+'.</b>')}
   if(x.obs)p.push('Obs.: '+E(x.obs));
+  if(c.nota)p.push('📝 '+E(c.nota));
   return p.join(' ');
 }
 function cbAbrir(){if(!cb.dados)cbCarregar();else cbRender()}
@@ -2721,9 +2740,9 @@ function cbRender(){
   const base=cb.L.filter(x=>noMes(x)&&cbFiltroBase(x));
   const de=g=>base.filter(x=>cbNoGrupo(x,g));
   const soma=l=>l.reduce((a,x)=>a+(x.v>0?x.v:0),0);
-  const ne=de('nemit'),env=de('env'),agu=de('agu'),atr=de('atr');
+  const ne=de('nemit'),env=de('env'),agu=de('agu'),atr=de('atr'),nov=de('novo');
   const k=(g,cls,tit,l,sub)=>`<button type="button" class="ana-kpi ${cls}${cb.grupo===g?' on':''}" data-g="${g}"><small>${tit}</small><b>${l.length}</b><span>${sub}</span></button>`;
-  $('cbKpis').innerHTML=k('nemit','k-nemit','Não emitidas',ne,ne.filter(x=>x.chegou).length+' com conta da RGE já recebida')+
+  $('cbKpis').innerHTML=k('nemit','k-nemit','Não emitidas',ne,ne.filter(x=>x.chegou).length+' com conta da RGE já recebida'+(nov.length?' · '+nov.length+' cliente'+(nov.length===1?' novo':'s novos')+' no prazo':''))+
     k('env','k-env','A enviar',env,env.length?brl(soma(env))+' em faturas prontas':'nenhuma')+
     k('agu','k-agu','Aguardando pagamento',agu,brl(soma(agu)))+
     k('atr','k-atr','Atrasadas',atr,brl(soma(atr)));
@@ -2774,13 +2793,19 @@ function cbDetalhe(k,volta){
     <div class="ficha-kpi${ab.length?' alerta':''}"><small>Em aberto</small><b>${ab.length?ab.length+(ab.length===1?' mês':' meses'):'nada'}</b></div>
     <div class="ficha-kpi${atr.length?' alerta':''}"><small>Atrasado</small><b>${atr.length?brl(soma(atr)):'—'}</b></div>
     <div class="ficha-kpi"><small>Última paga</small><b>${up?fxMesNome(up.c):'—'}</b></div>
-    <div class="ficha-kpi"><small>Entrou no rateio</small><b>${c.anexo?anaDataBR(c.anexo):'—'}</b></div></div>`;
+    <div class="ficha-kpi"><small>Entrou no rateio${c.anexoManual?' (ajustada)':''}</small><b>${c.anexo?anaDataBR(c.anexo):'—'}</b></div></div>`;
   const g=c.rge;
   h+=`<section class="ficha-bloco"><h3>Dados<span>aba CLIENTES e PROGRAMAÇÃO</span></h3><div class="ficha-dados">
     <div><small>Investidor</small>${E(c.inv)||'—'}</div><div><small>Vendedor</small>${E(c.vend)||'—'}</div><div><small>Status na CLIENTES</small>${E(c.stCli)||(c.semCad?'não está na CLIENTES':'—')}</div>
     <div><small>Responsável</small>${E(c.resp)||'—'}</div><div><small>Telefone</small>${c.tel?`<a href="tel:${E(c.tel.replace(/\D/g,''))}">${E(c.tel)}</a>`:'—'}</div>
-    <div><small>Anexo G (entrada no rateio)</small>${c.anexo?anaDataBR(c.anexo)+' · há '+cbDias(c.anexo,cb.hoje)+' dias':(E(c.anexoTxt)||'—')}</div>
+    <div><small>Entrada no rateio</small>${c.anexo?anaDataBR(c.anexo)+' · há '+cbDias(c.anexo,cb.hoje)+' dias'+(c.anexoManual?' (ajustada no portal)':''):(E(c.anexoTxt)||'—')}</div>
     <div style="grid-column:1/-1"><small>Última conta da RGE na PROGRAMAÇÃO</small>${g?'ref. '+cbRef(g.ref)+(g.est?' (pelo vencimento)':'')+' · venc. '+anaDataBR(g.venc)+(g.valor!=null?' · '+brl(g.valor):'')+' · '+E(g.sit):'nenhuma conta desta UC'}</div>
+  </div></section>`;
+  h+=`<section class="ficha-bloco"><h3>Entrada no rateio e anotação<span>${c.notaEm?'salvo por '+E(c.notaPor)+' em '+E(c.notaEm):'fica na aba Cobranças Clientes'}</span></h3><div class="cb-edit">
+    <label>Entrada no rateio<input type="date" id="cbEdEnt" value="${c.anexoManual?E(c.anexo):''}"></label>
+    <p>Anexo G na planilha de controle: <b>${c.anexoG?anaDataBR(c.anexoG):(c.anexoManual||!c.anexo?'sem data':anaDataBR(c.anexo))}</b>. Preencha só para corrigir; vazio = vale o Anexo G. Cliente que nunca teve fatura fica em "Aguardando 1ª fatura" até ${cb.prazo} dias depois dessa data.</p>
+    <label>Anotação<textarea id="cbEdNota" rows="3" maxlength="2000" placeholder="Ex.: liguei dia 25, prometeu pagar até sexta">${E(c.nota)}</textarea></label>
+    <div class="cb-edit-acoes"><button class="btn sm" type="button" id="cbEdSalvar">Salvar</button><span id="cbEdMsg"></span></div>
   </div></section>`;
   const lista=c.lista.slice().reverse();
   h+=`<section class="ficha-bloco"><h3>Todos os meses<span>${c.lista.length} linha${c.lista.length===1?'':'s'}</span></h3><div class="ana-tabela cb-hist"><div class="ana-scroll"><table>
@@ -2790,10 +2815,21 @@ function cbDetalhe(k,volta){
         x.pg&&'PGTO '+x.pg.toLowerCase()+(x.refPg?' ('+x.refPg.toLowerCase()+')':''),x.obs&&'obs.: '+x.obs].filter(Boolean).map(E).join(' · ');
       return `<tr><td data-l="Mês"><b>${fxMesNome(x.c)}</b><small>${x.fora?'fora das abas':'aba '+E(ab)+(x.l?', linha '+x.l:'')}</small></td><td class="num" data-l="Fatura">${x.v>0?brl(x.v):'—'}</td>
         <td data-l="Cobrança">${x.cob?anaDataBR(x.cob):'—'}</td><td><span class="cb-st ${x.e}">${CB_ST[x.e]||x.e}</span>${x.st?'<small>'+E(x.st)+'</small>':''}</td>
-        <td class="cb-motivo">${det||'—'}${cbAberto(x.e)&&x.motBase?'<br>'+x.motBase:''}</td></tr>`}).join('')+'</tbody></table></div></div></section>';
+        <td class="cb-motivo">${det||'—'}${x.e!=='pago'&&x.motBase?'<br>'+x.motBase:''}</td></tr>`}).join('')+'</tbody></table></div></div></section>';
   $('cbMCorpo').innerHTML=h;
+  $('cbEdSalvar').onclick=()=>cbSalvarCliente(c);
   $('cbModal').classList.remove('hidden');document.body.style.overflow='hidden';
   setTimeout(()=>{const f=$('cbModal').querySelector('.ficha');f.scrollTop=0;f.focus({preventScroll:true})},0);
+}
+async function cbSalvarCliente(c){
+  const bt=$('cbEdSalvar'),msg=$('cbEdMsg'),ent=$('cbEdEnt').value,nota=$('cbEdNota').value.trim();
+  bt.disabled=true;msg.textContent='Salvando…';msg.className='';
+  const r=await sheetApi('cob_cliente',{cliente:{k:c.k,entrada:ent,nota}},{espera:40000});
+  bt.disabled=false;
+  if(!r||!r.ok){let e=(r&&r.erro)||'não foi possível salvar';if(/ação desconhecida/.test(e))e='atualize o script da planilha do portal para a versão 31';msg.textContent='⚠️ '+e;msg.className='erro';return}
+  c.anexoManual=!!ent;c.anexo=ent||c.anexoG||'';c.nota=nota;c.notaPor=r.notaPor;c.notaEm=r.notaEm;
+  cbCalcCliente(c);cbRender();cbDetalhe(c.k,cb.volta);
+  $('cbEdMsg').textContent='✓ Salvo na aba Cobranças Clientes';
 }
 function cbFechar(){
   if($('cbModal').classList.contains('hidden'))return;
@@ -2809,10 +2845,10 @@ function cbCsv(){
   const q=v=>{v=v==null?'':String(v);return /[;"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
   const n=v=>v>0?String(v.toFixed(2)).replace('.',','):'';
   const semHtml=h=>String(h||'').replace(/<[^>]+>/g,'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&amp;/g,'&');
-  const cab=['Mês (aba)','Aba','Linha','Mês ref. RGE','Cliente','UC','UC antiga','Investidor','Vendedor','Status na CLIENTES','Anexo G (entrada no rateio)','Fatura (R$)','Cobrança','Vencimento RGE','STATUS (planilha)','Situação','Conta RGE','CONF','PGTO','REF PGTO','Observações','O que está acontecendo'];
+  const cab=['Mês (aba)','Aba','Linha','Mês ref. RGE','Cliente','UC','UC antiga','Investidor','Vendedor','Status na CLIENTES','Entrada no rateio','Fatura (R$)','Cobrança','Vencimento RGE','STATUS (planilha)','Situação','Conta RGE','CONF','PGTO','REF PGTO','Observações','Anotação do cliente','O que está acontecendo'];
   const linhas=cb.L.slice().sort((a,b)=>a.c<b.c?-1:a.c>b.c?1:a.cli.n.localeCompare(b.cli.n,'pt-BR')).map(x=>{const c=x.cli,ab=(cb.dados.meses.find(m=>m.comp===x.c)||{}).aba||'';
     return [x.c.slice(5,7)+'/'+x.c.slice(0,4),x.fora?'(fora das abas)':ab,x.l||'',cbRef(x.ref),c.n,c.uc,c.ucA,c.inv,c.vend,c.stCli,c.anexo?anaDataBR(c.anexo):c.anexoTxt,n(x.v),x.cob?anaDataBR(x.cob):'',x.vr?anaDataBR(x.vr):'',
-      x.st,CB_ST[x.e]||x.e,x.rge,/^\d{4}-/.test(x.conf)?anaDataBR(x.conf):x.conf,x.pg,x.refPg,x.obs,semHtml(x.mot)].map(q).join(';')});
+      x.st,CB_ST[x.e]||x.e,x.rge,/^\d{4}-/.test(x.conf)?anaDataBR(x.conf):x.conf,x.pg,x.refPg,x.obs,c.nota||'',semHtml(x.mot)].map(q).join(';')});
   const blob=new Blob(['﻿'+cab.join(';')+'\r\n'+linhas.join('\r\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='cobrancas_'+cb.hoje+'.csv';document.body.appendChild(a);a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
