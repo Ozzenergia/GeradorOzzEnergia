@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -162,7 +162,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '28 (rateio e leitor liberados para Admin)';
+const VERSAO_SCRIPT = '29 (aba Cobranças: só leitura da planilha de controle)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -227,6 +227,10 @@ function doPost(e) {
     if (req.acao === 'fluxo') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
       return json(fluxoComCache_(!!req.forcar));
+    }
+    if (req.acao === 'cobrancas') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver as cobranças', auth: true });
+      return json(cobrancasComCache_(!!req.forcar));
     }
     if (req.acao === 'clientes') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para buscar clientes', auth: true });
@@ -665,6 +669,170 @@ function lerFluxo() {
 
   return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'),
     entradas: entradas, contas: contas, repasses: repasses, custoMensal: custo, mesesAbas: meses, avisos: avisos };
+}
+
+/* =========================================================
+ * COBRANÇAS — só LÊ a planilha de controle (não escreve nada nela)
+ *   Junta numa lista só as cobranças de todas as abas dos meses (JANEIRO…DEZEMBRO): uma linha por
+ *   UC e aba, com FATURA, COBRANÇA, VENCIMENTO RGE, STATUS, REF*, RGE, CONF, PGTO e OBSERVAÇÕES.
+ *   Cada aba é lida até a linha TOTAL (o resumo que vem embaixo não entra).
+ *   Da CLIENTES vêm o investidor, o vendedor, o contato, o STATUS do cliente e a data do ANEXO G
+ *   (quando o cliente entrou no rateio). Da PROGRAMAÇÃO vem a última conta da RGE de cada UC,
+ *   para saber se a RGE já emitiu a conta que falta cobrar.
+ *   Não devolve CPF/CNPJ.
+ * ========================================================= */
+const CACHE_COB_ = 'cob_v1';
+
+function cobrancasComCache_(forcar) {
+  if (!forcar) { const c = lerCacheGrande_(CACHE_COB_); if (c) { c.doCache = true; return c; } }
+  const r = lerCobrancas();
+  if (r.ok) gravarCacheGrande_(CACHE_COB_, r);
+  return r;
+}
+
+function lerCobrancas(ssAberta) {
+  let ss = ssAberta;
+  if (!ss) {
+    const id = idPlanilhaControle_();
+    if (!id) return { ok: false, erro: 'a planilha de controle não está configurada (Config!B4)' };
+    try { ss = SpreadsheetApp.openById(id); } catch (e) { return { ok: false, erro: 'não consegui abrir a planilha de controle: ' + e.message }; }
+  }
+  const tz = ss.getSpreadsheetTimeZone(), agora = new Date();
+  const N = x => String(x == null ? '' : x).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const dig = x => String(x == null ? '' : x).replace(/\.0+$/, '').replace(/\D/g, '');
+  const ucOk = x => typeof x === 'number' ? (Number.isInteger(x) && x >= 1e6) : dig(x).length >= 7;
+  const txt = x => x instanceof Date ? Utilities.formatDate(x, tz, 'dd/MM/yyyy') : String(x == null ? '' : x).trim().replace(/\.0+$/, '');
+  const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
+  const num = x => typeof x === 'number' && isFinite(x) ? Math.round(x * 100) / 100 : null;
+  const am = (y, m) => y + '-' + String(m).padStart(2, '0');
+  const avisos = [];
+  const abas = {}; ss.getSheets().forEach(a => { abas[N(a.getName())] = a; });
+
+  /* ---------- CLIENTES: dados do cliente e UC antiga → nova ---------- */
+  const cad = {}, ucNova = {};
+  const shC = abas['CLIENTES'];
+  if (shC) {
+    const v = shC.getDataRange().getValues();
+    const CONHECIDAS = ['CLIENTE', 'NOVA UC', 'ANTIGA UC', 'INVESTIDOR', 'ANEXO G', 'STATUS', 'VENDEDOR', 'CONTATO', 'RESPONSAVEL'];
+    let h = -1, melhor = 0;
+    for (let i = 0; i < Math.min(10, v.length); i++) {
+      const p = CONHECIDAS.filter(n => v[i].map(N).indexOf(n) >= 0).length;
+      if (p > melhor && v[i].map(N).indexOf('CLIENTE') >= 0) { melhor = p; h = i; }
+    }
+    if (h >= 0) {
+      const cab = v[h].map(N), c = n => cab.indexOf(n);
+      const C = { nome: c('CLIENTE'), nova: c('NOVA UC'), ant: c('ANTIGA UC'), inv: c('INVESTIDOR'), anexo: c('ANEXO G'), st: c('STATUS'),
+        vend: c('VENDEDOR'), cont: c('CONTATO'), resp: c('RESPONSAVEL'), cid: c('CIDADE') };
+      for (let i = h + 1; i < v.length; i++) {
+        const r = v[i], nome = String(r[C.nome] || '').trim(); if (!nome || N(nome) === 'CLIENTE') continue;
+        const nova = C.nova >= 0 ? dig(r[C.nova]) : '', ant = C.ant >= 0 ? dig(r[C.ant]) : '';
+        if (nova.length < 7 && ant.length < 7) continue;
+        if (nova.length >= 7 && ant.length >= 7) ucNova[ant] = nova;
+        const ax = C.anexo >= 0 ? r[C.anexo] : '';
+        const o = { n: nome, st: C.st >= 0 ? String(r[C.st] || '').trim().toUpperCase() : '', anexo: iso(ax), anexoTxt: ax instanceof Date ? '' : txt(ax),
+          inv: C.inv >= 0 ? limparNome(r[C.inv]) || String(r[C.inv] || '').trim() : '', vend: C.vend >= 0 ? String(r[C.vend] || '').trim() : '',
+          tel: C.cont >= 0 ? telefone_(r[C.cont]) : '', resp: C.resp >= 0 ? String(r[C.resp] || '').trim() : '', cid: C.cid >= 0 ? String(r[C.cid] || '').trim() : '',
+          ucN: C.nova >= 0 ? txt(r[C.nova]) : '', ucA: C.ant >= 0 ? txt(r[C.ant]) : '' };
+        const k = nova.length >= 7 ? nova : ant;
+        if (!cad[k] || (!cad[k].anexo && o.anexo)) cad[k] = o;   // UC repetida: fica a linha que tem o Anexo G
+      }
+    } else avisos.push('aba CLIENTES: não achei o cabeçalho');
+  } else avisos.push('aba CLIENTES não encontrada');
+  const chave = (nova, antiga, nome) => {
+    const n = dig(nova), a = dig(antiga);
+    if (n.length >= 7) return n;
+    if (a.length >= 7) return ucNova[a] || a;
+    return 'N:' + N(nome);
+  };
+
+  /* ---------- abas dos meses ---------- */
+  const STOP = ['TOTAL', 'INVESTIDOR'];
+  const cobs = [], clientes = {}, meses = [];
+  const statusDe = (st, fat) => {
+    const s = N(st);
+    if (/^PAGO/.test(s)) return 'pago';
+    if (/ATRAS|INADIMP/.test(s)) return 'atrasado';
+    if (/^AGUARD/.test(s)) return 'aguardando';
+    if (/ENVIAR/.test(s)) return 'enviar';
+    if (/NAO EMIT|N EMIT/.test(s)) return 'nao_emitiu';
+    if (!s) return fat > 0 ? 'sem_status' : 'sem_fatura';
+    return 'outro';
+  };
+  MESES_.forEach((nomeMes, mi) => {
+    const sh = abas[nomeMes]; if (!sh) return;
+    const v = sh.getDataRange().getValues();
+    const h = v.slice(0, 6).findIndex(r => r.map(N).indexOf('CLIENTE') >= 0);
+    if (h < 0) { avisos.push('aba ' + sh.getName() + ': sem cabeçalho CLIENTE'); return; }
+    const cab = v[h].map(N), c = n => cab.indexOf(n);
+    const C = { cli: c('CLIENTE'), uc: c('UC'), nova: c('NOVA UC'), fat: c('FATURA'), cob: c('COBRANCA'), vr: c('VENCIMENTO RGE'), st: c('STATUS'),
+      vend: c('VENDEDOR'), conf: c('CONF'), rge: c('RGE'), ref: c('REF'), pg: c('PGTO'), refPg: c('REF PGTO'), obs: c('OBSERVACOES'), inv: c('INVESTIDOR') };
+    if (C.cli < 0 || (C.uc < 0 && C.nova < 0)) { avisos.push('aba ' + sh.getName() + ': sem coluna UC'); return; }
+    // ano da aba: pelas datas de cobrança (a aba DEZEMBRO pode ser do ano passado)
+    const votos = {};
+    for (let i = h + 1; i < v.length; i++) {
+      const d = C.cob >= 0 ? v[i][C.cob] : null;
+      if (d instanceof Date && !isNaN(d)) { const y = d.getFullYear() + (d.getMonth() - mi > 6 ? 1 : d.getMonth() - mi < -6 ? -1 : 0); votos[y] = (votos[y] || 0) + 1; }
+    }
+    const anos = Object.keys(votos).sort((a, b) => votos[b] - votos[a]);
+    const ano = anos.length ? Number(anos[0]) : (mi > agora.getMonth() ? agora.getFullYear() - 1 : agora.getFullYear());
+    const comp = am(ano, mi + 1);
+    meses.push({ aba: sh.getName(), comp: comp, temRef: C.ref >= 0 });
+    for (let i = h + 1; i < v.length; i++) {
+      const r = v[i], nome = String(r[C.cli] == null ? '' : r[C.cli]).replace(/\s+/g, ' ').trim();
+      if (STOP.indexOf(N(nome)) >= 0) break;          // fim da lista de clientes da aba
+      if (!nome) continue;
+      const uc = C.uc >= 0 ? r[C.uc] : '', nova = C.nova >= 0 ? r[C.nova] : '';
+      const temUc = ucOk(uc) || ucOk(nova);
+      const k = chave(temUc && ucOk(nova) ? nova : '', temUc && ucOk(uc) ? uc : '', nome);
+      const fat = C.fat >= 0 ? num(r[C.fat]) : null;
+      const st = C.st >= 0 ? String(r[C.st] == null ? '' : r[C.st]).trim() : '';
+      // REF*: mês de referência da conta da RGE (mês depois do da aba = ano anterior)
+      let ref = '';
+      const mr = C.ref >= 0 ? MESES_.indexOf(N(r[C.ref])) : -1;
+      if (mr >= 0) ref = am(mr > mi ? ano - 1 : ano, mr + 1);
+      const rgeV = C.rge >= 0 ? r[C.rge] : '';
+      cobs.push({ k: k, c: comp, l: i + 1, v: fat, s: statusDe(st, fat), st: st, ref: ref, cob: C.cob >= 0 ? iso(r[C.cob]) : '', vr: C.vr >= 0 ? iso(r[C.vr]) : '',
+        conf: C.conf >= 0 ? (iso(r[C.conf]) || txt(r[C.conf])) : '', rge: rgeV instanceof Date ? 'PAGO ' + txt(rgeV) : txt(rgeV).toUpperCase(),
+        pg: C.pg >= 0 ? txt(r[C.pg]).toUpperCase() : '', refPg: C.refPg >= 0 ? txt(r[C.refPg]).toUpperCase() : '', obs: C.obs >= 0 ? txt(r[C.obs]) : '' });
+      // dados do cliente: a aba mais nova ganha
+      const cl = clientes[k] || (clientes[k] = { k: k });
+      cl.n = nome;
+      if (temUc) { if (ucOk(nova)) cl.ucN = txt(nova); if (ucOk(uc)) cl.ucA = txt(uc); }
+      if (C.vend >= 0 && String(r[C.vend] || '').trim()) cl.vend = String(r[C.vend]).trim();
+      if (C.inv >= 0 && String(r[C.inv] || '').trim()) cl.inv = limparNome(r[C.inv]) || String(r[C.inv]).trim();
+    }
+  });
+  meses.sort((a, b) => a.comp < b.comp ? -1 : 1);
+
+  /* ---------- clientes conectados na CLIENTES que não aparecem em nenhuma aba ---------- */
+  Object.keys(cad).forEach(k => {
+    const o = cad[k];
+    if (!clientes[k] && /^CONECTAD/.test(N(o.st))) clientes[k] = { k: k, n: o.n, ucN: o.ucN, ucA: o.ucA, vend: o.vend, inv: o.inv, foraDasAbas: true };
+  });
+
+  /* ---------- PROGRAMAÇÃO: última conta da RGE de cada UC ---------- */
+  const prog = lerProgramacao(ss), ultRge = {};
+  if (!prog.ok) avisos.push(prog.erro);
+  else prog.contas.forEach(ct => {
+    let ref = '';
+    const m = String(ct.mes || '').match(/^(\d{1,2})\/(\d{4})$/);
+    if (m) ref = am(Number(m[2]), Number(m[1]));
+    else if (ct.venc) { let y = Number(ct.venc.slice(0, 4)), mm = Number(ct.venc.slice(5, 7)) - 1; if (mm < 1) { mm = 12; y--; } ref = am(y, mm); }   // sem mês: o do vencimento − 1
+    if (!ref) return;
+    const k = chave(ct.uc, ct.ucAntiga, '');
+    const o = { ref: ref, est: !m, venc: ct.venc, valor: ct.valor, sit: ct.situacao };
+    const a = ultRge[k];
+    if (!a || ref > a.ref || (ref === a.ref && String(ct.venc) > String(a.venc))) ultRge[k] = o;
+  });
+
+  const lista = Object.keys(clientes).map(k => {
+    const cl = clientes[k], o = cad[k] || {};
+    return { k: k, n: o.n || cl.n, uc: cl.ucN || o.ucN || cl.ucA || o.ucA || '', ucA: cl.ucN && cl.ucA ? cl.ucA : (o.ucN && o.ucA ? o.ucA : ''),
+      inv: cl.inv || o.inv || '', vend: cl.vend || o.vend || '', tel: o.tel || '', resp: o.resp || '', cid: o.cid || '',
+      stCli: o.st || '', anexo: o.anexo || '', anexoTxt: o.anexoTxt || '', rge: ultRge[k] || null, fora: !!cl.foraDasAbas, semCad: !cad[k] };
+  });
+  return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'),
+    meses: meses, clientes: lista, cobrancas: cobs, avisos: avisos };
 }
 
 /* =========================================================
