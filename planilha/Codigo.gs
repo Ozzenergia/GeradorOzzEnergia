@@ -162,7 +162,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '33 (fluxo da cobrança no portal: emitida, enviada, paga)';
+const VERSAO_SCRIPT = '34 (cálculo da cobrança pela fatura lida e pelo plano do cliente)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -705,7 +705,9 @@ const COLS_COB = ['Chave', 'Mês', 'Aba', 'Linha', 'Mês ref. RGE', 'UC (chave)'
   'Vencimento RGE', 'STATUS (planilha)', 'Situação', 'Conta RGE', 'CONF', 'PGTO', 'REF PGTO', 'Observações'];
 const COLS_COB_CLI = ['UC (chave)', 'Cliente', 'UC', 'UC antiga', 'Investidor', 'Vendedor', 'Responsável', 'Telefone', 'Cidade', 'Status na CLIENTES',
   'Anexo G (planilha de controle)', 'Entrada no rateio (ajuste manual)', 'Anotação', 'Última conta RGE: ref.', 'Última conta RGE: vencimento',
-  'Última conta RGE: valor', 'Última conta RGE: situação', 'Fora das abas', 'Não está na CLIENTES', 'Anotado por', 'Anotado em', 'Última conta RGE: link'];
+  'Última conta RGE: valor', 'Última conta RGE: situação', 'Fora das abas', 'Não está na CLIENTES', 'Anotado por', 'Anotado em', 'Última conta RGE: link',
+  'Desconto % (ASSINATURA)', 'Desconto sobre (ASSINATURA)', 'R$/kWh investidor (ASSINATURA)', 'Plano: mês do bloco da ASSINATURA',
+  'Desconto % (ajuste manual)', 'Desconto sobre (ajuste manual)', 'R$/kWh investidor (ajuste manual)'];
 const ABA_COB_AND = 'Cobranças Andamento';   // o que o portal marcou em cada cobrança (emitida, enviada, paga): nunca é apagada pela cópia
 const COLS_COB_AND = ['Chave', 'UC (chave)', 'Mês', 'Cliente', 'Emitida em', 'Emitida por', 'Valor cobrado (R$)', 'Enviada em', 'Enviada por',
   'Vencimento', 'Paga em', 'Paga por', 'Atualizado em'];
@@ -866,13 +868,16 @@ function cobGravarAbas_(r) {
       const g = c.rge || {};
       return [c.k, c.n, c.uc, c.ucA, c.inv, c.vend, c.resp, c.tel, c.cid, c.stCli, c.anexo ? data(c.anexo) : c.anexoTxt, man || '', a['Anotação'] || '',
         g.ref || '', g.venc ? data(g.venc) : '', g.valor == null ? '' : g.valor, g.sit || '', c.fora ? 'SIM' : '', c.semCad ? 'SIM' : '',
-        a['Anotado por'] || '', a['Anotado em'] || '', g.link || ''];
+        a['Anotado por'] || '', a['Anotado em'] || '', g.link || '',
+        c.plano ? c.plano.pct : '', c.plano ? c.plano.sobre : '', c.plano && c.plano.vlKwh != null ? c.plano.vlKwh : '', c.plano ? c.plano.mes : '',
+        a['Desconto % (ajuste manual)'] === undefined ? '' : a['Desconto % (ajuste manual)'], a['Desconto sobre (ajuste manual)'] || '',
+        a['R$/kWh investidor (ajuste manual)'] === undefined ? '' : a['R$/kWh investidor (ajuste manual)']];
     });
     // cliente que saiu da leitura mas tem algo escrito pelo portal: a linha continua (não perde a anotação)
     Object.keys(antes).forEach(k => {
       if (r.clientes.some(c => c.k === k)) return;
       const a = antes[k];
-      if (a['Entrada no rateio (ajuste manual)'] || a['Anotação']) linhasC.push(COLS_COB_CLI.map(c => a[c] === undefined ? '' : a[c]));
+      if (a['Entrada no rateio (ajuste manual)'] || a['Anotação'] || a['Desconto % (ajuste manual)'] !== '' && a['Desconto % (ajuste manual)'] !== undefined) linhasC.push(COLS_COB_CLI.map(c => a[c] === undefined ? '' : a[c]));
     });
     escreveAbaCob_(shC, COLS_COB_CLI, linhasC, [11, 12, 15], { 16: '#,##0.00' });
     // ---- cobranças: reescreve tudo
@@ -909,6 +914,18 @@ function escreveAbaCob_(sh, cols, linhas, colsData, colsNum) {
   }
 }
 
+/** Plano do cliente para o cálculo: o ajuste manual vale mais que o que veio da ASSINATURA (campo a campo). */
+function planoDe_(o) {
+  const nm = x => typeof x === 'number' && isFinite(x) ? x : null, tx = x => String(x == null ? '' : x).trim().toLowerCase();
+  const p = { pct: nm(o['Desconto % (ASSINATURA)']), sobre: tx(o['Desconto sobre (ASSINATURA)']) || 'total', vlKwh: nm(o['R$/kWh investidor (ASSINATURA)']),
+    mes: o['Plano: mês do bloco da ASSINATURA'] instanceof Date ? Utilities.formatDate(o['Plano: mês do bloco da ASSINATURA'], 'America/Sao_Paulo', 'yyyy-MM-dd') : String(o['Plano: mês do bloco da ASSINATURA'] || ''), manual: {} };
+  if (nm(o['Desconto % (ajuste manual)']) != null) { p.pct = nm(o['Desconto % (ajuste manual)']); p.manual.pct = true; }
+  if (/^(total|injetado)$/.test(tx(o['Desconto sobre (ajuste manual)']))) { p.sobre = tx(o['Desconto sobre (ajuste manual)']); p.manual.sobre = true; }
+  if (nm(o['R$/kWh investidor (ajuste manual)']) != null) { p.vlKwh = nm(o['R$/kWh investidor (ajuste manual)']); p.manual.vlKwh = true; }
+  if (p.pct != null && p.pct > 1) p.pct = p.pct / 100;   // digitado como 20 em vez de 0,2
+  return p.pct == null && p.vlKwh == null ? null : p;
+}
+
 /** Lê as duas abas daqui e devolve no formato que a tela usa. null = ainda não foram preenchidas. */
 function cobDados_() {
   const ss = SpreadsheetApp.getActive(), tz = ss.getSpreadsheetTimeZone();
@@ -924,7 +941,7 @@ function cobDados_() {
       anexo: man || anexo, anexoG: anexo, anexoManual: !!man, anexoTxt: anexo ? '' : t(o['Anexo G (planilha de controle)']),
       nota: t(o['Anotação']), notaPor: t(o['Anotado por']), notaEm: t(o['Anotado em']),
       rge: ref ? { ref: ref, venc: iso(o['Última conta RGE: vencimento']), valor: typeof o['Última conta RGE: valor'] === 'number' ? o['Última conta RGE: valor'] : null, sit: t(o['Última conta RGE: situação']), link: /^https:\/\//i.test(t(o['Última conta RGE: link'])) ? t(o['Última conta RGE: link']) : '' } : null,
-      fora: t(o['Fora das abas']) === 'SIM', semCad: t(o['Não está na CLIENTES']) === 'SIM' };
+      fora: t(o['Fora das abas']) === 'SIM', semCad: t(o['Não está na CLIENTES']) === 'SIM', plano: planoDe_(o) };
   });
   const and = lerAndamento_();
   Object.keys(and).forEach(ch => { delete and[ch]._linha; });
@@ -943,7 +960,11 @@ function cobDados_() {
     if (uc.length < 7 || m.length !== 6) return null;
     const n = x => typeof x === 'number' && isFinite(x) ? x : null, vc = o['Vencimento'];
     return { uc: uc, ref: m.slice(0, 4) + '-' + m.slice(4), venc: vc instanceof Date ? Utilities.formatDate(vc, tz, 'yyyy-MM-dd') : String(vc || '').trim().replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1'),
-      valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']) };
+      valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']),
+      // linhas da conta (faturas lidas a partir da versão 34): o cálculo da cobrança usa
+      itens: n(o['TUSD R$']) != null && n(o['TE R$']) != null ? { tusdTarifa: n(o['TUSD R$/kWh']), teTarifa: n(o['TE R$/kWh']), tusd: n(o['TUSD R$']), te: n(o['TE R$']),
+        bandeira: n(o['Bandeira R$']) || 0, cip: n(o['Iluminação pública R$']) || 0, injKwh: n(o['Injetada (TE) kWh']) != null ? n(o['Injetada (TE) kWh']) : n(o['Energia Injetada kWh']),
+        outros: t(o['Outros débitos e créditos']).split(' | ').map(x => { const m = x.match(/^(.*) = (-?[\d.]+)$/); return m ? { desc: m[1], valor: Number(m[2]) } : null; }).filter(Boolean) } : null };
   }).filter(Boolean);
   return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: sync.em || '', avisos: sync.avisos || [],
     prazoDias: PRAZO_1A_FATURA_DIAS, meses: Object.keys(meses).sort().map(c => ({ comp: c, aba: meses[c] })), clientes: clientes, cobrancas: cobs, faturas: faturas };
@@ -1015,6 +1036,16 @@ function cobSalvarCliente(d, usuario) {
     shC.getRange(o._linha, c('Anotação')).setValue(nota ? limpa(nota) : '');
     shC.getRange(o._linha, c('Anotado por')).setValue(usuario.nome || usuario.email || '');
     shC.getRange(o._linha, c('Anotado em')).setValue(quando);
+    if (d.plano) {   // ajuste manual do plano (vazio = volta a valer a ASSINATURA)
+      const pp = d.plano, num = x => x === '' || x == null ? '' : Number(String(x).replace(',', '.'));
+      const pct = num(pp.pct), vl = num(pp.vlKwh), sob = /^(total|injetado)$/.test(String(pp.sobre || '')) ? pp.sobre : '';
+      if ((pct !== '' && !(pct >= 0 && pct <= 100)) || (vl !== '' && !(vl >= 0 && vl < 10))) return { ok: false, erro: 'plano inválido' };
+      if (c('Desconto % (ajuste manual)') > 0) {
+        shC.getRange(o._linha, c('Desconto % (ajuste manual)')).setValue(pct === '' ? '' : (pct > 1 ? pct / 100 : pct));
+        shC.getRange(o._linha, c('Desconto sobre (ajuste manual)')).setValue(sob);
+        shC.getRange(o._linha, c('R$/kWh investidor (ajuste manual)')).setValue(vl);
+      }
+    }
     // recalcula a Situação das linhas deste cliente
     const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
     cobRecalc_(k, ent || iso(o['Anexo G (planilha de controle)']));
@@ -1142,6 +1173,42 @@ function lerCobrancas(ssAberta) {
     if (!clientes[k] && /^CONECTAD/.test(N(o.st))) clientes[k] = { k: k, n: o.n, ucN: o.ucN, ucA: o.ucA, vend: o.vend, inv: o.inv, foraDasAbas: true };
   });
 
+  /* ---------- ASSINATURA: plano de cada cliente (o último bloco de cálculo dele) ----------
+     Cada cliente, em cada mês, tem um bloco que começa na linha "Mes/Ref". Do bloco mais novo saem:
+     % de desconto ("desconto aplicado"/"DESCONTO", ou o número escrito na fórmula do desconto), a base do desconto
+     (sobre o total ou sobre o injetado: fórmula que aponta para "DESCONTO SOBRE O INJETADO" ou que multiplica o injetado)
+     e o R$/kWh do investidor. Só lê o fim da aba (os meses mais recentes). */
+  const planos = {};
+  const shA = abas['ASSINATURA'];
+  if (shA && shA.getLastRow() > 20) {
+    const ult = shA.getLastRow(), ini = Math.max(1, ult - 8000), nl = ult - ini + 1;
+    const v = shA.getRange(ini, 1, nl, 18).getValues(), fP = shA.getRange(ini, 16, nl, 1).getFormulas();
+    const lb = x => N(x).toLowerCase();
+    for (let i = 0; i < nl; i++) {
+      if (lb(v[i][1]) !== 'mes ref') continue;
+      const uc = v[i + 1] ? v[i + 1] : [];
+      if (lb(uc[1]) !== 'uc') continue;
+      const k = chave(uc[4], uc[2], '');
+      if (k.indexOf('N:') === 0) continue;
+      let pct = null, vl = null, sobre = 'total', fDesc = '';
+      for (let j = i + 2; j < Math.min(nl, i + 24); j++) {
+        if (lb(v[j][1]) === 'mes ref') break;
+        const o = lb(v[j][14]), val = v[j][15], f = String(fP[j][0] || '');
+        if ((o === 'desconto aplicado' || o === 'desconto') && typeof val === 'number' && val > 0 && val < 1 && !/\//.test(f)) pct = val;
+        if (o === 'desconto' && typeof val === 'number' && val >= 1 && f) fDesc = f;
+        if (o === 'investidor' && typeof val === 'number' && val > 0 && val < 3 && vl == null) vl = val;
+      }
+      if (fDesc) {
+        const lit = fDesc.match(/(?:^=|[*(])\s*(0[.,]\d+)\s*\*/) || fDesc.match(/\*\s*(0[.,]\d+)\s*$/);
+        if (pct == null && lit) pct = Number(lit[1].replace(',', '.'));
+        const ref = fDesc.match(/^=\s*R(\d+)\s*$/);
+        if (ref) { const r0 = Number(ref[1]) - ini; if (r0 >= 1 && /INJETADO/.test(N(v[r0 - 1][17]))) sobre = 'injetado'; }
+        else if (/C\d+\s*\*\s*\(\s*L\d+/.test(fDesc)) sobre = 'injetado';
+      }
+      if (pct != null) planos[k] = { pct: Math.round(pct * 10000) / 10000, sobre: sobre, vlKwh: vl, mes: v[i][2] instanceof Date ? Utilities.formatDate(v[i][2], tz, 'yyyy-MM-dd') : '' };
+    }
+  } else avisos.push('aba ASSINATURA não encontrada (o plano de cada cliente não foi lido)');
+
   /* ---------- PROGRAMAÇÃO: última conta da RGE de cada UC ---------- */
   const prog = lerProgramacao(ss), ultRge = {};
   if (!prog.ok) avisos.push(prog.erro);
@@ -1161,7 +1228,7 @@ function lerCobrancas(ssAberta) {
     const cl = clientes[k], o = cad[k] || {};
     return { k: k, n: o.n || cl.n, uc: cl.ucN || o.ucN || cl.ucA || o.ucA || '', ucA: cl.ucN && cl.ucA ? cl.ucA : (o.ucN && o.ucA ? o.ucA : ''),
       inv: cl.inv || o.inv || '', vend: cl.vend || o.vend || '', tel: o.tel || '', resp: o.resp || '', cid: o.cid || '',
-      stCli: o.st || '', anexo: o.anexo || '', anexoTxt: o.anexoTxt || '', rge: ultRge[k] || null, fora: !!cl.foraDasAbas, semCad: !cad[k] };
+      stCli: o.st || '', anexo: o.anexo || '', anexoTxt: o.anexoTxt || '', rge: ultRge[k] || null, fora: !!cl.foraDasAbas, semCad: !cad[k], plano: planos[k] || null };
   });
   return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'),
     meses: meses, clientes: lista, cobrancas: cobs, avisos: avisos };
@@ -2006,7 +2073,9 @@ function ratImportarControle(usuario, etapa) {
  * ====================================================================== */
 const COLS_FATURAS = ['Lido em', 'Lido por', 'Arquivo', 'UC', 'Titular', 'CPF/CNPJ', 'Distribuidora', 'Classe', 'Tipo Fornecimento', 'Tensão (V)',
   'Mês Ref (AAAAMM)', 'Vencimento', 'Valor Total (R$)', 'Consumo kWh', 'Energia Injetada kWh', 'Injetada por mês', 'Saldo kWh', 'Saldo a Expirar kWh',
-  'Participação na Geração %', 'Custo Mínimo kWh', 'Leitura Anterior', 'Leitura Atual', 'Dias', 'Data Emissão', 'Nota Fiscal', 'Histórico 12 meses (kWh)'];
+  'Participação na Geração %', 'Custo Mínimo kWh', 'Leitura Anterior', 'Leitura Atual', 'Dias', 'Data Emissão', 'Nota Fiscal', 'Histórico 12 meses (kWh)',
+  // a partir da versão 34: as linhas da conta, para o cálculo da cobrança
+  'TUSD R$/kWh', 'TE R$/kWh', 'TUSD R$', 'TE R$', 'Bandeira R$', 'Crédito bandeira R$', 'Iluminação pública R$', 'Injetada (TE) kWh', 'Outros débitos e créditos'];
 
 function faturasSalvar(lista, usuario) {
   lista = Array.isArray(lista) ? lista.slice(0, 200) : [];
@@ -2040,7 +2109,8 @@ function faturasSalvar(lista, usuario) {
         String(f.classe || ''), String(f.fornecimento || ''), nv(f.tensao), mes, String(f.vencimento || ''), nv(f.valor), nv(f.consumo), nv(f.injetada),
         String(f.injetadaMeses || ''), nv(f.saldo), nv(f.saldoExpirar), nv(f.participacao), nv(f.minimo), String(f.leituraAnt || ''), String(f.leitura || ''),
         nv(f.dias), String(f.emissao || ''), String(f.nf || ''),
-        hist.map(h => String(h.mes).slice(4) + '/' + String(h.mes).slice(0, 4) + ': ' + h.kwh).join(' · ')].map(limpa);
+        hist.map(h => String(h.mes).slice(4) + '/' + String(h.mes).slice(0, 4) + ': ' + h.kwh).join(' · '),
+        nv(f.tusdTarifa), nv(f.teTarifa), nv(f.tusdValor), nv(f.teValor), nv(f.bandeira), nv(f.bandeiraCred), nv(f.cip), nv(f.injKwh), String(f.outros || '').slice(0, 1000)].map(limpa);
       const kF = dig(uc) + '|' + mes;
       if (idxF[kF] != null) { vF[idxF[kF]] = linha; res.atualizadas++; } else { idxF[kF] = -1; novasF.push(linha); res.faturas++; }
       // mês da fatura → Rateio Consumo (a fatura sobrescreve consumo, injetada, saldo, mínimo e datas)
