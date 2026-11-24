@@ -312,6 +312,17 @@ main.wide{max-width:1180px}
 .cb-hist td{font-size:13.5px}
 .cb-dica{font-size:13px;color:var(--muted);margin:-4px 0 12px}
 .cb-st.aguarda_1a{background:#e6f4f1;color:#0f766e}
+.cb-passo{font:600 12.5px Outfit,sans-serif;color:var(--primary);background:var(--primary-soft);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+.cb-passo:hover{outline:1px solid var(--primary-line)}
+.cb-passo.sec{color:var(--muted);background:none;padding:6px 4px}
+.cb-and{display:block;font-size:12px;color:var(--ok);margin-top:3px}
+.cb-link{font:600 12.5px Outfit,sans-serif;color:var(--primary);white-space:nowrap}
+#cbAcModal{z-index:20}
+.cb-ac h3{font-size:18px;margin:0 0 4px}.cb-ac>p{color:var(--muted);font-size:13.5px;margin:0 0 12px}
+.cb-ac label{display:grid;gap:4px;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:10px}
+.cb-ac input{font:inherit;font-size:15px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.cb-ac-msg{min-height:1em;font-size:13px!important;color:var(--err)!important}
+.cb-ac-bts{display:flex;justify-content:flex-end;gap:8px}
 .cb-fat-top{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;justify-content:space-between;margin-bottom:10px}
 .cb-fat-top label{display:grid;gap:4px;font-size:12.5px;font-weight:600;color:var(--muted)}
 .cb-fat-top select{font:inherit;font-size:14px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
@@ -925,6 +936,15 @@ body.locked{overflow:hidden}
   </div>
 </div>
 
+<!-- Cobranças: marcar emitida / enviada / paga -->
+<div class="modal hidden" id="cbAcModal">
+  <div class="card cb-ac" role="dialog" aria-modal="true" aria-labelledby="cbAcTit">
+    <h3 id="cbAcTit">Marcar</h3><p id="cbAcSub"></p>
+    <div id="cbAcCampos"></div>
+    <p class="cb-ac-msg" id="cbAcMsg"></p>
+    <div class="cb-ac-bts"><button class="btn sec sm" type="button" id="cbAcCancelar">Cancelar</button><button class="btn sm" type="button" id="cbAcOk">Confirmar</button></div>
+  </div>
+</div>
 <!-- Cobranças: todos os meses de um cliente (abre por cima da tela) -->
 <div class="modal ficha-modal hidden" id="cbModal">
   <div class="ficha" role="dialog" aria-modal="true" aria-labelledby="cbMNome" tabindex="-1">
@@ -1137,8 +1157,8 @@ body.locked{overflow:hidden}
   <p class="cb-dica" id="cbDica"></p>
   <div class="ana-tabela cb-lista" id="cbListaBox">
     <div class="ana-scroll"><table>
-      <thead><tr><th>Cliente</th><th>Mês</th><th class="num">Fatura</th><th>Cobrança</th><th>Situação</th><th>O que está acontecendo</th></tr></thead>
-      <tbody id="cbCorpo"><tr><td colspan="6" class="ana-vazio">Lendo a planilha…</td></tr></tbody>
+      <thead><tr><th>Cliente</th><th>Mês</th><th class="num">Fatura</th><th>Cobrança</th><th>Situação</th><th>O que está acontecendo</th><th>Próximo passo</th></tr></thead>
+      <tbody id="cbCorpo"><tr><td colspan="7" class="ana-vazio">Lendo a planilha…</td></tr></tbody>
     </table></div>
     <div class="ana-rodape" id="cbRodape"></div>
   </div>
@@ -2673,7 +2693,8 @@ async function cbCarregar(forcar){
 function cbPreparar(r){
   const hoje=r.hoje,cli={};
   r.clientes.forEach(c=>{cli[c.k]={...c,lista:[]}});
-  const L=r.cobrancas.filter(x=>cli[x.k]).map(x=>({...x,cli:cli[x.k]}));
+  const L=r.cobrancas.filter(x=>cli[x.k]).map(x=>cbAplicaAnd({...x,cli:cli[x.k],v0:x.v,cob0:x.cob}));
+  L.forEach((x,i)=>{x.i=i});
   L.forEach(x=>x.cli.lista.push(x));
   const meses=r.meses.map(m=>m.comp),ult=meses[meses.length-1];
   // script antigo (sem as linhas "fora das abas"): conectado na CLIENTES e fora de todas as abas entra como "sem fatura" no último mês
@@ -2695,16 +2716,30 @@ function cbPreparar(r){
 }
 /* situação de cada linha do cliente: vencida (aguardando com cobrança passada) e "aguardando 1ª fatura"
    (cliente que nunca teve fatura e entrou no rateio há até cb.prazo dias) — a mesma regra do script da planilha */
+// o que foi marcado no portal: valor cobrado e vencimento valem mais que os da planilha de controle
+function cbAplicaAnd(x){const a=x.and||{};x.v=a.valor!=null?a.valor:x.v0;x.cob=a.venc||x.cob0;return x}
 function cbCalcCliente(c){
   const faturado=c.lista.some(x=>x.v>0&&x.s!=='nao_emitiu'&&x.s!=='sem_fatura');
   const d=c.anexo?cbDias(c.anexo,cb.hoje):null,novo=!faturado&&d!=null&&d>=0&&d<=cb.prazo;
-  c.lista.forEach(x=>{x.e=x.s==='aguardando'&&x.cob&&x.cob<cb.hoje?'vencida':(x.s==='nao_emitiu'||x.s==='sem_fatura')&&novo?'aguarda_1a':x.s});
+  c.lista.forEach(x=>{
+    const a=x.and||{};let e=x.s==='aguardando'&&x.cob&&x.cob<cb.hoje?'vencida':(x.s==='nao_emitiu'||x.s==='sem_fatura')&&novo?'aguarda_1a':x.s;
+    // o que foi marcado no portal (emitida → enviada → paga) vale quando está mais adiantado — a mesma regra do script
+    if(a.paga)e='pago';
+    else if(e!=='pago'&&a.enviada)e=e==='atrasado'?e:(x.cob&&x.cob<cb.hoje?'vencida':'aguardando');
+    else if(e!=='pago'&&a.emitida&&['nao_emitiu','sem_fatura','aguarda_1a','sem_status','outro'].includes(e))e='enviar';
+    x.e=e});
   c.abertos=c.lista.filter(x=>cbAberto(x.e));
   c.lista.forEach(x=>{x.chegou=false;x.mot=cbMotivo(x,cb.hoje);x.pri=CB_PRI[x.e]!=null?CB_PRI[x.e]:5;if(x.chegou&&x.e!=='aguarda_1a')x.pri=1});
 }
 /* o que está acontecendo com esta cobrança (texto curto, com HTML) */
 function cbMotivo(x,hoje){
-  const E=anaEsc,c=x.cli,p=[];
+  const E=anaEsc,c=x.cli,p=[],a=x.and||{};
+  if(a.emitida||a.enviada||a.paga){
+    if(a.paga)p.push('<span class="ok">Paga em '+anaDataBR(a.paga)+'</span> (marcado no portal por '+E(a.pagaPor)+').');
+    else if(a.enviada)p.push('Enviada ao cliente em '+anaDataBR(a.enviada)+' por '+E(a.enviadaPor)+'.');
+    else p.push('Emitida no portal em '+anaDataBR(a.emitida)+' por '+E(a.emitidaPor)+(a.valor!=null?' ('+brl(a.valor)+')':'')+': falta enviar ao cliente.');
+    if(a.paga||(a.enviada&&x.e==='aguardando')||(a.emitida&&!a.enviada&&x.e==='enviar')){x.motBase=p.join(' ');if(c.nota)p.push('📝 '+E(c.nota));return p.join(' ')}
+  }
   const fora=x.fora?'Está <b>'+E(c.stCli||'CONECTADO')+'</b> na aba CLIENTES, mas não aparece em nenhuma aba de mês. ':'';
   if(x.e==='nao_emitiu'||x.e==='sem_fatura'||x.e==='aguarda_1a'||(x.e==='enviar'&&!(x.v>0))){
     const ant=c.lista.filter(o=>o.c<x.c&&o.v>0&&o.e!=='nao_emitiu'&&o.e!=='sem_fatura');
@@ -2735,7 +2770,7 @@ function cbMotivo(x,hoje){
   }else if(x.e==='vencida'||x.e==='atrasado'){
     if(x.cob&&x.cob<=hoje){const d=cbDias(x.cob,hoje);p.push('<span class="alerta">Venceu em '+anaDataBR(x.cob)+' (há '+d+' dia'+(d===1?'':'s')+')</span>.')}
     else if(x.cob)p.push('Cobrança com data '+anaDataBR(x.cob)+'.');
-    if(x.e==='vencida')p.push('STATUS ainda está "aguardando".');
+    if(x.e==='vencida'&&!a.enviada)p.push('STATUS ainda está "aguardando".');
     if(/INADIMP|ATRASO/.test(x.pg))p.push('PGTO: '+E(x.pg)+'.');
   }else if(x.e==='pago'){if(x.rge&&/^PAGO/.test(x.rge))p.push('Conta da RGE paga.')}
   x.motBase=p.join(' ');
@@ -2787,11 +2822,12 @@ function cbRender(){
       <td class="num" data-l="Fatura">${x.v>0?brl(x.v):'—'}</td>
       <td data-l="Cobrança">${x.cob?anaDataBR(x.cob):'—'}${x.vr?'<small>venc. RGE '+cbDM(x.vr)+'</small>':''}</td>
       <td>${pill(x.e)}${x.st&&CB_ST[x.e]&&x.e!=='outro'&&x.st.toUpperCase()!==CB_ST[x.e].toUpperCase()?'<small>'+E(x.st)+'</small>':''}</td>
-      <td class="cb-motivo">${x.mot||''}</td></tr>`}).join('')
-      :'<tr><td colspan="6" class="ana-vazio">Nenhuma cobrança com esses filtros.</td></tr>';
+      <td class="cb-motivo">${x.mot||''}</td><td>${cbBotoes(x)}</td></tr>`}).join('')
+      :'<tr><td colspan="7" class="ana-vazio">Nenhuma cobrança com esses filtros.</td></tr>';
     const tot=soma(lista),cl=new Set(lista.map(x=>x.k)).size;
     $('cbRodape').innerHTML=`<span>${lista.length} cobrança${lista.length===1?'':'s'} de ${cl} cliente${cl===1?'':'s'}${lista.length>MAX?' (mostrando as '+MAX+' primeiras)':''}</span><span>Faturas <b>${brl(tot)}</b></span>`;
     $('cbCorpo').querySelectorAll('tr[data-k]').forEach(tr=>tr.onclick=()=>cbDetalhe(tr.dataset.k,tr));
+    cbLigaBotoes($('cbCorpo'));
   }else{
     // grade: um cliente por linha, uma coluna por aba
     const ms=cb.meses,E=anaEsc;
@@ -2839,7 +2875,7 @@ function cbRenderFaturas(){
     if(f)fat+=`<small>${[f.valor!=null?brl(f.valor):'',f.inj!=null?'injetado '+kw(f.inj):'',f.venc?'venc. '+cbDM(f.venc):''].filter(Boolean).join(' · ')}</small>`;
     else if(st==='email')fat+=`<small>conta de ${cbRef(c.rge.ref)} na PROGRAMAÇÃO · venc. ${cbDM(c.rge.venc)}${c.rge.valor!=null?' · '+brl(c.rge.valor):''}</small>`;
     const ultF=(c.fats||[]).length?c.fats[c.fats.length-1]:null;
-    if(st==='email')oq='Baixar o PDF da conta e ler no Leitor de faturas.';
+    if(st==='email')oq='Baixar o PDF da conta e ler no Leitor de faturas.'+(c.rge.link?` <a class="cb-link" href="${E(c.rge.link)}" target="_blank" rel="noopener">Abrir conta ↗</a>`:'');
     else if(st==='falta')oq=(c.rge?'Última conta no e-mail: '+cbRef(c.rge.ref)+'. ':'Nenhuma conta desta UC na PROGRAMAÇÃO. ')+(ultF?'Última fatura lida: '+cbRef(ultF.ref)+'.':'');
     else if(st==='novo')oq='Aguardando a 1ª fatura (entrou no rateio em '+anaDataBR(c.anexo)+').';
     else if(!cobr)oq='Fatura lida; esta referência ainda não aparece nas abas de cobrança.';
@@ -2848,10 +2884,56 @@ function cbRenderFaturas(){
     return `<tr data-k="${E(c.k)}"><td><b>${E(c.n)}</b><small>${E(c.uc)}${c.inv?' · '+E(c.inv):''}</small></td><td data-l="Fatura">${fat}</td><td data-l="Cobrança">${cob}</td><td class="cb-motivo">${oq}</td></tr>`}).join('')
     :'<tr><td colspan="4" class="ana-vazio">Nenhum cliente com esses filtros.</td></tr>';
   $('cbFatRodape').innerHTML=`<span>Ref. ${cbRef(M)}: <b>${cnt('lida')}</b> lida${cnt('lida')===1?'':'s'} de ${linhas.length} clientes ativos</span>`+(cb.fatSemCliente?`<span>${cb.fatSemCliente} fatura${cb.fatSemCliente===1?'':'s'} lida${cb.fatSemCliente===1?'':'s'} de UC que não está nas cobranças</span>`:'');
-  $('cbFatCorpo').querySelectorAll('tr[data-k]').forEach(tr=>tr.onclick=()=>cbDetalhe(tr.dataset.k,tr));
+  $('cbFatCorpo').querySelectorAll('tr[data-k]').forEach(tr=>tr.onclick=e=>{if(e.target.closest('a'))return;cbDetalhe(tr.dataset.k,tr)});
 }
 $('cbFatRef').onchange=e=>{cb.fatRef=e.target.value;cbRenderFaturas()};
 $('cbIrLeitor').onclick=()=>window.abrirTab&&window.abrirTab('leitor');
+/* ===== Fluxo da cobrança no portal: emitida → enviada → paga (aba Cobranças Andamento da planilha do portal) ===== */
+function cbProximo(x){
+  if(x.e==='pago'||x.fora&&!(x.v>0)&&x.e==='aguarda_1a')return null;
+  if(['nao_emitiu','sem_fatura','aguarda_1a','sem_status','outro'].includes(x.e))return x.e==='aguarda_1a'?null:'emitida';
+  if(x.e==='enviar')return 'enviada';
+  if(['aguardando','vencida','atrasado'].includes(x.e))return 'paga';
+  return null;
+}
+const CB_AC={emitida:'Marcar emitida',enviada:'Marcar enviada',paga:'Marcar paga'};
+function cbBotoes(x,comDesfazer){
+  const p=cbProximo(x),a=x.and||{},tem=a.emitida||a.enviada||a.paga;
+  return (p?`<button type="button" class="cb-passo" data-i="${x.i}" data-ac="${p}">${CB_AC[p]}</button>`:'')+
+    (comDesfazer&&tem?`<button type="button" class="cb-passo sec" data-i="${x.i}" data-ac="desfazer" title="Volta o último passo marcado no portal">Desfazer</button>`:'');
+}
+function cbLigaBotoes(raiz){raiz.querySelectorAll('.cb-passo').forEach(b=>b.onclick=e=>{e.stopPropagation();cbAcao(cb.L[+b.dataset.i],b.dataset.ac)})}
+let cbAcAtual=null;
+function cbAcao(x,ac){
+  if(!x)return;const E=anaEsc;cbAcAtual={x,ac};
+  const tit={emitida:'Marcar como emitida',enviada:'Marcar como enviada ao cliente',paga:'Marcar como paga',desfazer:'Desfazer o último passo'}[ac];
+  $('cbAcTit').textContent=tit;$('cbAcSub').textContent=x.cli.n+' · '+fxMesNome(x.c)+(x.ref?' · ref. RGE '+cbRef(x.ref):'');
+  const val=x.v>0?String(x.v.toFixed(2)):'';
+  $('cbAcCampos').innerHTML=ac==='emitida'?`<label>Valor da cobrança (R$)<input id="cbAcValor" inputmode="decimal" value="${E(val.replace('.',','))}" placeholder="0,00"></label>`
+    :ac==='enviada'?`<label>Vencimento da cobrança<input type="date" id="cbAcData" value="${E(x.cob||'')}"></label>`+(x.and&&x.and.emitida?'':`<label>Valor da cobrança (R$)<input id="cbAcValor" inputmode="decimal" value="${E(val.replace('.',','))}" placeholder="0,00"></label>`)
+    :ac==='paga'?`<label>Dia do pagamento<input type="date" id="cbAcData" value="${cb.hoje}"></label>`
+    :`<p style="margin:0 0 10px;font-size:14px">Volta o último passo que foi marcado no portal (${x.and&&x.and.paga?'paga':x.and&&x.and.enviada?'enviada':'emitida'}).</p>`;
+  $('cbAcMsg').textContent='';$('cbAcOk').disabled=false;
+  $('cbAcModal').classList.remove('hidden');setTimeout(()=>{const f=$('cbAcCampos').querySelector('input');(f||$('cbAcOk')).focus()},0);
+}
+function cbAcFechar(){$('cbAcModal').classList.add('hidden');cbAcAtual=null}
+$('cbAcCancelar').onclick=cbAcFechar;
+$('cbAcModal').addEventListener('click',e=>{if(e.target===$('cbAcModal'))cbAcFechar()});
+$('cbAcOk').onclick=async()=>{
+  if(!cbAcAtual)return;const {x,ac}=cbAcAtual,msg=$('cbAcMsg');
+  const vi=$('cbAcValor'),di=$('cbAcData');
+  const valor=vi&&vi.value.trim()?Number(vi.value.trim().replace(/\./g,'').replace(',','.')):'';
+  if(vi&&vi.value.trim()&&!(valor>=0)){msg.textContent='Valor inválido.';return}
+  if(ac==='enviada'&&di&&!di.value){msg.textContent='Informe o vencimento da cobrança.';return}
+  $('cbAcOk').disabled=true;msg.textContent='Salvando…';msg.style.color='var(--muted)';
+  const r=await sheetApi('cob_marcar',{cobranca:{k:x.k,c:x.c,acao:ac,data:di?di.value:'',valor}},{espera:40000});
+  msg.style.color='';$('cbAcOk').disabled=false;
+  if(!r||!r.ok){let e=(r&&r.erro)||'não foi possível salvar';if(/ação desconhecida/.test(e))e='atualize o script da planilha do portal para a versão 33';msg.textContent='⚠️ '+e;return}
+  // aplica em todas as linhas do mesmo cliente e mês
+  x.cli.lista.forEach(o=>{if(o.c===x.c){o.and=r.and;cbAplicaAnd(o)}});
+  cbCalcCliente(x.cli);cbAcFechar();cbRender();
+  if(!$('cbModal').classList.contains('hidden'))cbDetalhe(x.k,cb.volta);
+};
 function cbDetalhe(k,volta){
   const c=cb.cli[k];if(!c)return;const E=anaEsc;cb.volta=volta;
   $('cbMNome').textContent=c.n;
@@ -2868,7 +2950,7 @@ function cbDetalhe(k,volta){
     <div><small>Investidor</small>${E(c.inv)||'—'}</div><div><small>Vendedor</small>${E(c.vend)||'—'}</div><div><small>Status na CLIENTES</small>${E(c.stCli)||(c.semCad?'não está na CLIENTES':'—')}</div>
     <div><small>Responsável</small>${E(c.resp)||'—'}</div><div><small>Telefone</small>${c.tel?`<a href="tel:${E(c.tel.replace(/\D/g,''))}">${E(c.tel)}</a>`:'—'}</div>
     <div><small>Entrada no rateio</small>${c.anexo?anaDataBR(c.anexo)+' · há '+cbDias(c.anexo,cb.hoje)+' dias'+(c.anexoManual?' (ajustada no portal)':''):(E(c.anexoTxt)||'—')}</div>
-    <div style="grid-column:1/-1"><small>Última conta da RGE na PROGRAMAÇÃO</small>${g?'ref. '+cbRef(g.ref)+(g.est?' (pelo vencimento)':'')+' · venc. '+anaDataBR(g.venc)+(g.valor!=null?' · '+brl(g.valor):'')+' · '+E(g.sit):'nenhuma conta desta UC'}</div>
+    <div style="grid-column:1/-1"><small>Última conta da RGE na PROGRAMAÇÃO</small>${g?'ref. '+cbRef(g.ref)+(g.est?' (pelo vencimento)':'')+' · venc. '+anaDataBR(g.venc)+(g.valor!=null?' · '+brl(g.valor):'')+' · '+E(g.sit)+(g.link?` · <a class="cb-link" href="${E(g.link)}" target="_blank" rel="noopener">Abrir conta ↗</a>`:''):'nenhuma conta desta UC'}</div>
   </div></section>`;
   h+=`<section class="ficha-bloco"><h3>Entrada no rateio e anotação<span>${c.notaEm?'salvo por '+E(c.notaPor)+' em '+E(c.notaEm):'fica na aba Cobranças Clientes'}</span></h3><div class="cb-edit">
     <label>Entrada no rateio<input type="date" id="cbEdEnt" value="${c.anexoManual?E(c.anexo):''}"></label>
@@ -2884,15 +2966,16 @@ function cbDetalhe(k,volta){
     :'<div class="ficha-vazio">Nenhuma fatura desta UC foi lida no Leitor de faturas ainda.</div>')+'</section>';
   const lista=c.lista.slice().reverse();
   h+=`<section class="ficha-bloco"><h3>Todos os meses<span>${c.lista.length} linha${c.lista.length===1?'':'s'}</span></h3><div class="ana-tabela cb-hist"><div class="ana-scroll"><table>
-    <thead><tr><th>Mês</th><th class="num">Fatura</th><th>Cobrança</th><th>Situação</th><th>Detalhes</th></tr></thead><tbody>`+
+    <thead><tr><th>Mês</th><th class="num">Fatura</th><th>Cobrança</th><th>Situação</th><th>Detalhes</th><th></th></tr></thead><tbody>`+
     lista.map(x=>{const ab=(cb.dados.meses.find(m=>m.comp===x.c)||{}).aba||'';
       const det=[x.ref&&'ref. RGE '+cbRef(x.ref),x.vr&&'venc. RGE '+anaDataBR(x.vr),x.rge&&'conta RGE: '+x.rge.toLowerCase(),x.conf&&'conf. '+(/^\d{4}-/.test(x.conf)?anaDataBR(x.conf):x.conf),
         x.pg&&'PGTO '+x.pg.toLowerCase()+(x.refPg?' ('+x.refPg.toLowerCase()+')':''),x.obs&&'obs.: '+x.obs].filter(Boolean).map(E).join(' · ');
       return `<tr><td data-l="Mês"><b>${fxMesNome(x.c)}</b><small>${x.fora?'fora das abas':'aba '+E(ab)+(x.l?', linha '+x.l:'')}</small></td><td class="num" data-l="Fatura">${x.v>0?brl(x.v):'—'}</td>
         <td data-l="Cobrança">${x.cob?anaDataBR(x.cob):'—'}</td><td><span class="cb-st ${x.e}">${CB_ST[x.e]||x.e}</span>${x.st?'<small>'+E(x.st)+'</small>':''}</td>
-        <td class="cb-motivo">${det||'—'}${x.e!=='pago'&&x.motBase?'<br>'+x.motBase:''}</td></tr>`}).join('')+'</tbody></table></div></div></section>';
+        <td class="cb-motivo">${det||'—'}${(x.e!=='pago'||x.and)&&x.motBase?'<br>'+x.motBase:''}</td><td>${cbBotoes(x,true)}</td></tr>`}).join('')+'</tbody></table></div></div></section>';
   $('cbMCorpo').innerHTML=h;
   $('cbEdSalvar').onclick=()=>cbSalvarCliente(c);
+  cbLigaBotoes($('cbMCorpo'));
   $('cbModal').classList.remove('hidden');document.body.style.overflow='hidden';
   setTimeout(()=>{const f=$('cbModal').querySelector('.ficha');f.scrollTop=0;f.focus({preventScroll:true})},0);
 }
@@ -2913,7 +2996,7 @@ function cbFechar(){
 }
 $('cbMFechar').onclick=cbFechar;
 $('cbModal').addEventListener('click',e=>{if(e.target===$('cbModal'))cbFechar()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')cbFechar()});
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if(cbAcAtual)cbAcFechar();else cbFechar()});
 /* CSV com tudo (todas as abas), separado por ; e com vírgula decimal: abre direto no Excel e serve para tabela dinâmica */
 function cbCsv(){
   if(!cb.dados)return;

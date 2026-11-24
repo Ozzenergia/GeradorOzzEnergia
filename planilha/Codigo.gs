@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -162,7 +162,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '32 (Cobranças usam as faturas lidas pelo Leitor)';
+const VERSAO_SCRIPT = '33 (fluxo da cobrança no portal: emitida, enviada, paga)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -231,6 +231,10 @@ function doPost(e) {
     if (req.acao === 'cobrancas') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver as cobranças', auth: true });
       return json(cobrancasComCache_(!!req.forcar));
+    }
+    if (req.acao === 'cob_marcar') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para marcar a cobrança', auth: true });
+      return json(cobMarcar(req.cobranca || {}, usuario));
     }
     if (req.acao === 'cob_cliente') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para salvar', auth: true });
@@ -701,7 +705,10 @@ const COLS_COB = ['Chave', 'Mês', 'Aba', 'Linha', 'Mês ref. RGE', 'UC (chave)'
   'Vencimento RGE', 'STATUS (planilha)', 'Situação', 'Conta RGE', 'CONF', 'PGTO', 'REF PGTO', 'Observações'];
 const COLS_COB_CLI = ['UC (chave)', 'Cliente', 'UC', 'UC antiga', 'Investidor', 'Vendedor', 'Responsável', 'Telefone', 'Cidade', 'Status na CLIENTES',
   'Anexo G (planilha de controle)', 'Entrada no rateio (ajuste manual)', 'Anotação', 'Última conta RGE: ref.', 'Última conta RGE: vencimento',
-  'Última conta RGE: valor', 'Última conta RGE: situação', 'Fora das abas', 'Não está na CLIENTES', 'Anotado por', 'Anotado em'];
+  'Última conta RGE: valor', 'Última conta RGE: situação', 'Fora das abas', 'Não está na CLIENTES', 'Anotado por', 'Anotado em', 'Última conta RGE: link'];
+const ABA_COB_AND = 'Cobranças Andamento';   // o que o portal marcou em cada cobrança (emitida, enviada, paga): nunca é apagada pela cópia
+const COLS_COB_AND = ['Chave', 'UC (chave)', 'Mês', 'Cliente', 'Emitida em', 'Emitida por', 'Valor cobrado (R$)', 'Enviada em', 'Enviada por',
+  'Vencimento', 'Paga em', 'Paga por', 'Atualizado em'];
 const SIT_COB_ = { pago: 'Pago', atrasado: 'Atrasado', vencida: 'Vencida', aguardando: 'Aguardando', enviar: 'A enviar', nao_emitiu: 'Não emitida',
   sem_fatura: 'Sem fatura', sem_status: 'Sem status', outro: 'Outro', aguarda_1a: 'Aguardando 1ª fatura' };
 
@@ -723,10 +730,103 @@ function cobSituacoes_(linhas, entrada, hoje) {
   const dias = entrada ? Math.round((Date.parse(hoje + 'T12:00:00') - Date.parse(entrada + 'T12:00:00')) / 864e5) : null;
   const novoNoPrazo = !faturado && dias != null && dias >= 0 && dias <= PRAZO_1A_FATURA_DIAS;
   return linhas.map(x => {
-    if (x.s === 'aguardando' && x.cob && x.cob < hoje) return 'vencida';
-    if ((x.s === 'nao_emitiu' || x.s === 'sem_fatura') && novoNoPrazo) return 'aguarda_1a';
-    return x.s;
+    const a = x.and || {}, cob = a.venc || x.cob;
+    let e = x.s;
+    if (e === 'aguardando' && cob && cob < hoje) e = 'vencida';
+    if ((e === 'nao_emitiu' || e === 'sem_fatura') && novoNoPrazo) e = 'aguarda_1a';
+    // o que foi marcado no portal (emitida → enviada → paga) vale quando está mais adiantado que a planilha de controle
+    if (a.paga) return 'pago';
+    if (e === 'pago') return e;
+    if (a.enviada) return e === 'atrasado' ? e : (cob && cob < hoje ? 'vencida' : 'aguardando');
+    if (a.emitida && ['nao_emitiu', 'sem_fatura', 'aguarda_1a', 'sem_status', 'outro'].indexOf(e) >= 0) return 'enviar';
+    return e;
   });
+}
+
+/** Andamento marcado no portal, por "UC|mês" (AAAA-MM-DD nas datas). */
+function lerAndamento_() {
+  const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
+  const t = x => String(x == null ? '' : x).trim(), m = {};
+  lerAbaCob_(SpreadsheetApp.getActive().getSheetByName(ABA_COB_AND)).forEach(o => {
+    const ch = t(o['Chave']); if (!ch) return;
+    m[ch] = { emitida: iso(o['Emitida em']), emitidaPor: t(o['Emitida por']), valor: typeof o['Valor cobrado (R$)'] === 'number' ? o['Valor cobrado (R$)'] : null,
+      enviada: iso(o['Enviada em']), enviadaPor: t(o['Enviada por']), venc: iso(o['Vencimento']), paga: iso(o['Paga em']), pagaPor: t(o['Paga por']), _linha: o._linha };
+    if (!m[ch].emitida && !m[ch].enviada && !m[ch].paga) delete m[ch];
+  });
+  return m;
+}
+
+/** Recalcula a coluna Situação das linhas de um cliente na aba Cobranças (depois de mudar a entrada no rateio ou o andamento). */
+function cobRecalc_(k, entrada) {
+  const ss = SpreadsheetApp.getActive(), tz = ss.getSpreadsheetTimeZone(), shL = ss.getSheetByName(ABA_COB);
+  if (!shL) return;
+  const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
+  if (entrada === undefined) {
+    const o = lerAbaCob_(ss.getSheetByName(ABA_COB_CLI)).find(x => String(x['UC (chave)']) === k) || {};
+    entrada = iso(o['Entrada no rateio (ajuste manual)']) || iso(o['Anexo G (planilha de controle)']);
+  }
+  const and = lerAndamento_(), hoje = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  const cabL = shL.getRange(1, 1, 1, shL.getLastColumn()).getValues()[0].map(x => String(x).trim()), cSit = cabL.indexOf('Situação') + 1;
+  if (cSit < 1) return;
+  const minhas = lerAbaCob_(shL).filter(x => String(x['UC (chave)']) === k).map(x => {
+    const v = typeof x['Fatura (R$)'] === 'number' ? x['Fatura (R$)'] : null;
+    return { _linha: x._linha, v: v, s: x['Aba'] === '(fora das abas)' ? 'sem_fatura' : cobStatus_(x['STATUS (planilha)'], v), cob: iso(x['Cobrança']),
+      and: and[k + '|' + String(x['Mês']).trim()] };
+  });
+  const sit = cobSituacoes_(minhas, entrada, hoje);
+  minhas.forEach((x, i) => shL.getRange(x._linha, cSit).setValue(SIT_COB_[sit[i]] || sit[i]));
+}
+
+/** O site marca uma cobrança: acao = emitida | enviada | paga | desfazer (volta o último passo).
+    d = { k: UC (chave), c: mês AAAA-MM, data: AAAA-MM-DD (vencimento na "enviada", dia do pagamento na "paga"), valor } */
+function cobMarcar(d, usuario) {
+  const k = String(d && d.k || '').trim(), c = String(d && d.c || '').trim(), acao = String(d && d.acao || '');
+  if (!k || !/^\d{4}-\d{2}$/.test(c)) return { ok: false, erro: 'cobrança não informada' };
+  if (['emitida', 'enviada', 'paga', 'desfazer'].indexOf(acao) < 0) return { ok: false, erro: 'ação inválida' };
+  const data = String(d.data || '').trim();
+  if (data && !/^\d{4}-\d{2}-\d{2}$/.test(data)) return { ok: false, erro: 'data inválida' };
+  const valor = d.valor === '' || d.valor == null ? null : Number(d.valor);
+  if (valor != null && !(valor >= 0)) return { ok: false, erro: 'valor inválido' };
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'a planilha está gravando as cobranças agora; tente de novo em 1 minuto' };
+  try {
+    const sh = abaCob_(ABA_COB_AND, COLS_COB_AND), tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+    const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim()), col = n => cab.indexOf(n) + 1;
+    const ch = k + '|' + c, quem = usuario.nome || usuario.email || '';
+    const hoje = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+    const dt = s2 => s2 ? new Date(Number(s2.slice(0, 4)), Number(s2.slice(5, 7)) - 1, Number(s2.slice(8, 10)), 12) : '';
+    let o = lerAbaCob_(sh).find(x => String(x['Chave']).trim() === ch), linha;
+    if (o) linha = o._linha;
+    else {
+      if (acao === 'desfazer') return { ok: false, erro: 'não há nada marcado nesta cobrança' };
+      linha = Math.max(sh.getLastRow(), 1) + 1;
+      const cli = lerAbaCob_(SpreadsheetApp.getActive().getSheetByName(ABA_COB_CLI)).find(x => String(x['UC (chave)']) === k) || {};
+      sh.getRange(linha, col('Chave')).setValue(ch); sh.getRange(linha, col('UC (chave)')).setValue("'" + k);
+      sh.getRange(linha, col('Mês')).setValue("'" + c); sh.getRange(linha, col('Cliente')).setValue(cli['Cliente'] || '');
+      o = {};
+    }
+    const put = (n, v, fmt) => { const r = sh.getRange(linha, col(n)); r.setValue(v); if (fmt) r.setNumberFormat(fmt); };
+    const tem = n => o[n] !== undefined && o[n] !== '' && o[n] !== null;
+    if (acao === 'emitida') { put('Emitida em', dt(hoje), 'dd/MM/yyyy'); put('Emitida por', quem); put('Valor cobrado (R$)', valor == null ? '' : valor, '#,##0.00'); }
+    if (acao === 'enviada') {
+      if (!tem('Emitida em')) { put('Emitida em', dt(hoje), 'dd/MM/yyyy'); put('Emitida por', quem); }
+      if (valor != null) put('Valor cobrado (R$)', valor, '#,##0.00');
+      put('Enviada em', dt(hoje), 'dd/MM/yyyy'); put('Enviada por', quem); put('Vencimento', dt(data), 'dd/MM/yyyy');
+    }
+    if (acao === 'paga') { put('Paga em', dt(data || hoje), 'dd/MM/yyyy'); put('Paga por', quem); }
+    if (acao === 'desfazer') {
+      if (tem('Paga em')) { put('Paga em', ''); put('Paga por', ''); }
+      else if (tem('Enviada em')) { put('Enviada em', ''); put('Enviada por', ''); put('Vencimento', ''); }
+      else if (tem('Emitida em')) { put('Emitida em', ''); put('Emitida por', ''); put('Valor cobrado (R$)', ''); }
+    }
+    put('Atualizado em', Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm') + ' · ' + quem);
+    cobRecalc_(k);
+    const a = lerAndamento_()[ch] || null;
+    if (a) delete a._linha;
+    console.log('Cobrança ' + ch + ': ' + acao + ' por ' + (usuario.email || '?'));
+    return { ok: true, k: k, c: c, and: a };
+  } finally { lock.releaseLock(); }
 }
 
 function abaCob_(nome, cols) {
@@ -766,7 +866,7 @@ function cobGravarAbas_(r) {
       const g = c.rge || {};
       return [c.k, c.n, c.uc, c.ucA, c.inv, c.vend, c.resp, c.tel, c.cid, c.stCli, c.anexo ? data(c.anexo) : c.anexoTxt, man || '', a['Anotação'] || '',
         g.ref || '', g.venc ? data(g.venc) : '', g.valor == null ? '' : g.valor, g.sit || '', c.fora ? 'SIM' : '', c.semCad ? 'SIM' : '',
-        a['Anotado por'] || '', a['Anotado em'] || ''];
+        a['Anotado por'] || '', a['Anotado em'] || '', g.link || ''];
     });
     // cliente que saiu da leitura mas tem algo escrito pelo portal: a linha continua (não perde a anotação)
     Object.keys(antes).forEach(k => {
@@ -776,8 +876,8 @@ function cobGravarAbas_(r) {
     });
     escreveAbaCob_(shC, COLS_COB_CLI, linhasC, [11, 12, 15], { 16: '#,##0.00' });
     // ---- cobranças: reescreve tudo
-    const porCli = {};
-    r.cobrancas.forEach(x => { (porCli[x.k] = porCli[x.k] || []).push(x); });
+    const porCli = {}, and = lerAndamento_();
+    r.cobrancas.forEach(x => { x.and = and[x.k + '|' + x.c]; (porCli[x.k] = porCli[x.k] || []).push(x); });
     r.clientes.forEach(c => { if (c.fora && ultMes) (porCli[c.k] = porCli[c.k] || []).push({ k: c.k, c: ultMes.comp, l: '', v: null, s: 'sem_fatura', st: '', ref: '', cob: '', vr: '', conf: '', rge: '', pg: '', refPg: '', obs: '', fora: true }); });
     const nomes = {}; r.clientes.forEach(c => { nomes[c.k] = c; });
     const abaDe = {}; r.meses.forEach(m => { abaDe[m.comp] = m.aba; });
@@ -823,15 +923,17 @@ function cobDados_() {
       resp: t(o['Responsável']), tel: t(o['Telefone']), cid: t(o['Cidade']), stCli: t(o['Status na CLIENTES']),
       anexo: man || anexo, anexoG: anexo, anexoManual: !!man, anexoTxt: anexo ? '' : t(o['Anexo G (planilha de controle)']),
       nota: t(o['Anotação']), notaPor: t(o['Anotado por']), notaEm: t(o['Anotado em']),
-      rge: ref ? { ref: ref, venc: iso(o['Última conta RGE: vencimento']), valor: typeof o['Última conta RGE: valor'] === 'number' ? o['Última conta RGE: valor'] : null, sit: t(o['Última conta RGE: situação']) } : null,
+      rge: ref ? { ref: ref, venc: iso(o['Última conta RGE: vencimento']), valor: typeof o['Última conta RGE: valor'] === 'number' ? o['Última conta RGE: valor'] : null, sit: t(o['Última conta RGE: situação']), link: /^https:\/\//i.test(t(o['Última conta RGE: link'])) ? t(o['Última conta RGE: link']) : '' } : null,
       fora: t(o['Fora das abas']) === 'SIM', semCad: t(o['Não está na CLIENTES']) === 'SIM' };
   });
+  const and = lerAndamento_();
+  Object.keys(and).forEach(ch => { delete and[ch]._linha; });
   const meses = {}, cobs = lerAbaCob_(shL).filter(o => o['UC (chave)'] && o['Mês']).map(o => {
     const fora = t(o['Aba']) === '(fora das abas)', c = t(o['Mês']), v = typeof o['Fatura (R$)'] === 'number' ? o['Fatura (R$)'] : null, st = t(o['STATUS (planilha)']);
     if (!fora) meses[c] = t(o['Aba']);
     return { k: t(o['UC (chave)']), c: c, l: Number(o['Linha']) || 0, v: v, s: fora ? 'sem_fatura' : cobStatus_(st, v), st: st, ref: t(o['Mês ref. RGE']),
       cob: iso(o['Cobrança']), vr: iso(o['Vencimento RGE']), conf: iso(o['CONF']) || t(o['CONF']), rge: t(o['Conta RGE']), pg: t(o['PGTO']), refPg: t(o['REF PGTO']),
-      obs: t(o['Observações']), fora: fora };
+      obs: t(o['Observações']), fora: fora, and: and[t(o['UC (chave)']) + '|' + c] || null };
   });
   let sync = {}; try { sync = JSON.parse(PropertiesService.getScriptProperties().getProperty('COB_SYNC') || '{}'); } catch (e) {}
   const agora = new Date();
@@ -915,15 +1017,7 @@ function cobSalvarCliente(d, usuario) {
     shC.getRange(o._linha, c('Anotado em')).setValue(quando);
     // recalcula a Situação das linhas deste cliente
     const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
-    const entrada = ent || iso(o['Anexo G (planilha de controle)']);
-    const hoje = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-    const cabL = shL.getRange(1, 1, 1, shL.getLastColumn()).getValues()[0].map(x => String(x).trim()), cSit = cabL.indexOf('Situação') + 1;
-    const minhas = lerAbaCob_(shL).filter(x => String(x['UC (chave)']) === k).map(x => {
-      const v = typeof x['Fatura (R$)'] === 'number' ? x['Fatura (R$)'] : null;
-      return { _linha: x._linha, v: v, s: x['Aba'] === '(fora das abas)' ? 'sem_fatura' : cobStatus_(x['STATUS (planilha)'], v), cob: iso(x['Cobrança']) };
-    });
-    const sit = cobSituacoes_(minhas, entrada, hoje);
-    if (cSit > 0) minhas.forEach((x, i) => shL.getRange(x._linha, cSit).setValue(SIT_COB_[sit[i]] || sit[i]));
+    cobRecalc_(k, ent || iso(o['Anexo G (planilha de controle)']));
     return { ok: true, k: k, entrada: ent, nota: nota, notaPor: usuario.nome || usuario.email || '', notaEm: quando };
   } finally { lock.releaseLock(); }
 }
@@ -1058,7 +1152,7 @@ function lerCobrancas(ssAberta) {
     else if (ct.venc) { let y = Number(ct.venc.slice(0, 4)), mm = Number(ct.venc.slice(5, 7)) - 1; if (mm < 1) { mm = 12; y--; } ref = am(y, mm); }   // sem mês: o do vencimento − 1
     if (!ref) return;
     const k = chave(ct.uc, ct.ucAntiga, '');
-    const o = { ref: ref, est: !m, venc: ct.venc, valor: ct.valor, sit: ct.situacao };
+    const o = { ref: ref, est: !m, venc: ct.venc, valor: ct.valor, sit: ct.situacao, link: ct.link || '' };
     const a = ultRge[k];
     if (!a || ref > a.ref || (ref === a.ref && String(ct.venc) > String(a.venc))) ultRge[k] = o;
   });

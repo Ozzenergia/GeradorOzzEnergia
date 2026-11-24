@@ -18,6 +18,11 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   A visão **Faturas da RGE** é o checklist do mês: para cada cliente ativo, mostra se a fatura da RGE daquele mês de
   referência já foi lida no Leitor, se chegou no e-mail (PROGRAMAÇÃO) e falta ler, ou se ainda não chegou. As faturas lidas
   também entram no motivo da cobrança ("a fatura de 10/2026 já foi lida: dá para emitir") e na ficha do cliente.
+  Cada cliente que "chegou no e-mail" tem o link **Abrir conta ↗** (o link da CPFL que está na PROGRAMAÇÃO): baixar o PDF e
+  arrastar no Leitor.
+  **Fluxo da cobrança no portal:** botões *Marcar emitida* (com o valor), *Marcar enviada* (com o vencimento) e *Marcar paga*
+  (com o dia), e *Desfazer* na ficha do cliente. Fica na aba **Cobranças Andamento** da planilha do portal, que a cópia nunca
+  apaga, e vale quando está mais adiantado que o STATUS da planilha de controle.
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
   instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho
