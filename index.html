@@ -316,6 +316,13 @@ main.wide{max-width:1180px}
 .cb-hist td{font-size:13.5px}
 .cb-dica{font-size:13px;color:var(--muted);margin:-4px 0 12px}
 .cb-st.aguarda_1a{background:#e6f4f1;color:#0f766e}
+.lf-pasta{margin:12px 0 4px;display:grid;gap:8px}
+.lf-pasta-box{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.lf-pasta-box input[type=url]{flex:1 1 380px;font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.lf-pasta-box small{flex-basis:100%;color:var(--muted);font-size:12.5px}
+.lf-pasta-chk{display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--ink)}
+.lf-pasta-st{font-size:14px;color:var(--muted);display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.lf-pasta-st b{color:var(--ink)}
 .cb-passo{font:600 12.5px Outfit,sans-serif;color:var(--primary);background:var(--primary-soft);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;white-space:nowrap}
 .cb-passo:hover{outline:1px solid var(--primary-line)}
 .cb-passo.sec{color:var(--muted);background:none;padding:6px 4px}
@@ -1027,6 +1034,16 @@ body.locked{overflow:hidden}
     <strong>Arraste os PDFs das faturas aqui ou clique para selecionar</strong>
     <small>Pode mandar várias de uma vez · os dados vão para a planilha e o PDF para a pasta "Faturas RGE (portal OZZ)" no Google Drive</small>
     <input type="file" id="lfFile" accept=".pdf,application/pdf" multiple hidden>
+  </div>
+  <div class="lf-pasta">
+    <button class="btn sec sm" id="lfPastaBtn" type="button">📁 Importar de uma pasta do Google Drive</button>
+    <div class="lf-pasta-box hidden" id="lfPastaBox">
+      <input id="lfPastaLink" type="url" placeholder="Cole aqui o link da pasta (https://drive.google.com/drive/folders/…)" aria-label="Link da pasta do Google Drive">
+      <button class="btn sm" id="lfPastaListar" type="button">Ver PDFs da pasta</button>
+      <label class="lf-pasta-chk"><input type="checkbox" id="lfPastaPular" checked> pular os que já foram importados</label>
+      <small>A pasta precisa estar no Drive (ou compartilhada com) a conta que implantou o script da planilha. As subpastas também entram.</small>
+    </div>
+    <div class="lf-pasta-st" id="lfPastaSt" aria-live="polite"></div>
   </div>
   <div class="alert" id="lfErro"></div>
   <div class="ana-tabela" id="lfTabela" hidden><div class="ana-scroll"><table class="rat-t">
@@ -2115,10 +2132,12 @@ function calcCobranca(x,plano){
 }
 const lf={itens:[],salvando:false};
 function lfAbrir(){lfRender()}
-async function lfLer(files){
+async function lfLer(files,metas){
   $('lfErro').style.display='none';
-  for(const file of files){
+  for(let fi=0;fi<files.length;fi++){
+    const file=files[fi];
     const it={arquivo:file.name,estado:'lendo',file};/* o arquivo fica guardado para subir ao Drive depois */lf.itens.unshift(it);lfRender();
+    if(metas&&metas[fi]){Object.assign(it,metas[fi]);if(it.driveId)it.file=null}   // veio de uma pasta do Drive: na hora de guardar, o script copia o arquivo
     try{
       if(!/\.pdf$/i.test(file.name))throw new Error('não é PDF');
       const t=await readPdf(file),d=parseCPFL(t);
@@ -2153,6 +2172,39 @@ function lfDetalhe(i){
   return `<dl class="lf-campos">${campos.map(([l,v])=>`<div><dt>${l}</dt><dd${v==null||v===''?' class="vazio"':''}>${v==null||v===''?'não encontrado':E(v)}</dd></div>`).join('')}</dl>
     <div class="lf-hist"><b>Consumo dos últimos 12 meses</b>${h.length?`<ol>${h.map(x=>`<li><span>${mm(x.mes)}</span>${n(x.kwh)} kWh</li>`).join('')}</ol>`:'<p class="vazio">não encontrado na fatura</p>'}</div>`;
 }
+/* ===== Importar faturas de uma pasta do Google Drive ===== */
+const lfp={pasta:null,lendo:false,parar:false};
+$('lfPastaBtn').onclick=()=>{$('lfPastaBox').classList.toggle('hidden');if(!$('lfPastaBox').classList.contains('hidden'))$('lfPastaLink').focus()};
+$('lfPastaListar').onclick=async()=>{
+  const link=$('lfPastaLink').value.trim(),st=$('lfPastaSt');if(!link){$('lfPastaLink').focus();return}
+  $('lfPastaListar').disabled=true;st.textContent='Abrindo a pasta…';
+  const r=await sheetApi('fat_pasta_listar',{dados:{pasta:link}},{espera:120000});
+  $('lfPastaListar').disabled=false;
+  if(!r||!r.ok){let e=(r&&r.erro)||'não deu para abrir a pasta';if(/ação desconhecida/.test(e))e='atualize o script da planilha do portal para a versão 37';st.textContent='⚠️ '+e;return}
+  lfp.pasta=r;lfPastaMostrar();
+};
+$('lfPastaPular').onchange=()=>{if(lfp.pasta&&!lfp.lendo)lfPastaMostrar()};
+function lfPastaMostrar(){
+  const r=lfp.pasta,ja=r.arquivos.filter(a=>a.ja).length,fila=r.arquivos.filter(a=>!$('lfPastaPular').checked||!a.ja),st=$('lfPastaSt'),E=anaEsc;
+  st.innerHTML=`<span>Pasta <b>${E(r.nome)}</b>: ${r.arquivos.length} PDF${r.arquivos.length===1?'':'s'}${ja?` (${ja} já importado${ja===1?'':'s'})`:''}${r.limite?' — só os 1.500 primeiros':''}.</span>`+
+    (fila.length?`<button class="btn pri sm" type="button" id="lfPastaLer">Ler ${fila.length} fatura${fila.length===1?'':'s'}</button>`:'<span>Nada novo para ler.</span>');
+  if(fila.length)$('lfPastaLer').onclick=()=>lfPastaLer(fila);
+}
+async function lfPastaLer(fila){
+  if(lfp.lendo)return;lfp.lendo=true;lfp.parar=false;const st=$('lfPastaSt'),r=lfp.pasta;let erros=0;
+  for(let n=0;n<fila.length&&!lfp.parar;n++){
+    const a=fila[n];
+    st.innerHTML=`<span>Lendo <b>${n+1}/${fila.length}</b>: ${anaEsc((a.pasta?a.pasta+'/':'')+a.nome)}</span><button class="btn sec sm" type="button" id="lfPastaParar">Parar</button>`;
+    $('lfPastaParar').onclick=()=>{lfp.parar=true};
+    const b=await sheetApi('fat_pasta_baixar',{dados:{pasta:r.id,id:a.id}},{espera:90000});
+    if(!b||!b.ok){erros++;lf.itens.unshift({arquivo:a.nome,estado:'erro',erro:(b&&b.erro)||'não consegui baixar do Drive'});lfRender();continue}
+    const bin=atob(b.b64),u8=new Uint8Array(bin.length);for(let k=0;k<bin.length;k++)u8[k]=bin.charCodeAt(k);
+    await lfLer([new File([u8],a.nome,{type:'application/pdf'})],[{driveId:a.id,pasta:r.id,pastaNome:r.nome}]);
+  }
+  lfp.lendo=false;
+  const ok=lf.itens.filter(i=>i.estado==='ok'&&!i.salva).length,nl=lf.itens.filter(i=>i.estado==='erro').length;
+  st.innerHTML=`<span>${lfp.parar?'Parado. ':''}✓ Leitura terminada: <b>${ok}</b> fatura${ok===1?'':'s'} pronta${ok===1?'':'s'} para guardar${nl?` · ${nl} não lida${nl===1?'':'s'} (veja na lista)`:''}. Confira e clique em <b>Guardar na planilha</b>.</span>`;
+}
 function lfRender(){
   const L=lf.itens,ok=L.filter(i=>i.estado==='ok'),E=anaEsc,n=(v,d=0)=>v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:d});
   $('lfTabela').hidden=!L.length;$('lfAcoes').hidden=!L.length;
@@ -2182,25 +2234,33 @@ $('lfSalvar').onclick=async()=>{
   const pend=lf.itens.filter(i=>i.estado==='ok'&&!i.salva);if(!pend.length||lf.salvando)return;
   lf.salvando=true;lfRender();$('lfMsg').textContent='Guardando…';
   const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','emissao','nf','historico','tusdTarifa','teTarifa','tusdValor','teValor','bandeira','bandeiraCred','cip','injKwh','outros'];
-  const r=await sheetApi('fat_salvar',{faturas:pend.map(i=>Object.fromEntries(campos.map(c=>[c,i[c]==null?'':i[c]])))},{espera:90000});
+  // em lotes de 100 (uma pasta pode ter centenas de faturas)
+  const r={ok:true,faturas:0,atualizadas:0,historico:0,fornecimento:0,ignoradas:[]};
+  for(let k=0;k<pend.length;k+=100){
+    const lote=pend.slice(k,k+100);if(pend.length>100)$('lfMsg').textContent=`Guardando… (${Math.min(k+100,pend.length)}/${pend.length})`;
+    const rl=await sheetApi('fat_salvar',{faturas:lote.map(i=>Object.fromEntries(campos.map(c=>[c,i[c]==null?'':i[c]])))},{espera:120000});
+    if(!rl||!rl.ok){lf.salvando=false;$('lfMsg').textContent='⚠️ '+((rl&&rl.erro)||'não foi possível guardar')+(k?` (as ${k} primeiras foram guardadas)`:'');lfRender();return}
+    lote.forEach(i=>{i.salva=true});['faturas','atualizadas','historico','fornecimento'].forEach(c=>{r[c]+=rl[c]||0});r.ignoradas=r.ignoradas.concat(rl.ignoradas||[]);
+  }
   lf.salvando=false;
-  if(!r||!r.ok){$('lfMsg').textContent='⚠️ '+((r&&r.erro)||'não foi possível guardar');lfRender();return}
-  pend.forEach(i=>{i.salva=true});
   $('lfMsg').textContent=`✓ ${r.faturas} nova${r.faturas===1?'':'s'}, ${r.atualizadas} atualizada${r.atualizadas===1?'':'s'} · ${r.historico} meses de histórico acrescentados`+(r.fornecimento?` · fornecimento preenchido em ${r.fornecimento} beneficiária${r.fornecimento>1?'s':''}`:'')+(r.ignoradas&&r.ignoradas.length?` · ignoradas: ${r.ignoradas.join('; ')}`:'');
   if(typeof rat!=='undefined')rat.dados=null;   // o rateio relê as abas na próxima vez que abrir
   try{cb.dados=null}catch(e){}                   // as cobranças também (usam as faturas lidas)
   lfRender();
   // depois dos dados, os PDFs vão um a um para a pasta "Faturas RGE (portal OZZ)" no Drive de quem implantou o script
-  const base=$('lfMsg').textContent,comPdf=pend.filter(i=>i.file&&!i.pdfOk);let ok=0;const erros=[];
+  const base=$('lfMsg').textContent,comPdf=pend.filter(i=>(i.file||i.driveId)&&!i.pdfOk);let ok=0;const erros=[];
   for(let n=0;n<comPdf.length;n++){
     const i=comPdf[n];$('lfMsg').textContent=base+` · guardando os PDFs no Drive (${n+1}/${comPdf.length})…`;
     try{
-      const b=new Uint8Array(await i.file.arrayBuffer());let bin='';for(let k=0;k<b.length;k+=0x8000)bin+=String.fromCharCode.apply(null,b.subarray(k,k+0x8000));
-      const rp=await sheetApi('fat_pdf',{pdf:{uc:i.uc,mes:i.mes,titular:i.titular||'',b64:btoa(bin)}},{espera:120000});
+      let pdf;
+      if(i.driveId)pdf={uc:i.uc,mes:i.mes,titular:i.titular||'',driveId:i.driveId,pasta:i.pasta,pastaNome:i.pastaNome||''};   // o script copia da pasta de origem
+      else{const b=new Uint8Array(await i.file.arrayBuffer());let bin='';for(let k=0;k<b.length;k+=0x8000)bin+=String.fromCharCode.apply(null,b.subarray(k,k+0x8000));
+        pdf={uc:i.uc,mes:i.mes,titular:i.titular||'',b64:btoa(bin)}}
+      const rp=await sheetApi('fat_pdf',{pdf},{espera:120000});
       if(rp&&rp.ok){ok++;i.pdfOk=true}else erros.push(i.arquivo+': '+((rp&&rp.erro)||'falhou'));
     }catch(e){erros.push(i.arquivo+': '+e.message)}
   }
-  if(comPdf.length)$('lfMsg').textContent=base+` · ${ok} PDF${ok===1?'':'s'} guardado${ok===1?'':'s'} no Drive`+(erros.length?` · ⚠️ ${erros.join('; ').replace(/ação desconhecida/,'atualize o script da planilha para a versão 35')}`:'');
+  if(comPdf.length)$('lfMsg').textContent=base+` · ${ok} PDF${ok===1?'':'s'} guardado${ok===1?'':'s'} no Drive`+(erros.length?` · ⚠️ ${erros.slice(0,5).join('; ').replace(/ação desconhecida/,'atualize o script da planilha para a versão 37')}${erros.length>5?' e mais '+(erros.length-5):''}`:'');
 };
 
 /* ===== Rateio de créditos (TI e Admin): monta as linhas a partir das abas e calcula no navegador ===== */
