@@ -4165,15 +4165,36 @@ $('dualGo').onclick=()=>{
 };
 const isoHoje=()=>{const h=new Date();return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`};
 function fromProposta(text){
+  // o PDF da proposta vem com espaços no meio dos números ("1.597.422.001 - 78", "36.376.170/0001 - 12", "97050 - 465", "N °")
+  if(text){let t0;do{t0=text;text=text.replace(/(\d)\s+([-\/])\s*(\d)/g,'$1$2$3').replace(/(\d)([-\/])\s+(\d)/g,'$1$2$3')}while(text!==t0);text=text.replace(/N\s+([º°])/g,'N$1')}
   const d=extractCommon(text);
   if(text){
+    const T=text,linhas=T.split('\n').map(x=>x.replace(/\s+/g,' ').trim());
+    // nome: a linha do "CLIENTE:" e as que continuam o nome (antes do MUNICÍPIO)
+    const ic=linhas.findIndex(x=>/^CLIENTE:/i.test(x));
+    if(ic>=0){let nm=linhas[ic].replace(/^CLIENTE:\s*/i,'');for(let j=ic+1;j<Math.min(linhas.length,ic+3);j++){const l=linhas[j];if(!l||/^MUNIC|^Santa Maria,|\d{2}\/\d{2}|:/i.test(l)||!/^[A-ZÀ-Ü0-9&.,\- ]+$/.test(l))break;nm+=' '+l}d.titular=nm.trim()}
+    // UC: a do "DADOS DA UNIDADE CONSUMIDORA" (formato novo ou antigo)
+    const uc=T.match(/UNIDADE CONSUMIDORA[^\n]{0,40}?UC\s*:?\s*(\d{1,3}(?:\.\d{3}){3}-\d{2}|\d{8,12})/i)||T.match(/\bUC\s*:?\s*(\d{1,3}(?:\.\d{3}){3}-\d{2})/);
+    if(uc)d.codigo_uc=uc[1];
+    // CPF/CNPJ do cliente (o da OZZ fica de fora)
+    const docs=(T.match(/\b(?:\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2})\b/g)||[]).filter(x=>x.replace(/\D/g,'')!=='48513829000114');
+    if(docs.length)d.documento=docs[0];
+    // endereço do aceite: "Endereço: R ..., 1297, BAIRRO, CEP 97050-465, MUNICÍPIO DE SANTA MARIA – RS."
+    const en=T.match(/Endere[çc]o:\s*([^\n]+?)(?:,\s*CEP\s*(\d{5}-?\d{3}))?\s*,\s*MUNIC[ÍI]PIO DE\s*([^\n–\-]+?)\s*[–\-]\s*([A-Z]{2})/i);
+    if(en){const partes=en[1].split(',').map(x=>x.trim()).filter(Boolean);
+      if(partes.length>=3){d.bairro=partes.pop();d.endereco=partes.join(', ')}else d.endereco=partes.join(', ');
+      if(en[2])d.cep=en[2].replace(/^(\d{5})(\d{3})$/,'$1-$2');d.cidade=en[3].trim().replace(/\s+/g,' ')+'/'+en[4].toUpperCase()}
+    else{const cep=T.match(/CEP\s*(\d{5}-\d{3})/);if(cep&&!d.cep)d.cep=cep[1]}
+    // telefones da OZZ (rodapé "CONTATO:" da proposta) não são do cliente
+    const ozzTel=(T.match(/CONTATO:[^\n]*/gi)||[]).join(' ').replace(/\D/g,' ');
+    ['celular','telefone'].forEach(k=>{const dg=String(d[k]||'').replace(/\D/g,'');if(dg.length>=8&&ozzTel.replace(/\s/g,'').includes(dg.slice(-8)))d[k]=''});
     const k=text.match(/([\d\.,]+)\s*kWh/i);if(k)d.consumo=k[1];
     if(/dupla/i.test(text))d.modalidade='Dupla';else if(/[úu]nica/i.test(text))d.modalidade='Única';
-    const np=text.match(/PROPOSTA[^\n]{0,60}?N[º°o]\.?\s*:?\s*([A-Z0-9][\w\-\/]*\d)/i)
+    const np=text.match(/PROPOSTA[\s\S]{0,80}?N[º°o]\.?\s*:?\s*([A-Z0-9][\w\-\/]*\d)/i)
       ||(cfg.prefix?text.match(new RegExp('('+cfg.prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\d+)')):null);
     d.num_proposta=np?np[1]:'';
     if(!d.titular){const cl=text.match(/CLIENTE:\s*([^\n]+)/i);if(cl)d.titular=cl[1].trim()}
-    if(d.endereco)d.endereco=d.endereco.replace(/[.;]\s*$/,'');
+    if(d.endereco)d.endereco=d.endereco.replace(/[.;,]\s*$/,'');
     const cs=text.match(/Consumo M[ée]dio Mensal \(kWh\)\s*([\d.,]+)/i);if(cs)d.consumo=cs[1];
   }
   return d;
@@ -4214,10 +4235,20 @@ function tagSources(map){
     else{lab.textContent=lab.dataset.orig;lab.className=lab.dataset.cls}});
 }
 async function lookupProposta(){
-  const uc=tv('codigo_uc'),el=$(tid('num_proposta'));
-  if(!uc||el.value.trim()||!sheetReady())return;
-  const r=await sheetApi('buscar',{uc});
-  if(r.ok&&r.encontrada&&!el.value.trim()){
+  const uc=tv('codigo_uc'),el=$(tid('num_proposta')),num=el.value.trim();
+  if((!uc&&!num)||!sheetReady())return;
+  const r=await sheetApi('buscar',{uc,numero:num});
+  // a proposta foi gerada pelo portal: o registro dela completa o que o PDF não traz (só os campos vazios)
+  if(r&&r.ok&&r.encontrada&&r.dados){
+    const x=r.dados,dist=x.distribuidora?((/RGE|CPFL/i.test(x.distribuidora)&&!/^CPFL/i.test(x.distribuidora)?'CPFL - ':'')+x.distribuidora.toUpperCase()+(x.uf&&!/\/[A-Z]{2}$/.test(x.distribuidora)?'/'+x.uf:'')):'';
+    const vals={codigo_uc:x.codigo_uc,distribuidora:dist,classe_uc:x.classe_uc,titular:x.titular,documento:x.cnpj||x.cpf,endereco:x.endereco,bairro:x.bairro,cep:x.cep,
+      cidade:x.cidade?x.cidade+(x.uf&&!/\/[A-Z]{2}$/.test(x.cidade)?'/'+x.uf:''):'',email:x.email,celular:x.celular,consumo:x.consumo};
+    const pre=[];
+    Object.keys(vals).forEach(k=>{const e=$(tid(k));if(e&&vals[k]&&!e.value.trim()){e.value=vals[k];e.classList.remove('empty');pre.push((ALL.find(f=>f.id===k)||{}).label||k)}});
+    if(pre.length){const w=$('warn1');w.className='alert ok-note';w.style.display='block';
+      w.textContent=`✅ Completei pelo registro da proposta ${r.numero||''} na planilha: ${pre.join(', ')}. Confira antes de gerar.`}
+  }
+  if(r&&r.ok&&r.encontrada&&!el.value.trim()){
     el.value=r.numero;el.classList.remove('empty');
     const w=$('warn1');w.className='alert ok-note';w.style.display='block';
     w.textContent=`✅ Nº da proposta ${r.numero} encontrado na planilha para a UC ${uc}`+([r.data&&`proposta de ${r.data}`,r.plano&&`plano ${r.plano}`].filter(Boolean).join(', ').replace(/^(.+)$/,' ($1)'))+'. Confira antes de gerar.';
@@ -4250,7 +4281,7 @@ setupDrop($('drop'),$('file'),async file=>{
       // foto na opção "Proposta aprovada": lê a imagem e decide se é fatura ou proposta
       const r=await lerFatura(file,t=>$('load1Prog').textContent=t).catch(e=>({erro:e}));
       const T=(r&&r.texto)||'';
-      if(r&&!r.erro&&/DANF3E|N[úu]mero da UC|Distribuidora de Energia|Data de Vencimento/i.test(T)){
+      if(r&&!r.erro&&/DANF3E|N[úu]mero da UC|Data de Vencimento/i.test(T)&&!/PROPOSTA T[ÉE]CNICA/i.test(T)){
         {const t=fromFaturaD(r.d),sol=t._solar;delete t._solar;openTermo(t,'fatura',[sol,'A imagem enviada é uma fatura de energia, então foi lida como fatura. '+r.aviso].filter(Boolean).join(' '));termoInjOzz(t,sol)}
       }else if(T.trim()){
         openTermo(fromProposta(T),'proposta','Proposta lida a partir da foto: confira todos os campos.');
@@ -4260,7 +4291,8 @@ setupDrop($('drop'),$('file'),async file=>{
       if(name.endsWith('.pdf'))text=await readPdf(file);
       else if(name.endsWith('.docx'))text=(await mammoth.extractRawText({arrayBuffer:await file.arrayBuffer()})).value;
       // PDF de fatura enviado na opção "Proposta aprovada": lê como fatura (igual já acontece com foto)
-      if(name.endsWith('.pdf')&&/DANF3E|N[úu]mero da UC|Distribuidora de Energia/i.test(text)){
+      // proposta da OZZ cita "distribuidora de energia" no aceite: só é fatura se tiver a cara de fatura (DANF3E / Número da UC)
+      if(name.endsWith('.pdf')&&/DANF3E|N[úu]mero da UC/i.test(text)&&!/PROPOSTA T[ÉE]CNICA/i.test(text)){
         const t=fromFatura(text),sol=t._solar;delete t._solar;
         openTermo(t,'fatura',[sol,'O PDF enviado é uma fatura de energia, então foi lido como fatura.'].filter(Boolean).join(' '));termoInjOzz(t,sol);return}
       openTermo(fromProposta(text),'proposta',!text.trim()?'Não foi possível ler o texto do arquivo (imagem ou PDF escaneado). Preencha os campos manualmente.':'');
