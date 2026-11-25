@@ -49,6 +49,12 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   **PDF escaneado:** é lido como imagem (o mesmo leitor de fotos, no navegador) e fica marcado **CONFERIR**: só é guardado
   depois de clicar em "Conferi" e confirmar a UC. As linhas da conta só valem para o cálculo da cobrança se os números
   baterem (kWh × tarifa = valor).
+  **Usina x unidade consumidora:** o site reconhece se a UC é **USINA** (Rateio Usinas ou abas INVESTIDORES, FATURAS GERADOR
+  e GERADORES - CONSÓRCIO da planilha de controle) ou **BENEFICIÁRIA** (cadastro, CLIENTES ou Rateio Beneficiárias) e mostra
+  a etiqueta no Leitor, nas Contas a pagar e na ficha do cliente. Fatura de usina fica marcada na aba Faturas Lidas
+  (coluna "Tipo da UC"), fora das Cobranças, e o PDF vai para **Faturas RGE (portal OZZ)/Usinas geradoras/AAAA-MM**; as das
+  unidades consumidoras vão para **.../Unidades consumidoras/AAAA-MM**. O botão "Organizar os PDFs do Drive" separa os PDFs
+  já guardados (os links não mudam). Propostas e Termo avisam quando a UC é uma usina.
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
   instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho

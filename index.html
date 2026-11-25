@@ -331,6 +331,10 @@ main.wide{max-width:1180px}
 .lf-nl th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
 .lf-nl td small{display:block;color:var(--muted)}
 .rat-tag.warn{background:var(--warn-soft);color:var(--warn)}
+.uc-tag{display:inline-block;font:700 10.5px Outfit,sans-serif;letter-spacing:.04em;padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:middle}
+.uc-tag.usina{background:#fff1d6;color:#8a5300}.uc-tag.benef{background:var(--primary-soft);color:var(--primary)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .uc-tag.usina{background:#3a2a0d;color:#fbbf24}}
+:root[data-theme="dark"] .uc-tag.usina{background:#3a2a0d;color:#fbbf24}
 .cb-passo{font:600 12.5px Outfit,sans-serif;color:var(--primary);background:var(--primary-soft);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;white-space:nowrap}
 .cb-passo:hover{outline:1px solid var(--primary-line)}
 .cb-passo.sec{color:var(--muted);background:none;padding:6px 4px}
@@ -1053,7 +1057,7 @@ body.locked{overflow:hidden}
       <small>A pasta precisa estar no Drive (ou compartilhada com) a conta que implantou o script da planilha. As subpastas também entram.</small>
     </div>
     <div class="lf-pasta-st" id="lfPastaSt" aria-live="polite"></div>
-    <div><button class="btn sec sm hidden" id="lfNlBtn" type="button" aria-expanded="false">📋 Faturas não lidas guardadas (<span id="lfNlN">0</span>)</button></div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px"><button class="btn sec sm" id="lfOrganizar" type="button" title="Separa os PDFs já guardados em Usinas geradoras e Unidades consumidoras (os links não mudam)">🗂️ Organizar os PDFs do Drive</button><button class="btn sec sm hidden" id="lfNlBtn" type="button" aria-expanded="false">📋 Faturas não lidas guardadas (<span id="lfNlN">0</span>)</button></div>
     <div class="lf-nl hidden" id="lfNlBox"></div>
   </div>
   <div class="alert" id="lfErro"></div>
@@ -1783,7 +1787,7 @@ function anaRender(){
   $('anaCorpo').innerHTML=lista.length?lista.map(c=>{const cl=anaClasse(c);
     return `<tr class="${cl?'r-'+cl:''}">
       <td data-l="Vencimento"><b>${anaDataBR(c.venc)}</b></td>
-      <td>${anaEsc(c.nome)}<small>${anaEsc(c.cidade)}</small></td>
+      <td>${anaEsc(c.nome)}${ucTag(c.uc||c.ucAntiga)}<small>${anaEsc(c.cidade)}</small></td>
       <td class="uc" data-l="UC">${anaEsc(c.uc||c.ucAntiga)}${c.uc&&c.ucAntiga?`<small>antiga ${anaEsc(c.ucAntiga)}</small>`:''}</td>
       <td data-l="Mês ref.">${anaEsc(c.mes)}</td>
       <td data-l="Usina">${c.usinaCod?'<b>'+anaEsc(c.usinaCod)+'</b> ':''}${c.usinaNome?(c.usinaCod?`<small>${anaEsc(c.usinaNome)}</small>`:anaEsc(c.usinaNome)):''}</td>
@@ -1848,6 +1852,21 @@ $('temaBtn').onclick=()=>{const t=temaAtual()==='escuro'?'claro':'escuro';try{lo
 window.addEventListener('storage',e=>{if(e.key==='ozz_tema')aplicarTema(temaAtual())});
 if(mqEscuro&&mqEscuro.addEventListener)mqEscuro.addEventListener('change',()=>{if(!temaSalvo())aplicarTema(temaAtual())});   // sem escolha: acompanha o aparelho
 aplicarTema(temaAtual());
+
+/* ===== Tipo de UC: usina geradora ou unidade consumidora (beneficiária) — a mesma regra do script (tiposUc_) ===== */
+const ucT={mapa:null,em:0,pedido:null};
+function ucTiposCarregar(forcar){
+  if(!forcar&&ucT.mapa&&Date.now()-ucT.em<600000)return Promise.resolve(ucT.mapa);
+  if(ucT.pedido)return ucT.pedido;
+  ucT.pedido=sheetApi('uc_tipos',{},{espera:60000}).then(r=>{ucT.pedido=null;if(r&&r.ok){ucT.mapa=r.mapa||{};ucT.em=Date.now()}return ucT.mapa}).catch(()=>{ucT.pedido=null;return ucT.mapa});
+  return ucT.pedido;
+}
+const ucTipo=uc=>{const d=String(uc||'').replace(/\D/g,'');const t=ucT.mapa&&d.length>=7?ucT.mapa[d]:null;return t?{tipo:t[0],nome:t[1],usina:t[2]}:null};
+function ucTag(uc){
+  const t=ucTipo(uc);if(!t)return '';
+  return t.tipo==='usina'?`<span class="uc-tag usina" title="UC geradora${t.nome?' · '+anaEsc(t.nome):''}">USINA</span>`
+    :`<span class="uc-tag benef" title="Unidade consumidora${t.usina?' · recebe da usina '+anaEsc(t.usina):''}">BENEFICIÁRIA</span>`;
+}
 
 /* ===== Clientes · Cadastro (aba "Clientes" da planilha do portal) ===== */
 const cli={lista:null,busca:'',ord:'nome',desc:false,editando:null,formAberto:false,paraEditar:null,carregando:false,salvando:false};
@@ -2142,7 +2161,7 @@ function calcCobranca(x,plano){
   return {semDesc:r2(semDesc),desconto:r2(desconto),cobranca:r2(cobranca),investidor:r2(investidor),repassado:r2(rep)};
 }
 const lf={itens:[],salvando:false};
-function lfAbrir(){lfRender();if(!lfnl.lista)lfNlCarregar()}
+function lfAbrir(){lfRender();if(!lfnl.lista)lfNlCarregar();ucTiposCarregar().then(()=>{if(lf.itens.length)lfRender()})}
 /* PDF escaneado (só imagem): cada página vira imagem e passa pelo leitor de fotos (Tesseract, no próprio navegador).
    O texto lido vai para os mesmos leitores dos PDFs digitais; a fatura fica marcada para conferir antes de guardar. */
 async function lfOcrTexto(file,it){
@@ -2210,7 +2229,8 @@ async function lfLer(files,metas){
 function lfDetalhe(i){
   const E=anaEsc,n=(v,d=0)=>v==null||v===''||isNaN(v)?'':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:d}),
     mm=m=>m?String(m%100).padStart(2,'0')+'/'+Math.floor(m/100):'',kwh=v=>n(v)?n(v)+' kWh':'';
-  const campos=[['UC',i.uc],['Titular',i.titular],['CPF/CNPJ',i.doc],['Distribuidora',i.distribuidora],['Classe',i.classe],
+  const tp=ucTipo(i.uc);
+  const campos=[['UC',i.uc],['Tipo da UC',tp?(tp.tipo==='usina'?'Usina geradora'+(tp.nome?' ('+tp.nome+')':''):'Unidade consumidora'+(tp.usina?' · recebe da usina '+tp.usina:'')):'não está no cadastro nem no Rateio'],['Titular',i.titular],['CPF/CNPJ',i.doc],['Distribuidora',i.distribuidora],['Classe',i.classe],
     ['Tipo de fornecimento',i.fornecimento],['Tensão',n(i.tensao)?n(i.tensao)+' V':''],['Mês de referência',mm(i.mes)],['Vencimento',i.vencimento],
     ['Total a pagar',i.valor!=null&&i.valor!==''?brl(i.valor):''],['Consumo',kwh(i.consumo)],['Energia injetada',kwh(i.injetada)],
     ['Injetada por mês',i.injetadaMeses],['Saldo',n(i.saldo,1)?n(i.saldo,1)+' kWh':''],['Saldo a expirar',n(i.saldoExpirar,1)?n(i.saldoExpirar,1)+' kWh':''],
@@ -2296,6 +2316,13 @@ async function lfNlTentar(lista){
   const ok=lf.itens.filter(i=>i.estado==='ok'&&!i.salva).length;
   st.innerHTML=`<span>✓ Pronto: <b>${ok}</b> fatura${ok===1?'':'s'} para guardar. As lidas saem da lista de não lidas quando forem guardadas.</span>`;
 }
+$('lfOrganizar').onclick=async()=>{
+  const bt=$('lfOrganizar'),st=$('lfPastaSt');bt.disabled=true;st.textContent='Organizando os PDFs no Drive…';
+  const r=await sheetApi('fat_pdf_organizar',{},{espera:300000});bt.disabled=false;
+  if(!r||!r.ok){let e=(r&&r.erro)||'não deu para organizar';if(/ação desconhecida/.test(e))e='atualize o script da planilha do portal para a versão 39';st.textContent='⚠️ '+e;return}
+  st.textContent=r.movidos||r.duplicados?`✓ ${r.movidos} PDF${r.movidos===1?'':'s'} movido${r.movidos===1?'':'s'} (${r.usinas} para Usinas geradoras, ${r.consumidoras} para Unidades consumidoras)`+(r.duplicados?` · ${r.duplicados} cópia${r.duplicados===1?'':'s'} antiga${r.duplicados===1?'':'s'} para a lixeira`:'')+'. Os links continuam funcionando.'
+    :'✓ Já estava tudo organizado.';
+};
 $('lfNlBtn').onclick=()=>{const b=$('lfNlBox'),ab=b.classList.toggle('hidden');$('lfNlBtn').setAttribute('aria-expanded',String(!ab));lfNlRender()};
 $('lfNlBox').addEventListener('click',async e=>{
   const b=e.target.closest('button[data-nl-tira]');if(!b)return;const x=lfnl.lista[+b.dataset.nlTira];if(!x)return;
@@ -2306,7 +2333,7 @@ function lfRender(){
   $('lfTabela').hidden=!L.length;$('lfAcoes').hidden=!L.length;
   $('lfCorpo').innerHTML=L.map((i,k)=>i.estado==='lendo'?`<tr data-lendo><td class="tit"><b>${E(i.arquivo)}</b><small>${E(i.prog||'lendo…')}</small></td><td colspan="10"></td></tr>`
     :i.estado==='erro'?`<tr><td class="tit"><b>${E(i.arquivo)}</b><span class="rat-tag err">NÃO LIDA</span></td><td colspan="9" style="white-space:normal">${E(i.erro)}</td><td><div class="ana-acoes"><button type="button" data-lf-tira="${k}">Tirar</button></div></td></tr>`
-    :`<tr><td class="tit"><b>${E(i.uc)}</b><small>${E(i.titular)}</small>${i.salva?'<span class="rat-tag info">GUARDADA</span>':''}${i.ocr&&!i.conferido?`<span class="rat-tag warn" title="PDF escaneado: os números foram lidos da imagem. Abra em Ver tudo, confira com a fatura e clique em Conferi">CONFERIR · ESCANEADO</span>`:''}${i.ocr&&i.ucDuvida&&!i.conferido?'<small style="color:var(--err)">UC incompleta: corrija no "Conferi"</small>':''}${i.ocr&&!i.contaOk?'<small>linhas da conta não conferem: o cálculo da cobrança não usa esta fatura</small>':''}</td>
+    :`<tr><td class="tit"><b>${E(i.uc)}</b>${ucTag(i.uc)}<small>${E(i.titular)}${(()=>{const t=ucTipo(i.uc);return t&&t.tipo==='usina'&&t.nome?' · usina '+E(t.nome):''})()}</small>${i.salva?'<span class="rat-tag info">GUARDADA</span>':''}${i.ocr&&!i.conferido?`<span class="rat-tag warn" title="PDF escaneado: os números foram lidos da imagem. Abra em Ver tudo, confira com a fatura e clique em Conferi">CONFERIR · ESCANEADO</span>`:''}${i.ocr&&i.ucDuvida&&!i.conferido?'<small style="color:var(--err)">UC incompleta: corrija no "Conferi"</small>':''}${i.ocr&&!i.contaOk?'<small>linhas da conta não conferem: o cálculo da cobrança não usa esta fatura</small>':''}</td>
       <td data-l="Ref.">${i.mes?String(i.mes%100).padStart(2,'0')+'/'+Math.floor(i.mes/100):'—'}</td><td class="num" data-l="Consumo">${n(i.consumo)}</td>
       <td class="num" data-l="Injetada" title="${E(i.injetadaMeses||'')}">${n(i.injetada)}</td><td class="num" data-l="Saldo">${n(i.saldo,1)}</td>
       <td class="num" data-l="Particip.">${i.participacao!=null?n(i.participacao,2)+'%':'—'}</td><td data-l="Fornecimento">${E(i.fornecimento||'—')}</td>
@@ -2388,17 +2415,18 @@ $('lfSalvar').onclick=async()=>{
   lf.salvando=true;lfRender();$('lfMsg').textContent='Guardando…';
   const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','emissao','nf','historico','tusdTarifa','teTarifa','tusdValor','teValor','bandeira','bandeiraCred','cip','injKwh','outros'];
   // em lotes de 100 (uma pasta pode ter centenas de faturas)
-  const r={ok:true,faturas:0,atualizadas:0,historico:0,fornecimento:0,ignoradas:[]};
+  const r={ok:true,faturas:0,atualizadas:0,historico:0,fornecimento:0,usinas:0,ignoradas:[]};
   for(let k=0;k<pend.length;k+=100){
     const lote=pend.slice(k,k+100);if(pend.length>100)$('lfMsg').textContent=`Guardando… (${Math.min(k+100,pend.length)}/${pend.length})`;
     const rl=await sheetApi('fat_salvar',{faturas:lote.map(i=>Object.fromEntries(campos.map(c=>[c,i[c]==null?'':i[c]])))},{espera:120000});
     if(!rl||!rl.ok){lf.salvando=false;$('lfMsg').textContent='⚠️ '+((rl&&rl.erro)||'não foi possível guardar')+(k?` (as ${k} primeiras foram guardadas)`:'');lfRender();return}
-    lote.forEach(i=>{i.salva=true});['faturas','atualizadas','historico','fornecimento'].forEach(c=>{r[c]+=rl[c]||0});r.ignoradas=r.ignoradas.concat(rl.ignoradas||[]);
+    lote.forEach(i=>{i.salva=true});['faturas','atualizadas','historico','fornecimento','usinas'].forEach(c=>{r[c]+=rl[c]||0});r.ignoradas=r.ignoradas.concat(rl.ignoradas||[]);
   }
   lf.salvando=false;
   // as que estavam na lista de não lidas e agora foram guardadas saem dela
   {const ch=pend.map(i=>i.chave).filter(Boolean);if(ch.length&&lfnl.lista&&lfnl.lista.some(x=>ch.includes(x.chave)))sheetApi('fat_nl',{nl:{op:'ok',chaves:ch}},{espera:60000}).then(()=>lfNlCarregar())}
-  $('lfMsg').textContent=`✓ ${r.faturas} nova${r.faturas===1?'':'s'}, ${r.atualizadas} atualizada${r.atualizadas===1?'':'s'} · ${r.historico} meses de histórico acrescentados`+(r.fornecimento?` · fornecimento preenchido em ${r.fornecimento} beneficiária${r.fornecimento>1?'s':''}`:'')+(r.ignoradas&&r.ignoradas.length?` · ignoradas: ${r.ignoradas.join('; ')}`:'');
+  ucTiposCarregar(true);
+  $('lfMsg').textContent=`✓ ${r.faturas} nova${r.faturas===1?'':'s'}, ${r.atualizadas} atualizada${r.atualizadas===1?'':'s'} · ${r.historico} meses de histórico acrescentados`+(r.fornecimento?` · fornecimento preenchido em ${r.fornecimento} beneficiária${r.fornecimento>1?'s':''}`:'')+(r.usinas?` · ${r.usinas} de usina${r.usinas===1?'':'s'} (ficam separadas: pasta Usinas geradoras, fora das Cobranças)`:'')+(r.ignoradas&&r.ignoradas.length?` · ignoradas: ${r.ignoradas.join('; ')}`:'');
   if(typeof rat!=='undefined')rat.dados=null;   // o rateio relê as abas na próxima vez que abrir
   try{cb.dados=null}catch(e){}                   // as cobranças também (usam as faturas lidas)
   lfRender();
@@ -2740,7 +2768,8 @@ function fichaAbrir(id){
   const c=(cli.lista||[]).find(x=>x.id===id);if(!c)return;
   ficha.id=id;ficha.volta=document.activeElement;
   $('fichaNome').textContent=c.nome;
-  $('fichaSub').textContent=[c.doc,c.uc?'UC '+c.uc:''].filter(Boolean).join(' · ');
+  $('fichaSub').innerHTML=anaEsc([c.doc,c.uc?'UC '+c.uc:''].filter(Boolean).join(' · '))+ucTag(c.uc||c.ucAntiga);
+  if(!ucT.mapa)ucTiposCarregar().then(()=>{$('fichaSub').innerHTML=anaEsc([c.doc,c.uc?'UC '+c.uc:''].filter(Boolean).join(' · '))+ucTag(c.uc||c.ucAntiga)});
   $('fichaModal').classList.remove('hidden');document.body.style.overflow='hidden';
   $('fichaModal').querySelector('.ficha').focus({preventScroll:true});
   if(ficha.cache[id])fichaRender(ficha.cache[id]);
@@ -3048,7 +3077,7 @@ function cbPreparar(r){
   Object.values(cli).forEach(c=>{if(c.fora&&ult&&!c.lista.some(x=>x.fora)){const x={k:c.k,c:ult,l:0,v:null,s:'sem_fatura',st:'',ref:'',cob:'',vr:'',conf:'',rge:'',pg:'',refPg:'',obs:'',fora:true,cli:c};L.push(x);c.lista.push(x)}});
   // faturas da RGE lidas pelo Leitor: ligadas ao cliente pela UC nova ou antiga
   const porDig={};Object.values(cli).forEach(c=>{c.fats=[];[c.k,c.uc,c.ucA].forEach(u=>{const d=String(u||'').replace(/\D/g,'');if(d.length>=7)porDig[d]=c})});
-  cb.fatSemCliente=0;(r.faturas||[]).forEach(f=>{const c=porDig[f.uc];if(c)c.fats.push(f);else cb.fatSemCliente++});
+  cb.fatSemCliente=0;cb.fatUsinas=0;(r.faturas||[]).forEach(f=>{if(f.tipo==='usina'){cb.fatUsinas++;return}const c=porDig[f.uc];if(c)c.fats.push(f);else cb.fatSemCliente++});
   Object.values(cli).forEach(c=>c.fats.sort((a,b)=>a.ref<b.ref?-1:1));
   cb.dados=r;cb.L=L;cb.cli=cli;cb.meses=meses;cb.hoje=hoje;cb.prazo=r.prazoDias||90;
   Object.values(cli).forEach(c=>{c.lista.sort((a,b)=>a.c<b.c?-1:a.c>b.c?1:a.l-b.l);cbCalcCliente(c)});
@@ -3227,12 +3256,12 @@ function cbRenderFaturas(){
     else if(st==='falta')oq=(c.rge?'Última conta no e-mail: '+cbRef(c.rge.ref)+'. ':'Nenhuma conta desta UC na PROGRAMAÇÃO. ')+(ultF?'Última fatura lida: '+cbRef(ultF.ref)+'.':'');
     else if(st==='novo')oq='Aguardando a 1ª fatura (entrou no rateio em '+anaDataBR(c.anexo)+').';
     else if(!cobr)oq='Fatura lida; esta referência ainda não aparece nas abas de cobrança.';
-    if(f&&f.pdf)oq+=(oq?' ':'')+cbBtPdf(f);
     else if(cobr.e==='nao_emitiu'||cobr.e==='sem_fatura')oq='<span class="ok">Fatura lida: dá para emitir a cobrança.</span>';
+    if(f&&f.pdf)oq+=(oq?' ':'')+cbBtPdf(f);
     const cob=cobr?`<span class="cb-st ${cobr.e}">${CB_ST[cobr.e]||cobr.e}</span><small>aba ${fxMesNome(cobr.c)}${cobr.v>0?' · '+brl(cobr.v):''}</small>`:'—';
     return `<tr data-k="${E(c.k)}"><td><b>${E(c.n)}</b><small>${E(c.uc)}${c.inv?' · '+E(c.inv):''}</small></td><td data-l="Fatura">${fat}</td><td data-l="Cobrança">${cob}</td><td class="cb-motivo">${oq}</td></tr>`}).join('')
     :'<tr><td colspan="4" class="ana-vazio">Nenhum cliente com esses filtros.</td></tr>';
-  $('cbFatRodape').innerHTML=`<span>Ref. ${cbRef(M)}: <b>${cnt('lida')}</b> lida${cnt('lida')===1?'':'s'} de ${linhas.length} clientes ativos</span>`+(cb.fatSemCliente?`<span>${cb.fatSemCliente} fatura${cb.fatSemCliente===1?'':'s'} lida${cb.fatSemCliente===1?'':'s'} de UC que não está nas cobranças</span>`:'');
+  $('cbFatRodape').innerHTML=`<span>Ref. ${cbRef(M)}: <b>${cnt('lida')}</b> lida${cnt('lida')===1?'':'s'} de ${linhas.length} clientes ativos</span>`+(cb.fatSemCliente||cb.fatUsinas?`<span>${cb.fatUsinas?`${cb.fatUsinas} fatura${cb.fatUsinas===1?'':'s'} de usina (ficam fora das cobranças)`:''}${cb.fatUsinas&&cb.fatSemCliente?' · ':''}${cb.fatSemCliente?`${cb.fatSemCliente} de UC que não está nas cobranças`:''}</span>`:'');
   $('cbFatCorpo').querySelectorAll('tr[data-k]').forEach(tr=>tr.onclick=e=>{if(e.target.closest('a,button'))return;cbDetalhe(tr.dataset.k,tr)});cbLigaPdf($('cbFatCorpo'));
 }
 $('cbFatRef').onchange=e=>{cb.fatRef=e.target.value;cbRenderFaturas()};
@@ -3444,7 +3473,7 @@ const MENU={
     {id:'registrar',ic:'➕',nome:'Registrar cliente',desc:'Cadastrar um cliente novo (dá para preencher pela fatura)',sec:'tab-cli-reg',largo:true,aoAbrir:()=>cliAbrirRegistro()},
     // area: só aparece para quem tem acesso à Análise (TI e Admin), porque mostra valores da empresa
     {id:'importar',ic:'📥',nome:'Importar contas',desc:'Puxa agora as contas novas da CPFL que chegaram no e-mail',sec:'tab-importar',aoAbrir:()=>impAbrir()},
-    {id:'contas',ic:'🗓️',nome:'Contas a pagar',desc:'Contas de energia: vencimentos, valores e usinas',sec:'tab-analise',largo:true,area:'ana',aoAbrir:()=>anaAbrir()},
+    {id:'contas',ic:'🗓️',nome:'Contas a pagar',desc:'Contas de energia: vencimentos, valores e usinas',sec:'tab-analise',largo:true,area:'ana',aoAbrir:()=>{anaAbrir();ucTiposCarregar().then(()=>{try{if(ana.dados)anaRender()}catch(e){}})}},
     {id:'cobrancas',ic:'🧾',nome:'Cobranças',desc:'O que falta emitir, enviar e receber, de todos os meses',sec:'tab-cob',largo:true,area:'ana',aoAbrir:()=>cbAbrir()}]},
   pos:{nome:'🤝 Pós-venda',itens:[
     {id:'visitas',ic:'📝',nome:'Visita e feedback',desc:'Registro da visita, pesquisa e avaliação do cliente',sec:'tab-visitas',iframe:'posvenda/'}]},
@@ -3921,7 +3950,9 @@ async function verificarInjOzz(){
   const r=await sheetApi('uc_ozz',{uc},{espera:30000}).catch(()=>null);
   if(soDig(propData.codigo_uc)!==uc)return;   // já trocou de fatura
   propData._injChecando=false;
-  if(r&&r.ok&&r.ozz&&propData._injOrigem===undefined){propData._injOrigem='ozz';propData._injOnde=r.onde}
+  // usina: a energia injetada é a geração dela (não são créditos da OZZ); só avisa
+  if(r&&r.ok&&r.ozz&&r.tipo==='usina'){propData._injOnde=r.onde+' — a proposta é para unidades consumidoras'}
+  else if(r&&r.ok&&r.ozz&&propData._injOrigem===undefined){propData._injOrigem='ozz';propData._injOnde=r.onde}
   recompute();
 }
 $('sumBox').addEventListener('change',e=>{const i=e.target.closest('input[name=injOrig]');if(!i)return;propData._injOrigem=i.value;recompute()});
@@ -4120,6 +4151,7 @@ async function termoInjOzz(f,sol){
   const uc=soDig(f.codigo_uc);if(uc.length<7)return;
   const r=await sheetApi('uc_ozz',{uc},{espera:30000}).catch(()=>null);
   if(!(r&&r.ok&&r.ozz)||soDig($('t_codigo_uc').value)!==uc)return;
+  if(r.tipo==='usina'){const w=$('warn1');w.className='alert warn';w.style.display='block';w.textContent=`⚠️ Esta UC é uma USINA geradora da OZZ${r.nome?' ('+r.nome+')':''}: a energia injetada é a geração dela. Confira se o Termo é mesmo para esta UC.`;return}
   const c=$('t_consumo');if(c&&c.value===f.consumo){c.value=mh;c.dispatchEvent(new Event('input',{bubbles:true}))}
   const w=$('warn1');w.className='alert warn';w.style.display='block';
   const antes=w.textContent.replace(/^⚠️\s*/,'').replace(sol,'').trim();
