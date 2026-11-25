@@ -169,7 +169,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '42 (rateio enviado à RGE grava a entrada no rateio no cadastro)';
+const VERSAO_SCRIPT = '43 (geração real das usinas pela fatura; Contas a pagar confere com a fatura lida)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -203,7 +203,10 @@ function doPost(e) {
     if (req.acao === 'buscar') return json(buscarPorUC(req.uc, req.numero));
     if (req.acao === 'programacao') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
-      return json(programacaoComCache_(!!req.forcar));
+      const pr = programacaoComCache_(!!req.forcar);
+      // faturas lidas no Leitor: Contas a pagar confere o valor e mostra o PDF
+      if (pr && pr.ok) { try { pr.faturas = fatResumo_().map(f => ({ uc: f.uc, mes: f.mes, valor: f.valor, pdf: f.pdf })); } catch (e) {} }
+      return json(pr);
     }
     if (/^cli_/.test(req.acao)) {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para usar o cadastro de clientes', auth: true });
@@ -1376,7 +1379,7 @@ function lerCobrancas(ssAberta) {
 
   /* ---------- usinas (UCs geradoras): INVESTIDORES, FATURAS GERADOR e GERADORES - CONSÓRCIO ---------- */
   const usinasCtl = [], vistaU = {};
-  const ucsDoTexto = x => (String(x == null ? '' : x).match(/\d{1,3}(?:\.\d{3}){3}-\d{2}|\b(?:30|40)\d{8}\b/g) || []);
+  const ucsDoTexto = x => (String(x == null ? '' : x).match(/\d{1,3}(?:\.\d{3}){1,2}\.00\d-\d{2}|\b(?:30|40)\d{8}\b/g) || []);   // UC nova termina em .001-XX (763.071.001-39, 1.597.422.001-78)
   [['INVESTIDORES', ['NOVA UC GERADORA', 'UC GERADORA']], ['FATURAS GERADOR', ['NOVA UC', 'UC']], ['GERADORES CONSORCIO', ['UC GERADORA']]].forEach(([aba, cols]) => {
     const sh = abas[aba]; if (!sh) return;
     const v = sh.getDataRange().getValues();
@@ -2139,9 +2142,28 @@ function ratUsinaSalvar(u, usuario) {
   } finally { lock.releaseLock(); }
 }
 
+/** Faturas lidas, resumidas: { uc (dígitos), mes AAAAMM, valor, gerMed (energia injetada no medidor), auto (injetada usada na própria UC), pdf, tipo } */
+function fatResumo_() {
+  const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  return lerAbaCob_(SpreadsheetApp.getActive().getSheetByName('Faturas Lidas')).map(o => {
+    const uc = String(o['UC'] == null ? '' : o['UC']).replace(/\.0+$/, '').replace(/\D/g, ''), m = String(o['Mês Ref (AAAAMM)'] || '').replace(/\D/g, '');
+    if (uc.length < 7 || m.length !== 6) return null;
+    const n = x => typeof x === 'number' && isFinite(x) ? x : null;
+    return { uc: uc, mes: Number(m), valor: n(o['Valor Total (R$)']), gerMed: n(o['Geração injetada kWh (medidor)']), auto: n(o['Injetada (TE) kWh']),
+      pdf: /\/d\//.test(String(o['PDF (Drive)'] || '')), tipo: /usina/i.test(String(o['Tipo da UC'] || '')) ? 'usina' : '' };
+  }).filter(Boolean);
+}
+
 function ratDados() {
   const out = { ok: true };
   Object.keys(RAT_ABAS_).forEach(k => { out[k] = ratLer_(k); });
+  // geração real das usinas: o que o medidor da fatura registrou como energia injetada
+  try {
+    // a usina pode estar no Rateio pela UC antiga e a fatura pela nova (ou o contrário): a aba Cobranças Usinas liga as duas
+    const par = {}, d = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
+    lerAbaCob_(SpreadsheetApp.getActive().getSheetByName(ABA_COB_US)).forEach(o => { const a = d(o['UC']), b = d(o['UC antiga']); if (a && b) { par[a] = b; par[b] = a; } });
+    out.reais = fatResumo_().filter(f => f.gerMed > 0).map(f => Object.assign(f, { alt: par[f.uc] || '' }));
+  } catch (e) { out.reais = []; }
   out.gerados = out.gerados.slice(-3000);
   out.planilha = SpreadsheetApp.getActive().getUrl();
   return out;
@@ -2495,7 +2517,9 @@ const COLS_FATURAS = ['Lido em', 'Lido por', 'Arquivo', 'UC', 'Titular', 'CPF/CN
   // a partir da versão 35: o PDF guardado no Drive de quem implantou o script
   'PDF (Drive)',
   // a partir da versão 39: usina geradora ou unidade consumidora (beneficiária)
-  'Tipo da UC'];
+  'Tipo da UC',
+  // a partir da versão 43: o que o medidor registrou como energia injetada na rede (na usina, é a geração do mês)
+  'Geração injetada kWh (medidor)'];
 
 /* ---------- PDFs das faturas: pasta "Faturas RGE (portal OZZ)" no Drive de quem implantou o script ----------
    Uma subpasta por mês de referência (AAAA-MM); o arquivo se chama "UC - Titular.pdf". Ler a mesma fatura de novo
@@ -2759,6 +2783,7 @@ function faturasSalvar(lista, usuario) {
       const iPdf = COLS_FATURAS.indexOf('PDF (Drive)'), tp = tipoUc_(uc);
       linha.push('');   // coluna PDF (Drive): o link é gravado depois, por faturaPdfSalvar
       linha.push(tp ? (tp[0] === 'usina' ? 'Usina geradora' : 'Unidade consumidora') : '');
+      linha.push(nv(f.geracaoMed));
       const kF = dig(uc) + '|' + mes;
       if (idxF[kF] != null) { const pdfAntes = vF[idxF[kF]][iPdf]; vF[idxF[kF]] = linha; vF[idxF[kF]][iPdf] = pdfAntes; res.atualizadas++; }
       else { idxF[kF] = -1; novasF.push(linha); res.faturas++; }

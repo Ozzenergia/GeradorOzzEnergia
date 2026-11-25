@@ -335,6 +335,8 @@ main.wide{max-width:1180px}
 .uc-tag.usina{background:#fff1d6;color:#8a5300}.uc-tag.benef{background:var(--primary-soft);color:var(--primary)}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .uc-tag.usina{background:#3a2a0d;color:#fbbf24}}
 :root[data-theme="dark"] .uc-tag.usina{background:#3a2a0d;color:#fbbf24}
+.rat-real{margin:-4px 0 14px;font-size:14px}.rat-real p{margin:0 0 6px}.rat-real .ok{color:var(--ok);font-weight:700}
+.rat-real details{margin-top:4px}.rat-real summary{cursor:pointer;color:var(--primary);font-weight:600;font-size:13.5px}
 .cb-passo{font:600 12.5px Outfit,sans-serif;color:var(--primary);background:var(--primary-soft);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;white-space:nowrap}
 .cb-passo:hover{outline:1px solid var(--primary-line)}
 .cb-passo.sec{color:var(--muted);background:none;padding:6px 4px}
@@ -1128,6 +1130,7 @@ body.locked{overflow:hidden}
   </form>
   <div class="rat-avisos" id="ratAvisos"></div>
   <div class="ana-kpis rat-kpis" id="ratKpis"></div>
+  <div class="rat-real" id="ratReal"></div>
   <div class="ana-tabela"><div class="ana-scroll"><table class="rat-t">
     <thead><tr><th>UC / Titular</th><th class="num">Consumo</th><th class="num">Mínimo</th><th class="num">Disponível</th><th class="num">Saldo</th><th class="num">Estoque</th>
       <th class="num">Atual</th><th class="num">Fator</th><th class="num">Calculado</th><th class="num">Manual %</th><th class="num">Final</th><th class="num">Injeção kWh</th><th class="num">Base kWh</th><th class="num">Sobra / falta</th></tr></thead>
@@ -1760,6 +1763,12 @@ async function anaCarregar(forcar){
   anaRender();
 }
 function anaAbrir(){if(!ana.dados)anaCarregar();else anaRender()}
+// fatura lida no Leitor da mesma UC e mês de referência (o script manda junto com a PROGRAMAÇÃO)
+function anaFatura(c){
+  const f=ana.dados&&ana.dados.faturas;if(!f||!c.mes)return null;const m=String(c.mes).match(/^(\d{1,2})\/(\d{4})$/);if(!m)return null;
+  const mes=+m[2]*100+ +m[1],us=[c.uc,c.ucAntiga].map(u=>String(u||'').replace(/\D/g,'')).filter(u=>u.length>=7);
+  return f.find(x=>x.mes===mes&&us.includes(x.uc))||null;
+}
 function anaRender(){
   if(!ana.dados)return;
   const sem=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -1791,11 +1800,14 @@ function anaRender(){
       <td class="uc" data-l="UC">${anaEsc(c.uc||c.ucAntiga)}${c.uc&&c.ucAntiga?`<small>antiga ${anaEsc(c.ucAntiga)}</small>`:''}</td>
       <td data-l="Mês ref.">${anaEsc(c.mes)}</td>
       <td data-l="Usina">${c.usinaCod?'<b>'+anaEsc(c.usinaCod)+'</b> ':''}${c.usinaNome?(c.usinaCod?`<small>${anaEsc(c.usinaNome)}</small>`:anaEsc(c.usinaNome)):''}</td>
-      <td class="num" data-l="Valor">${c.valor==null?'—':brl(c.valor)}</td>
+      <td class="num" data-l="Valor">${c.valor==null?'—':brl(c.valor)}${(()=>{const f=anaFatura(c);if(!f)return '';
+        const dif=f.valor!=null&&c.valor!=null?Math.round((f.valor-c.valor)*100)/100:null;
+        return `<small class="${dif?'fx-neg':'fx-pos'}">${dif==null?'fatura lida':Math.abs(dif)<0.05?'✓ confere com a fatura':'fatura lida: '+brl(f.valor)}</small>`+(f.pdf?cbBtPdf({uc:f.uc,ref:String(f.mes).slice(0,4)+'-'+String(f.mes).slice(4),pdf:true}):'')})()}</td>
       <td>${pagoCheck(c,cl)}</td>
       <td><div class="ana-acoes">${c.link?`<a href="${anaEsc(c.link)}" target="_blank" rel="noopener">Conta ↗</a>`:''}${c.pix&&c.situacao!=='PAGO'?`<button type="button" data-pix="${anaEsc(c.pix)}">Copiar PIX</button>`:''}</div></td>
     </tr>`}).join(''):'<tr><td colspan="8" class="ana-vazio">Nenhuma conta com esses filtros.</td></tr>';
   const nomes={venc:'vencidas',prox:'que vencem em até 7 dias',apagar:'a pagar',pago:'pagas',todas:'no total'};
+  cbLigaPdf($('anaCorpo'));
   $('anaRodape').innerHTML=`<span>${lista.length} conta${lista.length===1?'':'s'} ${nomes[ana.filtro]}${ana.filtro!=='todas'?' · <a href="#" id="anaTodas">ver todas</a>':''}</span><span>Soma: <b>${brl(soma(lista))}</b></span>`;
   const t=$('anaTodas');if(t)t.onclick=e=>{e.preventDefault();ana.filtro='todas';anaRender()};
 }
@@ -2107,7 +2119,10 @@ function ratCalcular(D,linhas){
 const MESES_ABR='JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ'.split('|');
 // o que a fatura traz além do que a proposta usa (saldo, participação, datas, valor…)
 function extrasFatura(t){
-  const x={},n=v=>v==null?NaN:+String(v).replace(/\./g,'').replace(',','.');
+  const x={};
+  // tabela do medidor: "Energia Injetada único 94440 859 1,00 6.419" (leitura anterior, atual, constante, kWh). Na usina, é a geração do mês
+  {let g=0,ok=false;(t.match(/Energia Injetada\s+[^\d\n]*?\s+\d[\d.]*\s+\d[\d.]*\s+\d+(?:,\d+)?\s+\d[\d.]*(?:,\d+)?\s*$/gim)||[]).forEach(l=>{const m=l.match(/(\d[\d.]*(?:,\d+)?)\s*$/);if(m){g+=+m[1].replace(/\./g,'').replace(',','.');ok=true}});if(ok)x.geracaoMed=Math.round(g)}
+  const n=v=>v==null?NaN:+String(v).replace(/\./g,'').replace(',','.');
   const r=t.match(/\b(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\/(20\d\d)\s+(\d\d\/\d\d\/\d{4})\s+R\$\s*([\d.]+,\d\d)/);
   if(r){x.mes=+r[2]*100+MESES_ABR.indexOf(r[1])+1;x.vencimento=r[3];x.valor=n(r[4])}
   const fo=t.match(/Tipo de Fornecimento:?\s*(Monof[áa]sico|Bif[áa]sico|Trif[áa]sico)/i);if(fo)x.fornecimento=fo[1].replace(/^./,c=>c.toUpperCase());
@@ -2176,12 +2191,12 @@ async function lfOcrTexto(file,it){
   ocrProg=()=>{};
   return T;
 }
-const lfUcValida=u=>/^\d{1,3}\.\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(String(u||''))||/^(30|40)\d{8}$/.test(soDig(u));   // UC nova (1.234.567.001-00) ou antiga (10 dígitos)
+const lfUcValida=u=>/^\d{1,3}(?:\.\d{3}){1,2}\.00\d-\d{2}$/.test(String(u||''))||/^(30|40)\d{8}$/.test(soDig(u));   // UC nova (1.234.567.001-00) ou antiga (10 dígitos)
 function lfOcrBasico(T){   // quando o texto do OCR não passa no leitor do PDF digital: os campos básicos pelo leitor de fotos
   const o=parseFaturaOCR(T)||{};
   // a UC no formato completo vale mais que o pedaço que o leitor de fotos às vezes pega
-  const m=T.match(/(?:^|[^\d.])(\d{1,3})\s?[.,]\s?(\d{3})\s?[.,]\s?(\d{3})\s?[.,]\s?(\d{3})\s?-\s?(\d{2})(?!\d)/m);
-  if(m)o.codigo_uc=m[1]+'.'+m[2]+'.'+m[3]+'.'+m[4]+'-'+m[5];
+  const m=T.match(/(?:^|[^\d.])(\d{1,3}(?:\s?[.,]\s?\d{3}){1,2})\s?[.,]\s?(00\d)\s?-\s?(\d{2})(?!\d)/m);
+  if(m)o.codigo_uc=m[1].replace(/\s/g,'').replace(/,/g,'.')+'.'+m[2]+'-'+m[3];
   return o.codigo_uc?{codigo_uc:o.codigo_uc,titular:o.titular,distribuidora:o.distribuidora,classe_uc:o.classe_uc,tensao:o.tensao,inj_te:o.inj_te}:null;
 }
 async function lfLer(files,metas){
@@ -2235,6 +2250,7 @@ function lfDetalhe(i){
     ['Total a pagar',i.valor!=null&&i.valor!==''?brl(i.valor):''],['Consumo',kwh(i.consumo)],['Energia injetada',kwh(i.injetada)],
     ['Injetada por mês',i.injetadaMeses],['Saldo',n(i.saldo,1)?n(i.saldo,1)+' kWh':''],['Saldo a expirar',n(i.saldoExpirar,1)?n(i.saldoExpirar,1)+' kWh':''],
     ['Participação na geração',n(i.participacao,2)?n(i.participacao,2)+'%':''],['Custo mínimo',kwh(i.minimo)],
+    ['Energia injetada no medidor',n(i.geracaoMed)?n(i.geracaoMed)+' kWh'+(ucTipo(i.uc)&&ucTipo(i.uc).tipo==='usina'?' (geração da usina no mês)':''):''],
     ['Leitura anterior',i.leituraAnt],['Leitura atual',i.leitura],['Dias',n(i.dias)],['Data de emissão',i.emissao],['Nota fiscal',i.nf],
     ['TUSD (R$/kWh com tributos)',i.tusdTarifa?String(i.tusdTarifa).replace('.',','):''],['TE (R$/kWh com tributos)',i.teTarifa?String(i.teTarifa).replace('.',','):''],
     ['TUSD + TE do consumo',i.tusdValor!=null&&i.tusdValor!==''?brl(i.tusdValor)+' + '+brl(i.teValor):''],['Adicional de bandeira',i.bandeira?brl(i.bandeira):''],
@@ -2333,7 +2349,7 @@ function lfRender(){
   $('lfTabela').hidden=!L.length;$('lfAcoes').hidden=!L.length;
   $('lfCorpo').innerHTML=L.map((i,k)=>i.estado==='lendo'?`<tr data-lendo><td class="tit"><b>${E(i.arquivo)}</b><small>${E(i.prog||'lendo…')}</small></td><td colspan="10"></td></tr>`
     :i.estado==='erro'?`<tr><td class="tit"><b>${E(i.arquivo)}</b><span class="rat-tag err">NÃO LIDA</span></td><td colspan="9" style="white-space:normal">${E(i.erro)}</td><td><div class="ana-acoes"><button type="button" data-lf-tira="${k}">Tirar</button></div></td></tr>`
-    :`<tr><td class="tit"><b>${E(i.uc)}</b>${ucTag(i.uc)}<small>${E(i.titular)}${(()=>{const t=ucTipo(i.uc);return t&&t.tipo==='usina'&&t.nome?' · usina '+E(t.nome):''})()}</small>${i.salva?'<span class="rat-tag info">GUARDADA</span>':''}${i.ocr&&!i.conferido?`<span class="rat-tag warn" title="PDF escaneado: os números foram lidos da imagem. Abra em Ver tudo, confira com a fatura e clique em Conferi">CONFERIR · ESCANEADO</span>`:''}${i.ocr&&i.ucDuvida&&!i.conferido?'<small style="color:var(--err)">UC incompleta: corrija no "Conferi"</small>':''}${i.ocr&&!i.contaOk?'<small>linhas da conta não conferem: o cálculo da cobrança não usa esta fatura</small>':''}</td>
+    :`<tr><td class="tit"><b>${E(i.uc)}</b>${ucTag(i.uc)}<small>${E(i.titular)}${(()=>{const t=ucTipo(i.uc);return t&&t.tipo==='usina'?(t.nome?' · usina '+E(t.nome):'')+(i.geracaoMed?' · gerou '+n(i.geracaoMed)+' kWh':''):''})()}</small>${i.salva?'<span class="rat-tag info">GUARDADA</span>':''}${i.ocr&&!i.conferido?`<span class="rat-tag warn" title="PDF escaneado: os números foram lidos da imagem. Abra em Ver tudo, confira com a fatura e clique em Conferi">CONFERIR · ESCANEADO</span>`:''}${i.ocr&&i.ucDuvida&&!i.conferido?'<small style="color:var(--err)">UC incompleta: corrija no "Conferi"</small>':''}${i.ocr&&!i.contaOk?'<small>linhas da conta não conferem: o cálculo da cobrança não usa esta fatura</small>':''}</td>
       <td data-l="Ref.">${i.mes?String(i.mes%100).padStart(2,'0')+'/'+Math.floor(i.mes/100):'—'}</td><td class="num" data-l="Consumo">${n(i.consumo)}</td>
       <td class="num" data-l="Injetada" title="${E(i.injetadaMeses||'')}">${n(i.injetada)}</td><td class="num" data-l="Saldo">${n(i.saldo,1)}</td>
       <td class="num" data-l="Particip.">${i.participacao!=null?n(i.participacao,2)+'%':'—'}</td><td data-l="Fornecimento">${E(i.fornecimento||'—')}</td>
@@ -2407,13 +2423,13 @@ $('lfCorpo').addEventListener('click',e=>{const cf=e.target.closest('button[data
     // escaneada: confirma (ou corrige) a UC antes de liberar para guardar
     const it=lf.itens[+cf.dataset.lfConf];let uc=prompt(`Fatura escaneada (${it.arquivo.replace(/^\[escaneado\] /,'')}).\nConfira com o PDF a UC (Número da UC) e corrija se precisar:`,it.uc||'');
     if(uc==null)return;uc=uc.trim();
-    if(!lfUcValida(uc)){alert('A UC precisa estar completa, como 1.575.566.001-07 (ou a antiga, com 10 dígitos).');return}
+    if(!lfUcValida(uc)){alert('A UC precisa estar completa, como 1.575.566.001-07 ou 763.071.001-39 (ou a antiga, com 10 dígitos).');return}
     it.uc=uc;it.ucDuvida=false;it.conferido=true;lfRender();return}const v=e.target.closest('button[data-lf-ver]');if(v){const it=lf.itens[+v.dataset.lfVer];it.aberta=!it.aberta;lfRender();return}const b=e.target.closest('button[data-lf-tira]');if(!b)return;lf.itens.splice(+b.dataset.lfTira,1);lfRender()});
 $('lfLimpar').onclick=()=>{lf.itens=[];$('lfMsg').textContent='';lfRender()};
 $('lfSalvar').onclick=async()=>{
   const pend=lf.itens.filter(i=>i.estado==='ok'&&!i.salva&&(!i.ocr||i.conferido));if(!pend.length||lf.salvando)return;
   lf.salvando=true;lfRender();$('lfMsg').textContent='Guardando…';
-  const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','emissao','nf','historico','tusdTarifa','teTarifa','tusdValor','teValor','bandeira','bandeiraCred','cip','injKwh','outros'];
+  const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','emissao','nf','historico','tusdTarifa','teTarifa','tusdValor','teValor','bandeira','bandeiraCred','cip','injKwh','outros','geracaoMed'];
   // em lotes de 100 (uma pasta pode ter centenas de faturas)
   const r={ok:true,faturas:0,atualizadas:0,historico:0,fornecimento:0,usinas:0,ignoradas:[]};
   for(let k=0;k<pend.length;k+=100){
@@ -2532,6 +2548,23 @@ function ratRender(){
     <div class="ana-kpi ${fechaKwh&&L.length?'ok':'err'}"><small>Injeção total (kWh)</small><b>${ratN(c.injecao,0)}</b><span>${fechaKwh?'fecha com a geração ✓':'não fecha com a geração'}</span></div>
     <div class="ana-kpi"><small>Último rateio salvo</small><b>${M.ult?ratMesTxt(+M.ult.linhas[0].mes):'—'}</b><span>${M.ult?anaEsc(M.ult.linhas[0].geradoEm)+' · '+M.ult.linhas.length+' UCs':'nenhum ainda'}</span></div>`;
   $('ratGer').onchange=e=>{const v=e.target.value===''?null:Math.max(0,+e.target.value);rat.ger[rat.ug+'|'+rat.mes]=v;ratRender()};
+  // geração real: o que o medidor da fatura da usina registrou como energia injetada (Leitor de faturas)
+  {const ugd=ratDig(rat.ug),reais=(d.reais||[]).filter(f=>f.uc===ugd||f.alt===ugd).sort((a,b)=>b.mes-a.mes);
+    const est=m=>{const gl=d.geracao.find(g=>ratDig(g.ug)===ugd&&Number(g.ano)===Math.floor(m/100));return gl?Number(gl['m'+(m%100)])||0:0};
+    const aqui=reais.find(f=>f.mes===rat.mes),pct=(a,b)=>b?Math.round((a-b)/b*100):null;
+    let h='';
+    if(aqui){const usando=Math.round(M.ger)===Math.round(aqui.gerMed),p0=pct(aqui.gerMed,M.gerPlan||0);
+      h+=`<p>📄 Fatura da usina de ${ratMesTxt(rat.mes)}: <b>${ratN(aqui.gerMed,0)} kWh</b> injetados${p0!=null&&M.gerPlan?` (${p0>0?'+':''}${p0}% da estimada de ${ratN(M.gerPlan,0)} kWh)`:''}. `+
+        (usando?'<span class="ok">Usando a geração real ✓</span>':`<button type="button" class="cb-passo" id="ratUsarReal">Usar a geração real</button>`)+'</p>'}
+    else if(reais.length)h+=`<p class="fx-nota">Ainda não há fatura lida desta usina de ${ratMesTxt(rat.mes)}.</p>`;
+    if(reais.length)h+=`<details><summary>Geração estimada × real (${reais.length} fatura${reais.length===1?'':'s'} lida${reais.length===1?'':'s'})</summary><div class="ana-tabela"><div class="ana-scroll"><table>
+      <thead><tr><th>Mês ref.</th><th class="num">Estimada</th><th class="num">Real (medidor)</th><th class="num">Diferença</th><th class="num">Usada pela usina</th></tr></thead><tbody>`+
+      reais.slice(0,12).map(f=>{const e2=est(f.mes),p1=pct(f.gerMed,e2);return `<tr><td>${ratMesTxt(f.mes)}</td><td class="num">${e2?ratN(e2,0):'—'}</td><td class="num"><b>${ratN(f.gerMed,0)}</b></td>
+        <td class="num ${p1!=null&&p1<0?'fx-neg':'fx-pos'}">${p1==null?'—':(p1>0?'+':'')+p1+'%'}</td><td class="num">${f.auto?ratN(f.auto,0):'—'}</td></tr>`}).join('')+
+      '</tbody></table></div></div><p class="fx-nota">"Usada pela usina" é a parte da energia injetada que abateu o consumo da própria usina; o resto foi para as beneficiárias.</p></details>';
+    $('ratReal').innerHTML=h;
+    const ub=$('ratUsarReal');if(ub)ub.onclick=()=>{rat.ger[rat.ug+'|'+rat.mes]=Math.round(aqui.gerMed);ratRender()};
+  }
   // tabela
   $('ratCorpo').innerHTML=L.length?L.map((l,i)=>{const r=c.L[i],b=base(l),sf=r.AG-(b==null?l.consumo:b);
     const tags=(l.nova?'<span class="rat-tag info">NOVA</span>':'')+(l.repetida?'<span class="rat-tag err">REPETIDA</span>':'')+
@@ -4199,7 +4232,7 @@ function fromProposta(text){
     const ic=linhas.findIndex(x=>/^CLIENTE:/i.test(x));
     if(ic>=0){let nm=linhas[ic].replace(/^CLIENTE:\s*/i,'');for(let j=ic+1;j<Math.min(linhas.length,ic+3);j++){const l=linhas[j];if(!l||/^MUNIC|^Santa Maria,|\d{2}\/\d{2}|:/i.test(l)||!/^[A-ZÀ-Ü0-9&.,\- ]+$/.test(l))break;nm+=' '+l}d.titular=nm.trim()}
     // UC: a do "DADOS DA UNIDADE CONSUMIDORA" (formato novo ou antigo)
-    const uc=T.match(/UNIDADE CONSUMIDORA[^\n]{0,40}?UC\s*:?\s*(\d{1,3}(?:\.\d{3}){3}-\d{2}|\d{8,12})/i)||T.match(/\bUC\s*:?\s*(\d{1,3}(?:\.\d{3}){3}-\d{2})/);
+    const uc=T.match(/UNIDADE CONSUMIDORA[^\n]{0,40}?UC\s*:?\s*(\d{1,3}(?:\.\d{3}){1,2}\.00\d-\d{2}|\d{8,12})/i)||T.match(/\bUC\s*:?\s*(\d{1,3}(?:\.\d{3}){1,2}\.00\d-\d{2})/);
     if(uc)d.codigo_uc=uc[1];
     // CPF/CNPJ do cliente (o da OZZ fica de fora)
     const docs=(T.match(/\b(?:\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2})\b/g)||[]).filter(x=>x.replace(/\D/g,'')!=='48513829000114');
