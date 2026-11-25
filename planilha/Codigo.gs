@@ -169,7 +169,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '39 (usina geradora x unidade consumidora em todo o site e no Drive)';
+const VERSAO_SCRIPT = '40 (Termo: proposta completa pelo registro da proposta)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -200,7 +200,7 @@ function doPost(e) {
       try { r.cadastro = cadastroDoTermo_(req.dados || {}, usuario); } catch (e) { console.error('Cadastro pelo termo: ' + e.message); r.cadastro = 'erro'; }
       return json(r);
     }
-    if (req.acao === 'buscar') return json(buscarPorUC(req.uc));
+    if (req.acao === 'buscar') return json(buscarPorUC(req.uc, req.numero));
     if (req.acao === 'programacao') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
       return json(programacaoComCache_(!!req.forcar));
@@ -419,19 +419,23 @@ function registrarTermo(d) {
 }
 
 /** Devolve só o número, a data e o plano da proposta mais recente dessa UC (nenhum dado pessoal). */
-function buscarPorUC(uc) {
+/** Proposta registrada: pelo número (quando vem do PDF) ou pela UC (a mais recente). Devolve também os dados do cliente
+    que a proposta guardou, para o Termo completar o que o PDF não traz. */
+function buscarPorUC(uc, numero) {
   uc = String(uc || '').replace(/\D/g, '');
-  if (uc.length < 5) return { ok: true, encontrada: false };
+  numero = String(numero || '').trim();
+  if (uc.length < 5 && !numero) return { ok: true, encontrada: false };
   const sh = SpreadsheetApp.getActive().getSheetByName(ABA_PROPOSTAS);
   if (!sh || sh.getLastRow() < 2) return { ok: true, encontrada: false };
-  const v = sh.getRange(2, 1, sh.getLastRow() - 1, 15).getValues();
-  for (let i = v.length - 1; i >= 0; i--) {
-    if (String(v[i][6]).replace(/\D/g, '') === uc) {
-      const dt = v[i][0] instanceof Date ? Utilities.formatDate(v[i][0], 'America/Sao_Paulo', 'dd/MM/yyyy') : '';
-      return { ok: true, encontrada: true, numero: String(v[i][1]), data: dt, plano: String(v[i][14]) };
-    }
-  }
-  return { ok: true, encontrada: false };
+  const larg = Math.min(sh.getLastColumn(), 25), v = sh.getRange(2, 1, sh.getLastRow() - 1, larg).getValues();
+  const achar = f => { for (let i = v.length - 1; i >= 0; i--) if (f(v[i])) return v[i]; return null; };
+  const r = (numero && achar(x => String(x[1]).trim() === numero)) || (uc.length >= 5 && achar(x => String(x[6]).replace(/\D/g, '') === uc));
+  if (!r) return { ok: true, encontrada: false };
+  const t = i => i < r.length && r[i] != null ? String(r[i]).trim() : '';
+  const dt = r[0] instanceof Date ? Utilities.formatDate(r[0], 'America/Sao_Paulo', 'dd/MM/yyyy') : '';
+  return { ok: true, encontrada: true, numero: t(1), data: dt, plano: t(14),
+    dados: { titular: t(3), cpf: t(4), cnpj: t(5), codigo_uc: t(6), distribuidora: t(7), endereco: t(8), cep: t(9), cidade: t(10), uf: t(11),
+      consumo: t(13), classe_uc: t(21), bairro: t(22), email: t(23), celular: t(24) } };
 }
 
 /**
