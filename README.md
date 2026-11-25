@@ -59,6 +59,15 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   data do envio do Anexo G, marca o rateio como "ENVIADO À RGE" e grava essa data como **entrada no rateio** no cadastro das
   UCs novas (as que nunca estiveram num rateio enviado e ainda não têm data). Quem já tinha data não muda; UC fora do cadastro
   é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
+- **Cobrança do mês criada pelo portal (período em paralelo):** cada fatura da RGE lida no Leitor (de cliente, não de usina)
+  vira uma cobrança na aba **Cobranças Portal**: valor sem a OZZ, desconto do plano (cadastro do cliente; senão a ASSINATURA),
+  cobrança, investidor e lucro, com vencimento **2 dias antes** do vencimento da conta da RGE (Config!B8 muda os dias).
+  O mês da cobrança segue o padrão de cada cliente na planilha de controle (aba do mês da referência ou do seguinte);
+  cliente novo usa o mês do vencimento da RGE. Nas Cobranças a cobrança aparece como "Não emitida" com o valor pronto para
+  emitir no Asaas; a ficha tem "Ajustar valor" (pede o motivo e guarda quem mudou). Cobrança já emitida não muda se a fatura
+  for relida: só aparece um aviso. A vista **Planilha × portal** mostra iguais, diferentes, só no portal e só na planilha,
+  e o botão "Recalcular cobranças do portal" (use uma vez depois de atualizar o script, para as faturas já lidas).
+  Quando os números baterem por 1 ou 2 meses, a planilha de controle pode deixar de ser a fonte.
 - **Pós-venda na ficha do cliente:** a ficha (nas Cobranças e no Cadastro de clientes) mostra as visitas do app de pós-venda
   daquele cliente: data, funcionário, nota e perfil (promotor/neutro/detrator), tratativa (aberta/em contato/resolvida),
   motivo, problema, próximo passo, anotações, indicações, brinde e o link da assinatura. O portal só **lê** a aba Visitas da
