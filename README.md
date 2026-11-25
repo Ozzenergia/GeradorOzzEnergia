@@ -55,6 +55,10 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   (coluna "Tipo da UC"), fora das Cobranças, e o PDF vai para **Faturas RGE (portal OZZ)/Usinas geradoras/AAAA-MM**; as das
   unidades consumidoras vão para **.../Unidades consumidoras/AAAA-MM**. O botão "Organizar os PDFs do Drive" separa os PDFs
   já guardados (os links não mudam). Propostas e Termo avisam quando a UC é uma usina.
+- **Rateio enviado à RGE:** em Rateio de créditos → "Rateios salvos desta usina", o botão **Marcar enviado à RGE** pede a
+  data do envio do Anexo G, marca o rateio como "ENVIADO À RGE" e grava essa data como **entrada no rateio** no cadastro das
+  UCs novas (as que nunca estiveram num rateio enviado e ainda não têm data). Quem já tinha data não muda; UC fora do cadastro
+  é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
   instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho

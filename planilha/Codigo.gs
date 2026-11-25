@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_organizar: 'rat', fat_pasta_listar: 'rat', fat_nl: 'rat', uc_tipos: 'cli', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_enviado: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_organizar: 'rat', fat_pasta_listar: 'rat', fat_nl: 'rat', uc_tipos: 'cli', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -169,7 +169,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '41 (corrige os meses das Cobranças que o Sheets virava data)';
+const VERSAO_SCRIPT = '42 (rateio enviado à RGE grava a entrada no rateio no cadastro)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -246,6 +246,10 @@ function doPost(e) {
     if (req.acao === 'fat_salvar') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
       return json(faturasSalvar(req.faturas, usuario));
+    }
+    if (req.acao === 'rat_enviado') {
+      if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
+      return json(ratEnviado(req.rateio || {}, usuario));
     }
     if (req.acao === 'rat_dados' || req.acao === 'rat_salvar' || req.acao === 'rat_importar') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
@@ -1036,7 +1040,8 @@ function cobComCadastro_(clientes, cobs, meses, and) {
   const ult = Object.keys(meses).sort().pop(), ja = {};
   Object.keys(cad).forEach(u => {
     const o = cad[u];
-    if (usados[o.id] || ja[o.id] || dig(o.uc).length < 7 || !/CONECTAD/i.test(o.status || '')) return;
+    // só do portal: conectado, ou já no rateio (tem data de entrada) e não cancelado
+    if (usados[o.id] || ja[o.id] || dig(o.uc).length < 7 || /CANCEL/i.test(o.status || '') || !(/CONECTAD/i.test(o.status || '') || o.entrada)) return;
     ja[o.id] = true;
     const k = dig(o.uc), pc = planoCadastro_(o);
     clientes.push({ k: k, n: o.nome, uc: o.uc, ucA: o.ucAntiga || '', inv: o.usina || '', vend: o.vendedor || '', resp: o.responsavel || '', tel: o.telefone || '',
@@ -2143,6 +2148,64 @@ function ratDados() {
 }
 
 /** Guarda um rateio calculado no site: uma linha por UC na aba Rateios Gerados. */
+/**
+ * Rateio enviado à RGE (Anexo G): marca a situação do rateio salvo e grava a data como "Entrada no rateio" no cadastro
+ * das UCs NOVAS (as que nunca estiveram num rateio enviado e ainda não têm data de entrada). Quem já tinha data não muda.
+ * UC que não está no cadastro é cadastrada (com a usina). d = { id, data: AAAA-MM-DD, simular }
+ */
+function ratEnviado(d, usuario) {
+  const id = String(d && d.id || '').trim(), data = String(d && d.data || '').trim();
+  if (!id) return { ok: false, erro: 'rateio não informado' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return { ok: false, erro: 'data do envio inválida' };
+  const dig = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'outra gravação em andamento; tente de novo' };
+  try {
+    const sh = ratAba_('gerados'), larg = RAT_ABAS_.gerados.cols.length, cSit = RAT_ABAS_.gerados.chaves.indexOf('situacao');
+    const v = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, larg).getValues() : [];
+    const minhas = v.map((r, i) => ({ r, i })).filter(x => String(x.r[0]) === id);
+    if (!minhas.length) return { ok: false, erro: 'não achei este rateio (atualize a página)' };
+    // UCs que já estiveram num rateio ENVIADO (qualquer usina)
+    const jaEnviadas = {};
+    v.forEach(r => { if (String(r[0]) !== id && /^ENVIADO/i.test(String(r[cSit]))) jaEnviadas[dig(r[8])] = true; });
+    const cad = cadastroPorUc_(), ug = String(minhas[0].r[3]), nomeUg = String(minhas[0].r[4] || '');
+    const res = { ok: true, simulado: !!d.simular, novas: [], jaTinham: [], criadas: 0 };
+    minhas.forEach(({ r }) => {
+      const uc = String(r[8]), k = dig(uc), o = cad[k];
+      if (jaEnviadas[k] || (o && o.entrada)) res.jaTinham.push(String(r[9] || uc)); else res.novas.push({ uc: uc, titular: String(r[9] || ''), cadastro: !!o });
+    });
+    if (d.simular) return res;
+    const dataBR = data.slice(8, 10) + '/' + data.slice(5, 7) + '/' + data.slice(0, 4);
+    minhas.forEach(({ i }) => sh.getRange(i + 2, cSit + 1).setValue('ENVIADO À RGE ' + dataBR + ' (' + (usuario.nome || usuario.email || '') + ')'));
+    // cadastro: entrada no rateio das UCs novas (e a usina, se estiver vazia)
+    const shC = abaCadastro_(), linhas = cadastroLinhas_(shC), X = n => CAD_X_ + CAMPOS_CADASTRO_EXTRA.indexOf(n);
+    const dt = new Date(Number(data.slice(0, 4)), Number(data.slice(5, 7)) - 1, Number(data.slice(8, 10)), 12), agora = new Date(), quem = usuario.nome || usuario.email || '';
+    res.novas.forEach(n => {
+      const k = dig(n.uc);
+      let li = linhas.findIndex(r => String(r[0]).trim() && (dig(r[11]) === k || dig(r[CAD_X_]) === k));
+      if (li < 0) {
+        const row = Array(COLS_CADASTRO.length).fill('');
+        row[0] = 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 9).toUpperCase(); row[1] = agora; row[2] = quem;
+        row[3] = limpa(n.titular || n.uc); row[11] = n.uc; row[12] = 'RGE'; row[X('origem')] = 'Rateio (Anexo G)';
+        const l0 = shC.getLastRow() + 1;
+        shC.getRange(l0, 4, 1, 12).setNumberFormat('@'); shC.getRange(l0, CAD_X_ + 1).setNumberFormat('@');
+        shC.getRange(l0, 1, 1, row.length).setValues([row]); linhas.push(row); li = linhas.length - 1; res.criadas++;
+      }
+      const l = li + 2;
+      shC.getRange(l, X('entrada') + 1).setValue(dt).setNumberFormat('dd/MM/yyyy');
+      if (!String(linhas[li][X('ug')] || '').trim()) shC.getRange(l, X('ug') + 1).setNumberFormat('@').setValue(ug);
+      if (!String(linhas[li][X('usina')] || '').trim() && nomeUg) shC.getRange(l, X('usina') + 1).setValue(limpa(nomeUg));
+      shC.getRange(l, 16, 1, 2).setValues([[agora, quem]]);
+    });
+    try { CacheService.getScriptCache().remove('tipos_uc_v1'); } catch (e) {}
+    // a Situação das cobranças dessas UCs (aguardando 1ª fatura) é recalculada
+    res.novas.forEach(n => { try { cobRecalc_(dig(n.uc)); } catch (e) {} });
+    console.log('Rateio ' + id + ' enviado à RGE em ' + dataBR + ' por ' + (usuario.email || '?') + ': ' + res.novas.length + ' UCs novas');
+    res.situacao = 'ENVIADO À RGE ' + dataBR + ' (' + (usuario.nome || usuario.email || '') + ')';
+    return res;
+  } finally { lock.releaseLock(); }
+}
+
 function ratSalvar(d, usuario) {
   const linhas = Array.isArray(d.linhas) ? d.linhas : [];
   const ug = String(d.ug || '').trim(), mes = Number(d.mes) || 0, ger = Number(d.geracao) || 0;

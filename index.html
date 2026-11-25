@@ -2552,10 +2552,35 @@ function ratRender(){
   $('ratSub').textContent=`${M.usina.nome||'Usina'} · ${ratMesTxt(ref)} · base ${rat.base==='3M'?'média 3 meses':rat.base==='12M'?'média 12 meses':'mesmo mês do ano anterior'}`;
   // histórico
   const g=d.gerados.filter(x=>ratDig(x.ug)===ratDig(rat.ug)),ids=[...new Set(g.map(x=>x.id))].reverse();
-  $('ratHist').innerHTML=ids.length?`<div class="ana-tabela"><div class="ana-scroll"><table><thead><tr><th>Salvo em</th><th>Mês ref.</th><th class="num">Geração</th><th class="num">UCs</th><th>Base</th><th>Por</th><th>Situação</th></tr></thead><tbody>${
-    ids.slice(0,24).map(id=>{const l=g.filter(x=>x.id===id),a=l[0];return `<tr><td>${anaEsc(a.geradoEm)}</td><td data-l="Mês ref.">${ratMesTxt(+a.mes)}</td><td class="num" data-l="Geração">${a.geracao===''||a.geracao==null?'—':ratN(+a.geracao)}</td><td class="num" data-l="UCs">${l.length}</td><td data-l="Base">${anaEsc(a.base)}</td><td data-l="Por">${anaEsc(a.geradoPor)}</td><td data-l="Situação">${anaEsc(a.situacao)}</td></tr>`}).join('')}</tbody></table></div></div>`
+  $('ratHist').innerHTML=ids.length?`<div class="ana-tabela"><div class="ana-scroll"><table><thead><tr><th>Salvo em</th><th>Mês ref.</th><th class="num">Geração</th><th class="num">UCs</th><th>Base</th><th>Por</th><th>Situação</th><th></th></tr></thead><tbody>${
+    ids.slice(0,24).map(id=>{const l=g.filter(x=>x.id===id),a=l[0];return `<tr><td>${anaEsc(a.geradoEm)}</td><td data-l="Mês ref.">${ratMesTxt(+a.mes)}</td><td class="num" data-l="Geração">${a.geracao===''||a.geracao==null?'—':ratN(+a.geracao)}</td><td class="num" data-l="UCs">${l.length}</td><td data-l="Base">${anaEsc(a.base)}</td><td data-l="Por">${anaEsc(a.geradoPor)}</td><td data-l="Situação">${anaEsc(a.situacao)}</td><td>${/^ENVIADO/i.test(a.situacao||'')?'':`<div class="ana-acoes"><button type="button" data-rat-env="${anaEsc(id)}" title="Marca o Anexo G como enviado à RGE e grava a data como entrada no rateio das UCs novas">Marcar enviado à RGE</button></div>`}</td></tr>`}).join('')}</tbody></table></div></div>`
     :'<p class="fx-nota">Nenhum rateio salvo para esta usina ainda.</p>';
 }
+/* Rateio enviado à RGE (Anexo G): a data vira a "entrada no rateio" das UCs novas no cadastro (Cobranças usam) */
+$('ratHist').addEventListener('click',async e=>{
+  const b=e.target.closest('button[data-rat-env]');if(!b)return;const id=b.dataset.ratEnv;
+  const h=new Date(),hoje=String(h.getDate()).padStart(2,'0')+'/'+String(h.getMonth()+1).padStart(2,'0')+'/'+h.getFullYear();
+  const dt=prompt('Data em que o Anexo G deste rateio foi enviado à RGE (dd/mm/aaaa):',hoje);if(dt==null)return;
+  const m=dt.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(!m){alert('Use o formato dd/mm/aaaa.');return}
+  const data=m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  b.disabled=true;b.textContent='Conferindo…';
+  const p=await sheetApi('rat_enviado',{rateio:{id,data,simular:true}},{espera:60000});
+  b.disabled=false;b.textContent='Marcar enviado à RGE';
+  if(!p||!p.ok){let e2=(p&&p.erro)||'não deu para marcar';if(/ação desconhecida/.test(e2))e2='atualize o script da planilha do portal para a versão 42';alert('⚠️ '+e2);return}
+  const nv=p.novas.length,novasCad=p.novas.filter(n=>!n.cadastro).length;
+  const msg=`Marcar este rateio como enviado à RGE em ${dt.trim()}?\n\n`+
+    (nv?`• ${nv} UC${nv===1?' nova recebe':'s novas recebem'} ${dt.trim()} como entrada no rateio: ${p.novas.slice(0,6).map(n=>n.titular||n.uc).join(', ')}${nv>6?'…':''}`+(novasCad?`\n  (${novasCad} ainda não ${novasCad===1?'está':'estão'} no cadastro e ${novasCad===1?'será cadastrada':'serão cadastradas'})`:''):'• Nenhuma UC nova: todas já estavam no rateio.')+
+    (p.jaTinham.length?`\n• ${p.jaTinham.length} já ${p.jaTinham.length===1?'tinha':'tinham'} data de entrada e não muda${p.jaTinham.length===1?'':'m'}.`:'');
+  if(!confirm(msg))return;
+  b.disabled=true;b.textContent='Gravando…';
+  const r=await sheetApi('rat_enviado',{rateio:{id,data}},{espera:90000});
+  if(!r||!r.ok){b.disabled=false;b.textContent='Marcar enviado à RGE';alert('⚠️ '+((r&&r.erro)||'não deu para marcar'));return}
+  rat.dados.gerados.filter(x=>x.id===id).forEach(x=>{x.situacao=r.situacao});
+  try{cb.dados=null}catch(x){}try{cli.lista=null}catch(x){}try{ucT.mapa=null}catch(x){}
+  ratRender();
+  const st=$('ratMsg')||$('ratSub');if(st&&st.id==='ratMsg')st.textContent=`✓ Rateio marcado como enviado. ${r.novas.length} UC${r.novas.length===1?'':'s'} com entrada no rateio em ${dt.trim()}`+(r.criadas?` (${r.criadas} cadastrada${r.criadas===1?'':'s'})`:'')+'.';
+  else alert(`✓ Rateio marcado como enviado. ${r.novas.length} UC${r.novas.length===1?'':'s'} com entrada no rateio em ${dt.trim()}.`);
+});
 $('ratCorpo').addEventListener('change',e=>{const i=e.target.closest('input[data-rat]');if(!i)return;
   const k=rat.ug+'|'+rat.mes+'|'+i.dataset.u,ed=rat.ed[k]=rat.ed[k]||{};
   if(i.dataset.rat==='fator')ed.fator=i.value===''?1:Math.max(0,+i.value);
