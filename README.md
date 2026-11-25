@@ -43,6 +43,12 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   para "Faturas RGE (portal OZZ)". Os arquivos importados ficam na aba **Faturas Importadas** e são pulados da próxima vez.
   Também dá para **arrastar uma pasta inteira** (com subpastas) ou o **.zip** baixado do Drive direto no Leitor (o .zip é
   aberto no próprio navegador), ou usar "escolher uma pasta". Só os PDFs entram.
+  **Faturas não lidas:** o que o Leitor não consegue ler vai para a aba **Faturas não lidas** (arquivo, origem, motivo,
+  tentativas), aparece no botão "Faturas não lidas guardadas" e não se perde quando a página fecha. As que vieram do Drive
+  podem ser lidas de novo com um clique; quando uma é lida e guardada, sai da lista.
+  **PDF escaneado:** é lido como imagem (o mesmo leitor de fotos, no navegador) e fica marcado **CONFERIR**: só é guardado
+  depois de clicar em "Conferi" e confirmar a UC. As linhas da conta só valem para o cálculo da cobrança se os números
+  baterem (kWh × tarifa = valor).
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
   instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho

@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pasta_listar: 'rat', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pasta_listar: 'rat', fat_nl: 'rat', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -169,7 +169,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '37 (Leitor importa faturas de uma pasta do Google Drive)';
+const VERSAO_SCRIPT = '38 (faturas não lidas guardadas; leitura de PDF escaneado)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -218,6 +218,10 @@ function doPost(e) {
     if (req.acao === 'rat_usina') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
       return json(ratUsinaSalvar(req.usina || {}, usuario));
+    }
+    if (req.acao === 'fat_nl') {
+      if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
+      return json(fatNaoLidas(req.nl || {}, usuario));
     }
     if (req.acao === 'fat_pasta_listar' || req.acao === 'fat_pasta_baixar') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
@@ -2469,6 +2473,59 @@ function fatPastaBaixar(d) {
   if (!dentroDaPasta_(f, pid)) return { ok: false, erro: 'o arquivo não está na pasta escolhida' };
   if (f.getSize() > 15 * 1024 * 1024) return { ok: false, erro: 'arquivo grande demais (máx. 15 MB)' };
   return { ok: true, nome: f.getName(), b64: Utilities.base64Encode(f.getBlob().getBytes()) };
+}
+
+/* ---------- Faturas não lidas: o Leitor registra aqui o que não conseguiu ler, para não se perder quando a página fecha ----------
+   Chave = ID do arquivo no Drive (importação pela pasta) ou "arq:nome|tamanho" (arquivo do computador).
+   Quando a fatura é lida e guardada depois, a linha ganha "Resolvida em" e sai da lista do portal. */
+const ABA_FAT_NL = 'Faturas não lidas';
+const COLS_FAT_NL = ['Chave', 'Arquivo', 'Origem', 'ID no Drive', 'Pasta (ID)', 'Motivo', 'Tentativas', 'Primeira vez', 'Última tentativa', 'Por', 'Resolvida em'];
+function fatNaoLidas(d, usuario) {
+  const op = String(d && d.op || ''), sh = abaCob_(ABA_FAT_NL, COLS_FAT_NL);
+  const lin = lerAbaCob_(sh), cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim()), c = n => cab.indexOf(n) + 1;
+  const t = x => String(x == null ? '' : x).trim(), quem = usuario.nome || usuario.email || '';
+  const fmt = x => x instanceof Date ? Utilities.formatDate(x, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm') : t(x);
+  const porChave = {}; lin.forEach(o => { if (t(o['Chave'])) porChave[t(o['Chave'])] = o; });
+  if (op === 'listar') {
+    return { ok: true, lista: lin.filter(o => t(o['Chave']) && !t(o['Resolvida em'])).map(o => ({ chave: t(o['Chave']), arquivo: t(o['Arquivo']), origem: t(o['Origem']),
+      driveId: t(o['ID no Drive']), pasta: t(o['Pasta (ID)']), motivo: t(o['Motivo']), tentativas: Number(o['Tentativas']) || 1, primeira: fmt(o['Primeira vez']), ultima: fmt(o['Última tentativa']) })) };
+  }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'a planilha está gravando outra coisa agora; tente de novo' };
+  try {
+    const agora = new Date();
+    if (op === 'reg') {   // registra (ou soma uma tentativa)
+      const novas = [];
+      (Array.isArray(d.lista) ? d.lista.slice(0, 500) : []).forEach(x => {
+        const ch = t(x.chave).slice(0, 300); if (!ch) return;
+        const o = porChave[ch];
+        if (o) {
+          sh.getRange(o._linha, c('Motivo')).setValue(limpa(t(x.motivo).slice(0, 300)));
+          sh.getRange(o._linha, c('Tentativas')).setValue((Number(o['Tentativas']) || 1) + 1);
+          sh.getRange(o._linha, c('Última tentativa')).setValue(agora);
+          sh.getRange(o._linha, c('Por')).setValue(quem);
+          sh.getRange(o._linha, c('Resolvida em')).setValue('');
+        } else {
+          const row = COLS_FAT_NL.map(n => ({ 'Chave': ch, 'Arquivo': limpa(t(x.arquivo).slice(0, 200)), 'Origem': limpa(t(x.origem).slice(0, 200)), 'ID no Drive': t(x.driveId),
+            'Pasta (ID)': t(x.pasta), 'Motivo': limpa(t(x.motivo).slice(0, 300)), 'Tentativas': 1, 'Primeira vez': agora, 'Última tentativa': agora, 'Por': quem, 'Resolvida em': '' })[n]);
+          novas.push(row); porChave[ch] = { _linha: -1 };
+        }
+      });
+      if (novas.length) sh.getRange(sh.getLastRow() + 1, 1, novas.length, COLS_FAT_NL.length).setValues(novas);
+      return { ok: true, registradas: novas.length };
+    }
+    if (op === 'ok' || op === 'tirar') {   // ok = foi lida e guardada; tirar = alguém tirou da lista
+      let n = 0;
+      (Array.isArray(d.chaves) ? d.chaves : [d.chave]).forEach(ch => {
+        const o = porChave[t(ch)]; if (!o || o._linha < 0 || t(o['Resolvida em'])) return;
+        sh.getRange(o._linha, c('Resolvida em')).setValue(op === 'ok' ? Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm') + ' (lida e guardada)'
+          : 'tirada da lista por ' + quem + ' em ' + Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'));
+        n++;
+      });
+      return { ok: true, resolvidas: n };
+    }
+    return { ok: false, erro: 'operação inválida' };
+  } finally { lock.releaseLock(); }
 }
 
 /** Devolve o PDF guardado de uma fatura (d = { uc, ref: AAAA-MM }) em base64, para o portal abrir sem compartilhar a pasta. */
