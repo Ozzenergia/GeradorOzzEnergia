@@ -323,6 +323,14 @@ main.wide{max-width:1180px}
 .lf-pasta-chk{display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--ink)}
 .lf-pasta-st{font-size:14px;color:var(--muted);display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .lf-pasta-st b{color:var(--ink)}
+.lf-nl{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:10px}
+.lf-nl p{margin:0;font-size:13.5px;color:var(--muted)}
+.lf-nl-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.lf-nl table{width:100%;border-collapse:collapse;font-size:13.5px}
+.lf-nl td,.lf-nl th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.lf-nl th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.lf-nl td small{display:block;color:var(--muted)}
+.rat-tag.warn{background:var(--warn-soft);color:var(--warn)}
 .cb-passo{font:600 12.5px Outfit,sans-serif;color:var(--primary);background:var(--primary-soft);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;white-space:nowrap}
 .cb-passo:hover{outline:1px solid var(--primary-line)}
 .cb-passo.sec{color:var(--muted);background:none;padding:6px 4px}
@@ -1045,6 +1053,8 @@ body.locked{overflow:hidden}
       <small>A pasta precisa estar no Drive (ou compartilhada com) a conta que implantou o script da planilha. As subpastas também entram.</small>
     </div>
     <div class="lf-pasta-st" id="lfPastaSt" aria-live="polite"></div>
+    <div><button class="btn sec sm hidden" id="lfNlBtn" type="button" aria-expanded="false">📋 Faturas não lidas guardadas (<span id="lfNlN">0</span>)</button></div>
+    <div class="lf-nl hidden" id="lfNlBox"></div>
   </div>
   <div class="alert" id="lfErro"></div>
   <div class="ana-tabela" id="lfTabela" hidden><div class="ana-scroll"><table class="rat-t">
@@ -2132,18 +2142,50 @@ function calcCobranca(x,plano){
   return {semDesc:r2(semDesc),desconto:r2(desconto),cobranca:r2(cobranca),investidor:r2(investidor),repassado:r2(rep)};
 }
 const lf={itens:[],salvando:false};
-function lfAbrir(){lfRender()}
+function lfAbrir(){lfRender();if(!lfnl.lista)lfNlCarregar()}
+/* PDF escaneado (só imagem): cada página vira imagem e passa pelo leitor de fotos (Tesseract, no próprio navegador).
+   O texto lido vai para os mesmos leitores dos PDFs digitais; a fatura fica marcada para conferir antes de guardar. */
+async function lfOcrTexto(file,it){
+  const w=await getOcrWorker();
+  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer(),verbosity:0}).promise;let T='';
+  for(let pg=1;pg<=Math.min(pdf.numPages,2);pg++){
+    ocrProg=(p)=>{if(p!=null){it.prog=`PDF escaneado: lendo a página ${pg} como imagem… ${Math.round(p*100)}%`;const el=document.querySelector('#lfCorpo tr[data-lendo] small');if(el)el.textContent=it.prog}};
+    const page=await pdf.getPage(pg),vp=page.getViewport({scale:1}),v2=page.getViewport({scale:2600/vp.width});
+    const c=document.createElement('canvas');c.width=v2.width;c.height=v2.height;await page.render({canvasContext:c.getContext('2d'),viewport:v2}).promise;
+    const r=await w.recognize(prepCanvas(c));T+=(r.data.text||'')+'\n';
+  }
+  ocrProg=()=>{};
+  return T;
+}
+const lfUcValida=u=>/^\d{1,3}\.\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(String(u||''))||/^(30|40)\d{8}$/.test(soDig(u));   // UC nova (1.234.567.001-00) ou antiga (10 dígitos)
+function lfOcrBasico(T){   // quando o texto do OCR não passa no leitor do PDF digital: os campos básicos pelo leitor de fotos
+  const o=parseFaturaOCR(T)||{};
+  // a UC no formato completo vale mais que o pedaço que o leitor de fotos às vezes pega
+  const m=T.match(/(?:^|[^\d.])(\d{1,3})\s?[.,]\s?(\d{3})\s?[.,]\s?(\d{3})\s?[.,]\s?(\d{3})\s?-\s?(\d{2})(?!\d)/m);
+  if(m)o.codigo_uc=m[1]+'.'+m[2]+'.'+m[3]+'.'+m[4]+'-'+m[5];
+  return o.codigo_uc?{codigo_uc:o.codigo_uc,titular:o.titular,distribuidora:o.distribuidora,classe_uc:o.classe_uc,tensao:o.tensao,inj_te:o.inj_te}:null;
+}
 async function lfLer(files,metas){
   $('lfErro').style.display='none';
-  for(let fi=0;fi<files.length;fi++){
+  try{ /* o lote inteiro */ for(let fi=0;fi<files.length;fi++){
     const file=files[fi];
     const it={arquivo:file.caminho||file.webkitRelativePath||file.name,estado:'lendo',file};/* o arquivo fica guardado para subir ao Drive depois */lf.itens.unshift(it);lfRender();
     if(metas&&metas[fi]){Object.assign(it,metas[fi]);if(it.driveId)it.file=null}   // veio de uma pasta do Drive: na hora de guardar, o script copia o arquivo
+    // chave para a lista de não lidas: o ID no Drive ou nome + tamanho do arquivo
+    it.chave=it.driveId||('arq:'+file.name+'|'+file.size);
+    it.origem=it.driveId?'Drive: '+(it.pastaNome||''):(file.caminho&&/ › /.test(file.caminho)?'Zip: '+file.caminho.split(' › ')[0]:(file.caminho||file.webkitRelativePath)?'Pasta do computador':'Computador');
     try{
       if(!/\.pdf$/i.test(file.name))throw new Error('não é PDF');
-      const t=await readPdf(file),d=parseCPFL(t);
-      if(!d)throw new Error('não parece uma fatura da CPFL/RGE (ou é um PDF escaneado, sem texto)');
-      const e=extrasFatura(t),M=MESES_ABR,ic=itensFatura(t);
+      let t=await readPdf(file),d=parseCPFL(t),ocr=false;
+      if(!d&&t.replace(/\s/g,'').length<80){   // escaneado: lê como imagem
+        it.prog='PDF escaneado: preparando o leitor de imagem…';lfRender();
+        t=await lfOcrTexto(file,it);ocr=true;d=parseCPFL(t);if(!d||!d.codigo_uc)d=lfOcrBasico(t);
+        if(!d)throw new Error('PDF escaneado: não consegui ler a UC na imagem (a digitalização pode estar ruim). Baixe a conta digital pelo site da CPFL');
+      }
+      if(!d)throw new Error('não parece uma fatura da CPFL/RGE');
+      const e=extrasFatura(t),M=MESES_ABR;let ic=itensFatura(t);
+      // no escaneado, as linhas da conta só valem se os números baterem (kWh × tarifa = valor); senão o cálculo da cobrança não usa
+      if(ocr&&ic){const ok=x=>x&&x.kwh>0&&Math.abs(x.kwh*x.tarifa-x.valor)<=Math.max(0.05,x.valor*0.002);if(!(ok(ic.tusd)&&ok(ic.te)))ic=null}
       if(ic&&ic.tusd&&ic.te)Object.assign(e,{tusdTarifa:ic.tusd.tarifa,teTarifa:ic.te.tarifa,tusdValor:ic.tusd.valor,teValor:ic.te.valor,
         bandeira:ic.bandeira,bandeiraCred:ic.bandeiraCred,cip:ic.cip,injKwh:ic.injKwh,outros:ic.outros.map(o=>o.desc+' = '+o.valor.toFixed(2)).join(' | ')});
       const hist=(d.histMes||[]).map((mm,i)=>{const k=M.indexOf(String(mm).slice(0,3)),y=+String(mm).slice(4);return {mes:k<0?0:(2000+y)*100+k+1,kwh:(d.hist||[])[i]}}).filter(h=>h.mes&&isFinite(h.kwh));
@@ -2151,11 +2193,19 @@ async function lfLer(files,metas){
         consumo:num(d.consumo_te),injetada:num(d.inj_te)||0,historico:hist},e);
       if(!it.mes&&hist.length)it.mes=hist[hist.length-1].mes;
       if(!it.doc)it.doc=d.cnpj||d.cpf||'';
+      if(ocr){
+        if(!it.consumo&&ic&&ic.te)it.consumo=Math.round(ic.te.kwh);
+        if(!it.consumo){const m=t.match(/Consumo\s*-\s*TE[^\n]*?\s(\d{1,3}(?:\.\d{3})*,\d{4})\s/i);if(m)it.consumo=Math.round(num(m[1]))}   // o OCR às vezes troca "kWh" por outra coisa
+        if(!it.injetada&&ic&&ic.injKwh)it.injetada=Math.round(ic.injKwh);
+        if(!it.mes)throw new Error('PDF escaneado: li a UC '+(it.uc||'')+', mas não o mês de referência. Baixe a conta digital pelo site da CPFL');
+        it.ocr=true;it.contaOk=!!ic;it.arquivo='[escaneado] '+it.arquivo;it.ucDuvida=!lfUcValida(it.uc);
+      }
       // a mesma UC e mês já na lista: fica a leitura mais nova
       const dup=lf.itens.findIndex(o=>o!==it&&o.estado!=='erro'&&soDig(o.uc)===soDig(it.uc)&&o.mes===it.mes);if(dup>=0)lf.itens.splice(dup,1);
     }catch(err){Object.assign(it,{estado:'erro',erro:err.message||String(err)})}
     lfRender();
   }
+  }finally{lfRegistrarFalhas()}
 }
 function lfDetalhe(i){
   const E=anaEsc,n=(v,d=0)=>v==null||v===''||isNaN(v)?'':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:d}),
@@ -2206,21 +2256,66 @@ async function lfPastaLer(fila){
   const ok=lf.itens.filter(i=>i.estado==='ok'&&!i.salva).length,nl=lf.itens.filter(i=>i.estado==='erro').length;
   st.innerHTML=`<span>${lfp.parar?'Parado. ':''}✓ Leitura terminada: <b>${ok}</b> fatura${ok===1?'':'s'} pronta${ok===1?'':'s'} para guardar${nl?` · ${nl} não lida${nl===1?'':'s'} (veja na lista)`:''}. Confira e clique em <b>Guardar na planilha</b>.</span>`;
 }
+/* ===== Faturas não lidas: ficam na aba "Faturas não lidas" da planilha (não se perdem quando a página fecha) ===== */
+const lfnl={lista:null};
+async function lfRegistrarFalhas(){
+  const novas=lf.itens.filter(i=>i.estado==='erro'&&i.chave&&!i.nlReg);if(!novas.length)return;
+  novas.forEach(i=>{i.nlReg=true});
+  const r=await sheetApi('fat_nl',{nl:{op:'reg',lista:novas.map(i=>({chave:i.chave,arquivo:i.arquivo,origem:i.origem||'',driveId:i.driveId||'',pasta:i.pasta||'',motivo:i.erro||''}))}},{espera:60000});
+  if(r&&r.ok)lfNlCarregar();
+}
+async function lfNlCarregar(){
+  const r=await sheetApi('fat_nl',{nl:{op:'listar'}},{espera:60000});
+  if(!r||!r.ok){$('lfNlBtn').classList.add('hidden');return}   // script antigo: o painel não aparece
+  lfnl.lista=r.lista;$('lfNlN').textContent=r.lista.length;$('lfNlBtn').classList.toggle('hidden',!r.lista.length);
+  if(!r.lista.length){$('lfNlBox').classList.add('hidden');$('lfNlBtn').setAttribute('aria-expanded','false')}
+  lfNlRender();
+}
+function lfNlRender(){
+  if(!lfnl.lista||$('lfNlBox').classList.contains('hidden'))return;
+  const E=anaEsc,L=lfnl.lista,dr=L.filter(x=>x.driveId&&x.pasta),loc=L.length-dr.length;
+  $('lfNlBox').innerHTML=`<div class="lf-nl-top">${dr.length?`<button class="btn pri sm" type="button" id="lfNlTentar">Tentar de novo as ${dr.length} do Drive</button>`:''}
+    <p>${loc?`${loc} ${loc===1?'veio':'vieram'} do computador: para tentar de novo, arraste o arquivo aqui outra vez. `:''}PDF escaneado agora é lido como imagem. Se continuar falhando, baixe a conta digital pelo site da CPFL.</p></div>
+    <div class="ana-scroll"><table><thead><tr><th>Arquivo</th><th>Motivo</th><th>Tentativas</th><th></th></tr></thead><tbody>`+
+    L.map((x,k)=>`<tr><td><b>${E(x.arquivo)}</b><small>${E(x.origem)}</small></td><td>${E(x.motivo)}</td><td>${x.tentativas}<small>última: ${E(x.ultima)}</small></td>
+      <td><div class="ana-acoes"><button type="button" data-nl-tira="${k}" title="Tira da lista (a linha continua na planilha, marcada como tirada)">Tirar</button></div></td></tr>`).join('')+'</tbody></table></div>';
+  const bt=$('lfNlTentar');if(bt)bt.onclick=()=>lfNlTentar(dr);
+}
+async function lfNlTentar(lista){
+  if(lfp.lendo)return;lfp.lendo=true;lfp.parar=false;const st=$('lfPastaSt');
+  for(let n=0;n<lista.length&&!lfp.parar;n++){
+    const x=lista[n];
+    st.innerHTML=`<span>Tentando de novo <b>${n+1}/${lista.length}</b>: ${anaEsc(x.arquivo)}</span><button class="btn sec sm" type="button" id="lfPastaParar">Parar</button>`;
+    $('lfPastaParar').onclick=()=>{lfp.parar=true};
+    const b=await sheetApi('fat_pasta_baixar',{dados:{pasta:x.pasta,id:x.driveId}},{espera:90000});
+    if(!b||!b.ok){lf.itens.unshift({arquivo:x.arquivo,estado:'erro',erro:(b&&b.erro)||'não consegui baixar do Drive',chave:x.chave,driveId:x.driveId,pasta:x.pasta,origem:x.origem});lfRender();continue}
+    const bin=atob(b.b64),u8=new Uint8Array(bin.length);for(let k=0;k<bin.length;k++)u8[k]=bin.charCodeAt(k);
+    await lfLer([new File([u8],b.nome||x.arquivo,{type:'application/pdf'})],[{driveId:x.driveId,pasta:x.pasta,pastaNome:x.origem.replace(/^Drive: /,'')}]);
+  }
+  lfp.lendo=false;await lfRegistrarFalhas();
+  const ok=lf.itens.filter(i=>i.estado==='ok'&&!i.salva).length;
+  st.innerHTML=`<span>✓ Pronto: <b>${ok}</b> fatura${ok===1?'':'s'} para guardar. As lidas saem da lista de não lidas quando forem guardadas.</span>`;
+}
+$('lfNlBtn').onclick=()=>{const b=$('lfNlBox'),ab=b.classList.toggle('hidden');$('lfNlBtn').setAttribute('aria-expanded',String(!ab));lfNlRender()};
+$('lfNlBox').addEventListener('click',async e=>{
+  const b=e.target.closest('button[data-nl-tira]');if(!b)return;const x=lfnl.lista[+b.dataset.nlTira];if(!x)return;
+  b.disabled=true;await sheetApi('fat_nl',{nl:{op:'tirar',chave:x.chave}},{espera:40000});lfNlCarregar();
+});
 function lfRender(){
   const L=lf.itens,ok=L.filter(i=>i.estado==='ok'),E=anaEsc,n=(v,d=0)=>v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{maximumFractionDigits:d});
   $('lfTabela').hidden=!L.length;$('lfAcoes').hidden=!L.length;
-  $('lfCorpo').innerHTML=L.map((i,k)=>i.estado==='lendo'?`<tr><td class="tit"><b>${E(i.arquivo)}</b><small>lendo…</small></td><td colspan="10"></td></tr>`
+  $('lfCorpo').innerHTML=L.map((i,k)=>i.estado==='lendo'?`<tr data-lendo><td class="tit"><b>${E(i.arquivo)}</b><small>${E(i.prog||'lendo…')}</small></td><td colspan="10"></td></tr>`
     :i.estado==='erro'?`<tr><td class="tit"><b>${E(i.arquivo)}</b><span class="rat-tag err">NÃO LIDA</span></td><td colspan="9" style="white-space:normal">${E(i.erro)}</td><td><div class="ana-acoes"><button type="button" data-lf-tira="${k}">Tirar</button></div></td></tr>`
-    :`<tr><td class="tit"><b>${E(i.uc)}</b><small>${E(i.titular)}</small>${i.salva?'<span class="rat-tag info">GUARDADA</span>':''}</td>
+    :`<tr><td class="tit"><b>${E(i.uc)}</b><small>${E(i.titular)}</small>${i.salva?'<span class="rat-tag info">GUARDADA</span>':''}${i.ocr&&!i.conferido?`<span class="rat-tag warn" title="PDF escaneado: os números foram lidos da imagem. Abra em Ver tudo, confira com a fatura e clique em Conferi">CONFERIR · ESCANEADO</span>`:''}${i.ocr&&i.ucDuvida&&!i.conferido?'<small style="color:var(--err)">UC incompleta: corrija no "Conferi"</small>':''}${i.ocr&&!i.contaOk?'<small>linhas da conta não conferem: o cálculo da cobrança não usa esta fatura</small>':''}</td>
       <td data-l="Ref.">${i.mes?String(i.mes%100).padStart(2,'0')+'/'+Math.floor(i.mes/100):'—'}</td><td class="num" data-l="Consumo">${n(i.consumo)}</td>
       <td class="num" data-l="Injetada" title="${E(i.injetadaMeses||'')}">${n(i.injetada)}</td><td class="num" data-l="Saldo">${n(i.saldo,1)}</td>
       <td class="num" data-l="Particip.">${i.participacao!=null?n(i.participacao,2)+'%':'—'}</td><td data-l="Fornecimento">${E(i.fornecimento||'—')}</td>
       <td class="num" data-l="Mínimo">${n(i.minimo)}</td><td data-l="Vencimento">${E(i.vencimento||'—')}</td><td class="num" data-l="Valor">${i.valor!=null?brl(i.valor):'—'}</td>
-      <td><div class="ana-acoes"><button type="button" data-lf-ver="${k}" aria-expanded="${i.aberta?'true':'false'}">${i.aberta?'Fechar':'Ver tudo'}</button><button type="button" data-lf-tira="${k}">Tirar</button></div></td></tr>`
+      <td><div class="ana-acoes">${i.ocr&&!i.conferido&&!i.salva?`<button type="button" data-lf-conf="${k}">Conferi</button>`:''}<button type="button" data-lf-ver="${k}" aria-expanded="${i.aberta?'true':'false'}">${i.aberta?'Fechar':'Ver tudo'}</button><button type="button" data-lf-tira="${k}">Tirar</button></div></td></tr>`
       +(i.aberta?`<tr class="lf-det"><td colspan="11"><div class="lf-det-in">${lfDetalhe(i)}</div></td></tr>`:'')).join('');
   const sc=$('lfTabela').querySelector('.ana-scroll');if(sc&&sc.clientWidth)$('lfTabela').style.setProperty('--lfw',sc.clientWidth+'px');
-  const pend=ok.filter(i=>!i.salva).length;
-  $('lfSalvar').disabled=!pend||lf.salvando;$('lfSalvar').textContent=pend?`💾 Guardar ${pend} fatura${pend>1?'s':''} na planilha`:'💾 Guardar na planilha';
+  const pend=ok.filter(i=>!i.salva&&(!i.ocr||i.conferido)).length,conf=ok.filter(i=>!i.salva&&i.ocr&&!i.conferido).length;
+  $('lfSalvar').disabled=!pend||lf.salvando;$('lfSalvar').textContent=(pend?`💾 Guardar ${pend} fatura${pend>1?'s':''} na planilha`:'💾 Guardar na planilha')+(conf?` (${conf} escaneada${conf>1?'s':''} esperando "Conferi")`:'');
 }
 addEventListener('resize',()=>{if(lf.itens.some(i=>i.aberta))lfRender()});
 $('lfDrop').onclick=()=>$('lfFile').click();
@@ -2281,10 +2376,15 @@ $('lfDrop').addEventListener('drop',async e=>{
 });
 $('lfEscPasta').onclick=e=>{e.preventDefault();e.stopPropagation();$('lfDir').click()};
 $('lfDir').onchange=e=>{const f=[...e.target.files];e.target.value='';if(f.length)lfReceber(f)};
-$('lfCorpo').addEventListener('click',e=>{const v=e.target.closest('button[data-lf-ver]');if(v){const it=lf.itens[+v.dataset.lfVer];it.aberta=!it.aberta;lfRender();return}const b=e.target.closest('button[data-lf-tira]');if(!b)return;lf.itens.splice(+b.dataset.lfTira,1);lfRender()});
+$('lfCorpo').addEventListener('click',e=>{const cf=e.target.closest('button[data-lf-conf]');if(cf){
+    // escaneada: confirma (ou corrige) a UC antes de liberar para guardar
+    const it=lf.itens[+cf.dataset.lfConf];let uc=prompt(`Fatura escaneada (${it.arquivo.replace(/^\[escaneado\] /,'')}).\nConfira com o PDF a UC (Número da UC) e corrija se precisar:`,it.uc||'');
+    if(uc==null)return;uc=uc.trim();
+    if(!lfUcValida(uc)){alert('A UC precisa estar completa, como 1.575.566.001-07 (ou a antiga, com 10 dígitos).');return}
+    it.uc=uc;it.ucDuvida=false;it.conferido=true;lfRender();return}const v=e.target.closest('button[data-lf-ver]');if(v){const it=lf.itens[+v.dataset.lfVer];it.aberta=!it.aberta;lfRender();return}const b=e.target.closest('button[data-lf-tira]');if(!b)return;lf.itens.splice(+b.dataset.lfTira,1);lfRender()});
 $('lfLimpar').onclick=()=>{lf.itens=[];$('lfMsg').textContent='';lfRender()};
 $('lfSalvar').onclick=async()=>{
-  const pend=lf.itens.filter(i=>i.estado==='ok'&&!i.salva);if(!pend.length||lf.salvando)return;
+  const pend=lf.itens.filter(i=>i.estado==='ok'&&!i.salva&&(!i.ocr||i.conferido));if(!pend.length||lf.salvando)return;
   lf.salvando=true;lfRender();$('lfMsg').textContent='Guardando…';
   const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','emissao','nf','historico','tusdTarifa','teTarifa','tusdValor','teValor','bandeira','bandeiraCred','cip','injKwh','outros'];
   // em lotes de 100 (uma pasta pode ter centenas de faturas)
@@ -2296,6 +2396,8 @@ $('lfSalvar').onclick=async()=>{
     lote.forEach(i=>{i.salva=true});['faturas','atualizadas','historico','fornecimento'].forEach(c=>{r[c]+=rl[c]||0});r.ignoradas=r.ignoradas.concat(rl.ignoradas||[]);
   }
   lf.salvando=false;
+  // as que estavam na lista de não lidas e agora foram guardadas saem dela
+  {const ch=pend.map(i=>i.chave).filter(Boolean);if(ch.length&&lfnl.lista&&lfnl.lista.some(x=>ch.includes(x.chave)))sheetApi('fat_nl',{nl:{op:'ok',chaves:ch}},{espera:60000}).then(()=>lfNlCarregar())}
   $('lfMsg').textContent=`✓ ${r.faturas} nova${r.faturas===1?'':'s'}, ${r.atualizadas} atualizada${r.atualizadas===1?'':'s'} · ${r.historico} meses de histórico acrescentados`+(r.fornecimento?` · fornecimento preenchido em ${r.fornecimento} beneficiária${r.fornecimento>1?'s':''}`:'')+(r.ignoradas&&r.ignoradas.length?` · ignoradas: ${r.ignoradas.join('; ')}`:'');
   if(typeof rat!=='undefined')rat.dados=null;   // o rateio relê as abas na próxima vez que abrir
   try{cb.dados=null}catch(e){}                   // as cobranças também (usam as faturas lidas)
