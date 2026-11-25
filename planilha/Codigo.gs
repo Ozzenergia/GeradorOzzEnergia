@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pasta_listar: 'rat', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -169,7 +169,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '36 (cadastro único: Registrar cliente alimenta Cobranças, cálculo e Rateio)';
+const VERSAO_SCRIPT = '37 (Leitor importa faturas de uma pasta do Google Drive)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -218,6 +218,10 @@ function doPost(e) {
     if (req.acao === 'rat_usina') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
       return json(ratUsinaSalvar(req.usina || {}, usuario));
+    }
+    if (req.acao === 'fat_pasta_listar' || req.acao === 'fat_pasta_baixar') {
+      if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
+      return json(req.acao === 'fat_pasta_listar' ? fatPastaListar(req.dados || {}) : fatPastaBaixar(req.dados || {}));
     }
     if (req.acao === 'fat_pdf') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
@@ -2368,10 +2372,19 @@ function linhaFatura_(sh, uc, mes) {   // linha (1-based) da UC e mês AAAAMM na
 function faturaPdfSalvar(d, usuario) {
   const uc = String(d && d.uc || '').trim(), mes = String(d && d.mes || '').replace(/\D/g, '');
   if (uc.replace(/\D/g, '').length < 7 || !/^20\d{2}(0[1-9]|1[0-2])$/.test(mes)) return { ok: false, erro: 'fatura sem UC ou mês' };
+  // veio de uma pasta do Drive (importação): copia o arquivo, sem mandar os bytes de novo
+  let origem = null;
+  if (d.driveId) {
+    try { origem = DriveApp.getFileById(String(d.driveId)); } catch (e) { return { ok: false, erro: 'não achei o arquivo no Drive' }; }
+    if (!dentroDaPasta_(origem, idDrive_(d.pasta))) return { ok: false, erro: 'o arquivo não está na pasta escolhida' };
+  }
   const b64 = String(d.b64 || '');
-  if (!b64 || b64.length > 20 * 1024 * 1024) return { ok: false, erro: 'PDF vazio ou grande demais (máx. 15 MB)' };
-  let bytes; try { bytes = Utilities.base64Decode(b64); } catch (e) { return { ok: false, erro: 'PDF inválido' }; }
-  if (String.fromCharCode.apply(null, bytes.slice(0, 4).map(b => (b + 256) % 256)) !== '%PDF') return { ok: false, erro: 'o arquivo não é um PDF' };
+  let bytes = null;
+  if (!origem) {
+    if (!b64 || b64.length > 20 * 1024 * 1024) return { ok: false, erro: 'PDF vazio ou grande demais (máx. 15 MB)' };
+    try { bytes = Utilities.base64Decode(b64); } catch (e) { return { ok: false, erro: 'PDF inválido' }; }
+    if (String.fromCharCode.apply(null, bytes.slice(0, 4).map(b => (b + 256) % 256)) !== '%PDF') return { ok: false, erro: 'o arquivo não é um PDF' };
+  }
   const sh = SpreadsheetApp.getActive().getSheetByName('Faturas Lidas'), linha = linhaFatura_(sh, uc, mes);
   if (!linha) return { ok: false, erro: 'guarde os dados da fatura antes do PDF' };
   const nome = (uc + ' - ' + String(d.titular || '').replace(/[\\/:*?"<>|]+/g, ' ').trim()).slice(0, 120) + '.pdf';
@@ -2382,7 +2395,8 @@ function faturaPdfSalvar(d, usuario) {
     // substitui o PDF anterior da mesma UC neste mês (o nome pode ter mudado se o titular mudou)
     const velhos = pasta.searchFiles('title contains "' + uc.replace(/"/g, '') + ' - "');
     while (velhos.hasNext()) velhos.next().setTrashed(true);
-    const arq = pasta.createFile(Utilities.newBlob(bytes, 'application/pdf', nome));
+    const arq = origem ? origem.makeCopy(nome, pasta) : pasta.createFile(Utilities.newBlob(bytes, 'application/pdf', nome));
+    if (origem) fatImportadaMarcar_(origem, d, uc, mes, usuario);
     arq.setDescription('Lido no portal por ' + (usuario.nome || usuario.email || '?') + ' em ' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'));
     url = arq.getUrl();
   } catch (e) {
@@ -2392,6 +2406,71 @@ function faturaPdfSalvar(d, usuario) {
   if (c > 0) sh.getRange(linha, c).setValue(url);
   return { ok: true, url: url };
 }
+/* ---------- Importar faturas de uma pasta do Google Drive ----------
+   A pasta precisa estar acessível para a conta que implantou o script (dona ou compartilhada com ela). O portal lista os PDFs
+   (com as subpastas), baixa um por um, lê no navegador com o mesmo Leitor e, ao guardar, o script COPIA o arquivo para a pasta
+   "Faturas RGE (portal OZZ)". Os arquivos já importados ficam na aba "Faturas Importadas" e são pulados da próxima vez. */
+const ABA_FAT_IMP = 'Faturas Importadas';
+const COLS_FAT_IMP = ['ID do arquivo', 'Nome do arquivo', 'Pasta de origem', 'Importado em', 'Importado por', 'UC', 'Mês Ref (AAAAMM)'];
+function idDrive_(x) {
+  const t = String(x || '').trim(), m = t.match(/\/folders\/([\w-]{20,})/) || t.match(/[?&]id=([\w-]{20,})/) || t.match(/\/d\/([\w-]{20,})/) || t.match(/^([\w-]{20,})$/);
+  return m ? m[1] : '';
+}
+function dentroDaPasta_(arq, pastaId) {   // o arquivo está na pasta ou em alguma subpasta dela (até 8 níveis)?
+  if (!pastaId) return false;
+  let nivel = [arq];
+  for (let n = 0; n < 8 && nivel.length; n++) {
+    const prox = [];
+    for (const x of nivel) { const it = x.getParents(); while (it.hasNext()) { const p = it.next(); if (p.getId() === pastaId) return true; prox.push(p); } }
+    nivel = prox;
+  }
+  return false;
+}
+function fatImportadas_() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(ABA_FAT_IMP), m = {};
+  if (sh && sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(r => { if (r[0]) m[String(r[0])] = true; });
+  return m;
+}
+function fatImportadaMarcar_(arq, d, uc, mes, usuario) {
+  const sh = abaCob_(ABA_FAT_IMP, COLS_FAT_IMP);
+  if (fatImportadas_()[arq.getId()]) return;
+  sh.appendRow([arq.getId(), arq.getName(), String(d.pastaNome || ''), new Date(), usuario.nome || usuario.email || '', "'" + uc, mes]);
+}
+/** Lista os PDFs da pasta (e subpastas). d = { pasta: link ou ID } */
+function fatPastaListar(d) {
+  const id = idDrive_(d && d.pasta);
+  if (!id) return { ok: false, erro: 'cole o link da pasta do Google Drive (ex.: https://drive.google.com/drive/folders/…)' };
+  let raiz;
+  try { raiz = DriveApp.getFolderById(id); raiz.getName(); }
+  catch (e) {
+    let quem = ''; try { quem = Session.getEffectiveUser().getEmail(); } catch (x) {}
+    return { ok: false, erro: 'não consegui abrir a pasta. Confira o link e se ela está compartilhada com a conta do script' + (quem ? ' (' + quem + ')' : '') };
+  }
+  const ja = fatImportadas_(), arquivos = [], fila = [{ p: raiz, cam: '' }];
+  let pastas = 0;
+  while (fila.length && arquivos.length < 1500 && pastas < 200) {
+    const { p, cam } = fila.shift(); pastas++;
+    const fs = p.getFiles();
+    while (fs.hasNext() && arquivos.length < 1500) {
+      const f = fs.next();
+      if (f.getMimeType() !== 'application/pdf' && !/\.pdf$/i.test(f.getName())) continue;
+      arquivos.push({ id: f.getId(), nome: f.getName(), pasta: cam, tam: f.getSize(), ja: !!ja[f.getId()] });
+    }
+    const sub = p.getFolders();
+    while (sub.hasNext()) { const s2 = sub.next(); if (s2.getName() !== PASTA_FATURAS_NOME) fila.push({ p: s2, cam: (cam ? cam + '/' : '') + s2.getName() }); }
+  }
+  arquivos.sort((a, b) => (a.pasta + '/' + a.nome).localeCompare(b.pasta + '/' + b.nome));
+  return { ok: true, id: id, nome: raiz.getName(), arquivos: arquivos, limite: arquivos.length >= 1500 };
+}
+/** Um PDF da pasta, em base64, para o Leitor ler no navegador. d = { pasta, id } */
+function fatPastaBaixar(d) {
+  const pid = idDrive_(d && d.pasta);
+  let f; try { f = DriveApp.getFileById(String(d && d.id || '')); } catch (e) { return { ok: false, erro: 'arquivo não encontrado' }; }
+  if (!dentroDaPasta_(f, pid)) return { ok: false, erro: 'o arquivo não está na pasta escolhida' };
+  if (f.getSize() > 15 * 1024 * 1024) return { ok: false, erro: 'arquivo grande demais (máx. 15 MB)' };
+  return { ok: true, nome: f.getName(), b64: Utilities.base64Encode(f.getBlob().getBytes()) };
+}
+
 /** Devolve o PDF guardado de uma fatura (d = { uc, ref: AAAA-MM }) em base64, para o portal abrir sem compartilhar a pasta. */
 function faturaPdfLer(d) {
   const uc = String(d && d.uc || ''), mes = String(d && d.ref || '').replace(/\D/g, '');
