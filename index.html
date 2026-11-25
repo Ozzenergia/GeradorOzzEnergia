@@ -2500,7 +2500,10 @@ function ratMontar(){
   const usina=d.usinas.find(u=>ratDig(u.ug)===ratDig(ug))||{};
   const gl=d.geracao.find(g=>ratDig(g.ug)===ratDig(ug)&&Number(g.ano)===Math.floor(ref/100));
   const gerPlan=gl?Number(gl['m'+(ref%100)])||0:0;
-  const ger=rat.ger[chave]!=null?rat.ger[chave]:gerPlan;
+  // número oficial: a energia injetada da fatura da usina (medidor da RGE); sem fatura do mês, usa a estimada
+  const fr=(d.reais||[]).find(f=>(f.uc===ratDig(ug)||f.alt===ratDig(ug))&&f.mes===ref&&f.gerMed>0);
+  const gerReal=fr?Math.round(fr.gerMed):0;
+  const ger=rat.ger[chave]!=null?rat.ger[chave]:(gerReal||gerPlan);
   const ult=ratUltimo(ug),ultUcs=new Set(ult?ult.linhas.map(x=>ratDig(x.uc)):[]);
   const bens=d.benef.filter(b=>ratDig(b.ug)===ratDig(ug)&&(!b.inicio||+b.inicio<=ref)&&(!b.termino||+b.termino>=ref));
   const cont={};bens.forEach(b=>{const u=ratDig(b.uc);cont[u]=(cont[u]||0)+1});
@@ -2521,7 +2524,7 @@ function ratMontar(){
       fator:e.fator!=null?e.fator:(b.fator===''||b.fator==null?1:+b.fator),manual:e.manual!=null?e.manual:null,
       atual:atual?+atual.pct:null,nova:!!ult&&!ultUcs.has(u),repetida:cont[u]>1};
   });
-  return {usina,ger,gerPlan,ult,linhas};
+  return {usina,ger,gerPlan,gerReal,ult,linhas};
 }
 function ratRender(){
   if(!rat.dados)return;
@@ -2532,7 +2535,7 @@ function ratRender(){
   const av=[];
   if(!d.usinas.length)av.push('Nenhuma usina cadastrada ainda: preencha a aba <b>Rateio Usinas</b> da planilha e clique em Atualizar.');
   else if(!L.length)av.push('Nenhuma beneficiária desta usina neste mês: confira a aba <b>Rateio Beneficiárias</b> (coluna Unidade Geradora e as datas de titularidade).');
-  if(d.usinas.length&&!M.gerPlan)av.push(`Sem geração estimada de ${ratMesTxt(ref)} na aba <b>Rateio Geração</b>: digite o valor no quadro "Geração estimada" para calcular.`);
+  if(d.usinas.length&&!M.gerPlan&&!M.gerReal)av.push(`Sem geração estimada de ${ratMesTxt(ref)} na aba <b>Rateio Geração</b>: digite o valor no quadro "Geração estimada" para calcular.`);
   const desat=L.filter(l=>l.mesConsumo&&l.mesConsumo!==ref).length,sem=L.filter(l=>l.semConsumo).length;
   if(desat)av.push(`${desat} UC${desat>1?'s':''} com consumo de mês anterior (não tem a fatura de ${ratMesTxt(ref)} na aba Rateio Consumo).`);
   if(sem)av.push(`${sem} UC${sem>1?'s':''} sem nenhum consumo lançado: usei o "Consumo Referência" do cadastro.`);
@@ -2543,7 +2546,7 @@ function ratRender(){
   // números do topo
   const fecha=Math.abs(c.dif)<0.00005&&L.length,fechaKwh=Math.abs(c.injecao-M.ger)<0.5;
   $('ratKpis').innerHTML=`
-    <div class="ana-kpi${M.ger>0?'':' warn'}"><small>Geração estimada (kWh)</small><input id="ratGer" type="number" min="0" step="1" value="${M.ger||''}" placeholder="digite" aria-label="Geração estimada em kWh"><span>${M.gerPlan?'da aba Rateio Geração'+(M.ger!==M.gerPlan?' (alterada aqui)':''):'não está na planilha'}</span></div>
+    <div class="ana-kpi${M.ger>0?'':' warn'}"><small>${M.gerReal?'Geração real (kWh)':'Geração estimada (kWh)'}</small><input id="ratGer" type="number" min="0" step="1" value="${M.ger||''}" placeholder="digite" aria-label="Geração em kWh"><span>${M.gerReal?(M.ger===M.gerReal?'da fatura da usina (oficial)':'alterada aqui · fatura: '+ratN(M.gerReal,0)):M.gerPlan?'estimada, aba Rateio Geração'+(M.ger!==M.gerPlan?' (alterada aqui)':'')+' · sem fatura do mês':'não está na planilha'}</span></div>
     <div class="ana-kpi ${fecha?'ok':'err'}"><small>Soma do rateio</small><b>${ratP(c.soma)}</b><span>${fecha?'fecha 100% ✓':'diferença de '+ratP(c.dif)}</span></div>
     <div class="ana-kpi ${fechaKwh&&L.length?'ok':'err'}"><small>Injeção total (kWh)</small><b>${ratN(c.injecao,0)}</b><span>${fechaKwh?'fecha com a geração ✓':'não fecha com a geração'}</span></div>
     <div class="ana-kpi"><small>Último rateio salvo</small><b>${M.ult?ratMesTxt(+M.ult.linhas[0].mes):'—'}</b><span>${M.ult?anaEsc(M.ult.linhas[0].geradoEm)+' · '+M.ult.linhas.length+' UCs':'nenhum ainda'}</span></div>`;
@@ -2555,7 +2558,7 @@ function ratRender(){
     let h='';
     if(aqui){const usando=Math.round(M.ger)===Math.round(aqui.gerMed),p0=pct(aqui.gerMed,M.gerPlan||0);
       h+=`<p>📄 Fatura da usina de ${ratMesTxt(rat.mes)}: <b>${ratN(aqui.gerMed,0)} kWh</b> injetados${p0!=null&&M.gerPlan?` (${p0>0?'+':''}${p0}% da estimada de ${ratN(M.gerPlan,0)} kWh)`:''}. `+
-        (usando?'<span class="ok">Usando a geração real ✓</span>':`<button type="button" class="cb-passo" id="ratUsarReal">Usar a geração real</button>`)+'</p>'}
+        (usando?'<span class="ok">Usando a geração real (número oficial) ✓</span>':`<button type="button" class="cb-passo" id="ratUsarReal">Voltar para a geração real</button>`)+'</p>'}
     else if(reais.length)h+=`<p class="fx-nota">Ainda não há fatura lida desta usina de ${ratMesTxt(rat.mes)}.</p>`;
     if(reais.length)h+=`<details><summary>Geração estimada × real (${reais.length} fatura${reais.length===1?'':'s'} lida${reais.length===1?'':'s'})</summary><div class="ana-tabela"><div class="ana-scroll"><table>
       <thead><tr><th>Mês ref.</th><th class="num">Estimada</th><th class="num">Real (medidor)</th><th class="num">Diferença</th><th class="num">Usada pela usina</th></tr></thead><tbody>`+
@@ -2563,7 +2566,7 @@ function ratRender(){
         <td class="num ${p1!=null&&p1<0?'fx-neg':'fx-pos'}">${p1==null?'—':(p1>0?'+':'')+p1+'%'}</td><td class="num">${f.auto?ratN(f.auto,0):'—'}</td></tr>`}).join('')+
       '</tbody></table></div></div><p class="fx-nota">"Usada pela usina" é a parte da energia injetada que abateu o consumo da própria usina; o resto foi para as beneficiárias.</p></details>';
     $('ratReal').innerHTML=h;
-    const ub=$('ratUsarReal');if(ub)ub.onclick=()=>{rat.ger[rat.ug+'|'+rat.mes]=Math.round(aqui.gerMed);ratRender()};
+    const ub=$('ratUsarReal');if(ub)ub.onclick=()=>{delete rat.ger[rat.ug+'|'+rat.mes];ratRender()};
   }
   // tabela
   $('ratCorpo').innerHTML=L.length?L.map((l,i)=>{const r=c.L[i],b=base(l),sf=r.AG-(b==null?l.consumo:b);

@@ -61,7 +61,8 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
 - **Geração real das usinas:** o Leitor lê na tabela do medidor a "Energia Injetada" (na fatura da usina, é a geração do
   mês) e grava em Faturas Lidas. No Rateio de créditos aparece "Fatura da usina de MM/AAAA: X kWh injetados (±% da estimada)",
-  o botão **Usar a geração real** e o quadro "Geração estimada × real". Nas **Contas a pagar**, cada conta é conferida com a
+  e o quadro "Geração estimada × real". **A fatura é o número oficial:** quando há fatura lida da usina no mês, o Rateio já
+  usa essa geração; a estimada (aba Rateio Geração) só entra quando a fatura ainda não chegou. Nas **Contas a pagar**, cada conta é conferida com a
   fatura lida da mesma UC e mês ("✓ confere" ou o valor da fatura) e tem o botão **Ver PDF**.
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
