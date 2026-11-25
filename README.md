@@ -41,6 +41,8 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   **Importar de uma pasta do Google Drive:** no Leitor, cole o link de uma pasta (precisa estar no Drive, ou compartilhada
   com, a conta que implantou o script). O portal lista os PDFs (com subpastas), lê um por um e, ao guardar, copia cada PDF
   para "Faturas RGE (portal OZZ)". Os arquivos importados ficam na aba **Faturas Importadas** e são pulados da próxima vez.
+  Também dá para **arrastar uma pasta inteira** (com subpastas) ou o **.zip** baixado do Drive direto no Leitor (o .zip é
+  aberto no próprio navegador), ou usar "escolher uma pasta". Só os PDFs entram.
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
   instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho

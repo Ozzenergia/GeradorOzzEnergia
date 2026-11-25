@@ -1031,9 +1031,10 @@ body.locked{overflow:hidden}
   </div>
   <div class="drop" id="lfDrop" tabindex="0" role="button" aria-label="Escolher PDFs de faturas">
     <div class="ic">📄</div>
-    <strong>Arraste os PDFs das faturas aqui ou clique para selecionar</strong>
-    <small>Pode mandar várias de uma vez · os dados vão para a planilha e o PDF para a pasta "Faturas RGE (portal OZZ)" no Google Drive</small>
-    <input type="file" id="lfFile" accept=".pdf,application/pdf" multiple hidden>
+    <strong>Arraste os PDFs, uma pasta inteira ou o .zip do Google Drive aqui, ou clique para selecionar</strong>
+    <small>Pastas entram com as subpastas e o .zip é aberto no próprio navegador · os dados vão para a planilha e o PDF para a pasta "Faturas RGE (portal OZZ)" no Google Drive · <a href="#" id="lfEscPasta">escolher uma pasta</a></small>
+    <input type="file" id="lfFile" accept=".pdf,application/pdf,.zip,application/zip" multiple hidden>
+    <input type="file" id="lfDir" webkitdirectory multiple hidden>
   </div>
   <div class="lf-pasta">
     <button class="btn sec sm" id="lfPastaBtn" type="button">📁 Importar de uma pasta do Google Drive</button>
@@ -2136,7 +2137,7 @@ async function lfLer(files,metas){
   $('lfErro').style.display='none';
   for(let fi=0;fi<files.length;fi++){
     const file=files[fi];
-    const it={arquivo:file.name,estado:'lendo',file};/* o arquivo fica guardado para subir ao Drive depois */lf.itens.unshift(it);lfRender();
+    const it={arquivo:file.caminho||file.webkitRelativePath||file.name,estado:'lendo',file};/* o arquivo fica guardado para subir ao Drive depois */lf.itens.unshift(it);lfRender();
     if(metas&&metas[fi]){Object.assign(it,metas[fi]);if(it.driveId)it.file=null}   // veio de uma pasta do Drive: na hora de guardar, o script copia o arquivo
     try{
       if(!/\.pdf$/i.test(file.name))throw new Error('não é PDF');
@@ -2224,10 +2225,62 @@ function lfRender(){
 addEventListener('resize',()=>{if(lf.itens.some(i=>i.aberta))lfRender()});
 $('lfDrop').onclick=()=>$('lfFile').click();
 $('lfDrop').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('lfFile').click()}};
-$('lfFile').onchange=e=>{const f=[...e.target.files];e.target.value='';if(f.length)lfLer(f)};
+$('lfFile').onchange=e=>{const f=[...e.target.files];e.target.value='';if(f.length)lfReceber(f)};
 ['dragover','dragenter'].forEach(ev=>$('lfDrop').addEventListener(ev,e=>{e.preventDefault();$('lfDrop').classList.add('over')}));
 ['dragleave','drop'].forEach(ev=>$('lfDrop').addEventListener(ev,e=>{e.preventDefault();$('lfDrop').classList.remove('over')}));
-$('lfDrop').addEventListener('drop',e=>{const f=[...(e.dataTransfer&&e.dataTransfer.files||[])];if(f.length)lfLer(f)});
+/* Pastas arrastadas (com subpastas) e arquivos .zip: tudo vira uma lista de PDFs antes de ler */
+function lfLerEntrada(ent){   // FileSystemEntry → lista de File (o caminho vai no nome, para aparecer na lista)
+  return new Promise(ok=>{
+    if(ent.isFile){ent.file(f=>{try{Object.defineProperty(f,'caminho',{value:ent.fullPath.replace(/^\//,'')})}catch(e){}ok([f])},()=>ok([]));return}
+    if(!ent.isDirectory){ok([]);return}
+    const rd=ent.createReader(),todos=[];
+    const lote=()=>rd.readEntries(async es=>{if(!es.length){const sub=[];for(const x of todos)sub.push(...await lfLerEntrada(x));ok(sub);return}todos.push(...es);lote()},()=>ok([]));
+    lote();
+  });
+}
+let lfZipLib=null;
+function lfJSZip(){   // a biblioteca só é carregada quando aparece um .zip
+  if(window.JSZip)return Promise.resolve(window.JSZip);
+  if(!lfZipLib)lfZipLib=new Promise((ok,erro)=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    sc.onload=()=>ok(window.JSZip);sc.onerror=()=>{lfZipLib=null;erro(new Error('não consegui carregar o leitor de .zip (sem internet?)'))};document.head.appendChild(sc)});
+  return lfZipLib;
+}
+async function lfPrepararArquivos(lista){
+  const pdfs=[],avisos=[];
+  for(const f of lista){
+    const nome=f.caminho||f.webkitRelativePath||f.name;
+    if(/\.zip$/i.test(f.name)||/zip/.test(f.type)){
+      $('lfPastaSt').textContent='Abrindo '+f.name+'…';
+      try{
+        const Z=await lfJSZip(),zip=await Z.loadAsync(await f.arrayBuffer());
+        const es=Object.values(zip.files).filter(z=>!z.dir&&/\.pdf$/i.test(z.name)&&!/(^|\/)(__MACOSX|\.)/.test(z.name));
+        for(const z of es){const b=await z.async('uint8array'),pf=new File([b],z.name.split('/').pop(),{type:'application/pdf'});
+          try{Object.defineProperty(pf,'caminho',{value:f.name+' › '+z.name})}catch(e){}pdfs.push(pf)}
+        if(!es.length)avisos.push(f.name+': nenhum PDF dentro do .zip');
+      }catch(e){avisos.push(f.name+': '+(e.message||'não consegui abrir o .zip'))}
+    }else if(/\.pdf$/i.test(f.name)||f.type==='application/pdf'){if(nome!==f.name){try{Object.defineProperty(f,'caminho',{value:nome})}catch(e){}}pdfs.push(f)}
+  }
+  $('lfPastaSt').textContent=avisos.length?'⚠️ '+avisos.join(' · '):'';
+  return pdfs;
+}
+async function lfReceber(lista){
+  const pdfs=await lfPrepararArquivos(lista);
+  if(!pdfs.length){if(!$('lfPastaSt').textContent)$('lfPastaSt').textContent='Nenhum PDF encontrado.';return}
+  if(pdfs.length>1)$('lfPastaSt').textContent=(($('lfPastaSt').textContent?$('lfPastaSt').textContent+' · ':''))+`Lendo ${pdfs.length} PDFs…`;
+  await lfLer(pdfs);
+  const ok=lf.itens.filter(i=>i.estado==='ok'&&!i.salva).length;
+  if(pdfs.length>1)$('lfPastaSt').textContent=`✓ ${pdfs.length} PDFs lidos · ${ok} fatura${ok===1?'':'s'} pronta${ok===1?'':'s'} para guardar. Confira e clique em Guardar na planilha.`;
+}
+$('lfDrop').addEventListener('drop',async e=>{
+  const its=[...(e.dataTransfer&&e.dataTransfer.items||[])].filter(i=>i.kind==='file');
+  const ents=its.map(i=>i.webkitGetAsEntry&&i.webkitGetAsEntry()).filter(Boolean);
+  let lista;
+  if(ents.length&&ents.some(x=>x.isDirectory)){$('lfPastaSt').textContent='Abrindo a pasta…';lista=[];for(const x of ents)lista.push(...await lfLerEntrada(x))}
+  else lista=[...(e.dataTransfer&&e.dataTransfer.files||[])];
+  if(lista.length)lfReceber(lista);
+});
+$('lfEscPasta').onclick=e=>{e.preventDefault();e.stopPropagation();$('lfDir').click()};
+$('lfDir').onchange=e=>{const f=[...e.target.files];e.target.value='';if(f.length)lfReceber(f)};
 $('lfCorpo').addEventListener('click',e=>{const v=e.target.closest('button[data-lf-ver]');if(v){const it=lf.itens[+v.dataset.lfVer];it.aberta=!it.aberta;lfRender();return}const b=e.target.closest('button[data-lf-tira]');if(!b)return;lf.itens.splice(+b.dataset.lfTira,1);lfRender()});
 $('lfLimpar').onclick=()=>{lf.itens=[];$('lfMsg').textContent='';lfRender()};
 $('lfSalvar').onclick=async()=>{
