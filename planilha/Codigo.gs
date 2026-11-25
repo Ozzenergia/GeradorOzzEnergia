@@ -169,7 +169,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '40 (Termo: proposta completa pelo registro da proposta)';
+const VERSAO_SCRIPT = '41 (corrige os meses das Cobranças que o Sheets virava data)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -837,7 +837,7 @@ function cobRecalc_(k, entrada) {
   const minhas = lerAbaCob_(shL).filter(x => String(x['UC (chave)']) === k).map(x => {
     const v = typeof x['Fatura (R$)'] === 'number' ? x['Fatura (R$)'] : null;
     return { _linha: x._linha, v: v, s: x['Aba'] === '(fora das abas)' ? 'sem_fatura' : cobStatus_(x['STATUS (planilha)'], v), cob: iso(x['Cobrança']),
-      and: and[k + '|' + String(x['Mês']).trim()] };
+      and: and[k + '|' + mesTxt_(x['Mês'])] };
   });
   const sit = cobSituacoes_(minhas, entrada, hoje);
   minhas.forEach((x, i) => shL.getRange(x._linha, cSit).setValue(SIT_COB_[sit[i]] || sit[i]));
@@ -944,7 +944,7 @@ function cobGravarAbas_(r) {
       const a = antes[k];
       if (a['Entrada no rateio (ajuste manual)'] || a['Anotação'] || a['Desconto % (ajuste manual)'] !== '' && a['Desconto % (ajuste manual)'] !== undefined) linhasC.push(COLS_COB_CLI.map(c => a[c] === undefined ? '' : a[c]));
     });
-    escreveAbaCob_(shC, COLS_COB_CLI, linhasC, [11, 12, 15], { 16: '#,##0.00' });
+    escreveAbaCob_(shC, COLS_COB_CLI, linhasC, [11, 12, 15], { 16: '#,##0.00' }, [1, 3, 4, 14]);
     // ---- cobranças: reescreve tudo
     const porCli = {}, and = lerAndamento_();
     r.cobrancas.forEach(x => { x.and = and[x.k + '|' + x.c]; (porCli[x.k] = porCli[x.k] || []).push(x); });
@@ -959,23 +959,35 @@ function cobGravarAbas_(r) {
         x.rge || '', /^\d{4}-\d{2}-\d{2}$/.test(x.conf) ? data(x.conf) : x.conf || '', x.pg || '', x.refPg || '', x.obs || '']));
     });
     linhas.sort((a, b) => a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : String(a[6]).localeCompare(String(b[6])));
-    escreveAbaCob_(abaCob_(ABA_COB, COLS_COB), COLS_COB, linhas, [12, 13, 17], { 11: '#,##0.00' });
+    escreveAbaCob_(abaCob_(ABA_COB, COLS_COB), COLS_COB, linhas, [12, 13, 17], { 11: '#,##0.00' }, [1, 2, 5, 6, 8]);
     // usinas (UCs geradoras) da planilha de controle: a regra do tipo de UC usa
     const shU = abaCob_(ABA_COB_US, COLS_COB_US);
-    escreveAbaCob_(shU, COLS_COB_US, (r.usinas || []).map(u => [u.uc, u.ucA, u.nome, u.origem]), [], {});
+    escreveAbaCob_(shU, COLS_COB_US, (r.usinas || []).map(u => [u.uc, u.ucA, u.nome, u.origem]), [], {}, [1, 2]);
     try { CacheService.getScriptCache().remove('tipos_uc_v1'); } catch (e) {}
     const props = PropertiesService.getScriptProperties();
     props.setProperty('COB_SYNC', JSON.stringify({ em: Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'), avisos: r.avisos || [] }));
   } finally { lock.releaseLock(); }
 }
 
+/** Mês AAAA-MM de uma célula: o Google Sheets transforma o texto "2026-11" em data (01/11/2026), então aceita os dois. */
+function mesTxt_(x) {
+  if (x instanceof Date && !isNaN(x)) return Utilities.formatDate(x, SpreadsheetApp.getActive().getSpreadsheetTimeZone(), 'yyyy-MM');
+  const t = String(x == null ? '' : x).trim();
+  let m = t.match(/^(\d{4})-(\d{2})/); if (m) return m[1] + '-' + m[2];
+  m = t.match(/^\d{1,2}\/(\d{1,2})\/(\d{4})/); if (m) return m[2] + '-' + String(m[1]).padStart(2, '0');
+  m = t.match(/^(\d{1,2})\/(\d{4})$/); if (m) return m[2] + '-' + String(m[1]).padStart(2, '0');
+  return t;
+}
+
 /** Reescreve o corpo de uma aba (cabeçalho fica), com formato de data/número nas colunas indicadas (1 = primeira). */
-function escreveAbaCob_(sh, cols, linhas, colsData, colsNum) {
+function escreveAbaCob_(sh, cols, linhas, colsData, colsNum, colsTexto) {
   const larg = Math.max(sh.getLastColumn(), cols.length), cab = sh.getRange(1, 1, 1, larg).getValues()[0].map(x => String(x).trim());
   // a ordem das colunas pode ter mudado à mão: escreve cada coluna no lugar do seu título
   const pos = cols.map(c => cab.indexOf(c));
   const corpo = linhas.map(l => { const row = Array(larg).fill(''); pos.forEach((p, i) => { if (p >= 0) row[p] = l[i] === undefined || l[i] === null ? '' : l[i]; }); return row; });
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, larg).clearContent();
+  // meses ("2026-11") e UCs como TEXTO: senão o Google Sheets transforma em data ou número
+  (colsTexto || []).forEach(c => { const p = pos[c - 1]; if (p >= 0 && corpo.length) sh.getRange(2, p + 1, corpo.length, 1).setNumberFormat('@'); });
   if (corpo.length) {
     sh.getRange(2, 1, corpo.length, larg).setValues(corpo);
     colsData.forEach(c => { const p = pos[c - 1]; if (p >= 0) sh.getRange(2, p + 1, corpo.length, 1).setNumberFormat('dd/MM/yyyy'); });
@@ -1073,7 +1085,7 @@ function cobDados_() {
   const t = x => x instanceof Date ? Utilities.formatDate(x, tz, 'dd/MM/yyyy') : String(x == null ? '' : x).trim();
   const clientes = lerAbaCob_(shC).filter(o => o['UC (chave)']).map(o => {
     const man = iso(o['Entrada no rateio (ajuste manual)']), anexo = iso(o['Anexo G (planilha de controle)']);
-    const ref = t(o['Última conta RGE: ref.']);
+    const ref = mesTxt_(o['Última conta RGE: ref.']);
     return { k: t(o['UC (chave)']), n: t(o['Cliente']), uc: t(o['UC']), ucA: t(o['UC antiga']), inv: t(o['Investidor']), vend: t(o['Vendedor']),
       resp: t(o['Responsável']), tel: t(o['Telefone']), cid: t(o['Cidade']), stCli: t(o['Status na CLIENTES']),
       anexo: man || anexo, anexoG: anexo, anexoManual: !!man, anexoTxt: anexo ? '' : t(o['Anexo G (planilha de controle)']),
@@ -1084,9 +1096,9 @@ function cobDados_() {
   const and = lerAndamento_();
   Object.keys(and).forEach(ch => { delete and[ch]._linha; });
   const meses = {}, cobs = lerAbaCob_(shL).filter(o => o['UC (chave)'] && o['Mês']).map(o => {
-    const fora = t(o['Aba']) === '(fora das abas)', c = t(o['Mês']), v = typeof o['Fatura (R$)'] === 'number' ? o['Fatura (R$)'] : null, st = t(o['STATUS (planilha)']);
+    const fora = t(o['Aba']) === '(fora das abas)', c = mesTxt_(o['Mês']), v = typeof o['Fatura (R$)'] === 'number' ? o['Fatura (R$)'] : null, st = t(o['STATUS (planilha)']);
     if (!fora) meses[c] = t(o['Aba']);
-    return { k: t(o['UC (chave)']), c: c, l: Number(o['Linha']) || 0, v: v, s: fora ? 'sem_fatura' : cobStatus_(st, v), st: st, ref: t(o['Mês ref. RGE']),
+    return { k: t(o['UC (chave)']), c: c, l: Number(o['Linha']) || 0, v: v, s: fora ? 'sem_fatura' : cobStatus_(st, v), st: st, ref: mesTxt_(o['Mês ref. RGE']),
       cob: iso(o['Cobrança']), vr: iso(o['Vencimento RGE']), conf: iso(o['CONF']) || t(o['CONF']), rge: t(o['Conta RGE']), pg: t(o['PGTO']), refPg: t(o['REF PGTO']),
       obs: t(o['Observações']), fora: fora, and: and[t(o['UC (chave)']) + '|' + c] || null };
   });
