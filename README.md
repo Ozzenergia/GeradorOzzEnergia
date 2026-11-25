@@ -9,6 +9,13 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
 - **Gerador de Propostas** — usa o modelo padrão de Energia por Assinatura (não precisa carregar), lê a fatura em PDF ou **foto** (layout RGE/CPFL; a foto é lida no próprio navegador com Tesseract.js), calcula média de consumo, plano de desconto, custo e economia, e gera a proposta preenchida. Outro modelo pode ser importado pelo ícone ⇪ ao lado de "Modelo: Padrão OZZ".
 - **Gerador de Termo de Adesão** — lê a proposta aprovada e gera o Termo no modelo oficial. Campos não preenchidos saem destacados em amarelo no Word.
 
+- **Cadastro único de clientes** (Clientes → Registrar / Tabela) — além dos dados de contato, guarda o contrato: UC antiga,
+  status, entrada no rateio (Anexo G), usina, responsável, % de desconto (vem do plano escolhido e pode ser mudado), base do
+  desconto, R$/kWh do investidor (só TI e Admin veem), consumo médio e tipo de fornecimento. As Cobranças, o cálculo da
+  cobrança e o Rateio usam o cadastro primeiro e só depois a planilha de controle. Cliente conectado com usina entra no
+  Rateio ao salvar. O botão **Completar pela planilha de controle** (TI e Admin) mostra uma prévia e cadastra os clientes que
+  faltam e completa os campos vazios, sem trocar nada que já está preenchido.
+
 - **Cobranças** (Clientes → Cobranças, TI e Admin) — copia as abas dos meses da planilha de controle para duas abas da
   planilha do portal: **Cobranças** (uma linha por cliente e mês, pronta para tabela dinâmica) e **Cobranças Clientes**
   (uma linha por UC). A cópia roda em segundo plano (de 10 em 10 min e no botão Atualizar) e **não grava nada** na planilha

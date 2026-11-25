@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -42,6 +42,13 @@ const ABA_CADASTRO = 'Clientes';
 const COLS_CADASTRO = ['ID', 'Cadastrado em', 'Cadastrado por', 'Nome', 'CPF/CNPJ', 'Telefone', 'E-mail', 'Endereço', 'Cidade', 'UF', 'CEP',
   'UC', 'Distribuidora', 'Plano', 'Vendedor', 'Atualizado em', 'Atualizado por'];
 const CAMPOS_CADASTRO = ['nome', 'doc', 'telefone', 'email', 'endereco', 'cidade', 'uf', 'cep', 'uc', 'distribuidora', 'plano', 'vendedor'];   // colunas D a O
+/* A partir da versão 36 o cadastro do portal é o cadastro único do cliente: as Cobranças, o cálculo da cobrança e o Rateio
+   usam estes dados primeiro (e só depois a planilha de controle). Colunas R em diante. */
+const COLS_CADASTRO_EXTRA = ['UC antiga', 'UC geradora (usina)', 'Usina / investidor', 'Status', 'Entrada no rateio', 'Responsável',
+  'Consumo médio (kWh)', 'Tipo de fornecimento', 'Desconto %', 'Desconto sobre', 'R$/kWh investidor', 'Origem'];
+const CAMPOS_CADASTRO_EXTRA = ['ucAntiga', 'ug', 'usina', 'status', 'entrada', 'responsavel', 'consumo', 'fornecimento', 'descPct', 'descSobre', 'vlKwh', 'origem'];
+COLS_CADASTRO.push.apply(COLS_CADASTRO, COLS_CADASTRO_EXTRA);
+const CAD_X_ = 17;   // índice (base 0) da primeira coluna extra
 const ABA_PROGRAMACAO_EXT = 'PROGRAMAÇÃO';   // aba de contas a pagar da planilha de controle (a mesma de Config!B4)
 
 /** "Administrador", "T.I.", "Vendedores", "consultor"… → ti | admin | administrativo | vendedor. Vazio ou desconhecido = vendedor. */
@@ -162,7 +169,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '35 (PDFs das faturas guardados no Drive de quem implantou)';
+const VERSAO_SCRIPT = '36 (cadastro único: Registrar cliente alimenta Cobranças, cálculo e Rateio)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -200,7 +207,8 @@ function doPost(e) {
     }
     if (/^cli_/.test(req.acao)) {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para usar o cadastro de clientes', auth: true });
-      if (req.acao === 'cli_listar') return json(cadastroListar());
+      if (req.acao === 'cli_listar') return json(cadastroListar(usuario));
+      if (req.acao === 'cli_completar') return json(cadastroCompletar(!!req.aplicar, usuario));
       if (req.acao === 'cli_salvar') return json(cadastroSalvar(req.dados || {}, usuario));
       if (req.acao === 'cli_excluir') return json(cadastroExcluir(req.id, usuario));
       if (req.acao === 'cli_ficha') return json(cadastroFicha(req.id, usuario));
@@ -774,7 +782,9 @@ function cobRecalc_(k, entrada) {
   const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
   if (entrada === undefined) {
     const o = lerAbaCob_(ss.getSheetByName(ABA_COB_CLI)).find(x => String(x['UC (chave)']) === k) || {};
-    entrada = iso(o['Entrada no rateio (ajuste manual)']) || iso(o['Anexo G (planilha de controle)']);
+    const cad = cadastroPorUc_(), d = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
+    const cd = cad[k] || cad[d(o['UC'])] || cad[d(o['UC antiga'])];
+    entrada = (cd && cd.entrada) || iso(o['Entrada no rateio (ajuste manual)']) || iso(o['Anexo G (planilha de controle)']);
   }
   const and = lerAndamento_(), hoje = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   const cabL = shL.getRange(1, 1, 1, shL.getLastColumn()).getValues()[0].map(x => String(x).trim()), cSit = cabL.indexOf('Situação') + 1;
@@ -870,9 +880,11 @@ function cobGravarAbas_(r) {
     const shC = abaCob_(ABA_COB_CLI, COLS_COB_CLI), antes = {};
     lerAbaCob_(shC).forEach(o => { const k = String(o['UC (chave)'] || ''); if (k) antes[k] = o; });
     const ultMes = r.meses.length ? r.meses[r.meses.length - 1] : null;
+    const cadUc = cadastroPorUc_(), digU = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
     const entradaDe = {}, linhasC = r.clientes.map(c => {
       const a = antes[c.k] || {}, man = a['Entrada no rateio (ajuste manual)'];
-      entradaDe[c.k] = isoDe(man) || c.anexo || '';
+      const cd = cadUc[c.k] || cadUc[digU(c.uc)] || cadUc[digU(c.ucA)];
+      entradaDe[c.k] = (cd && cd.entrada) || isoDe(man) || c.anexo || '';
       const g = c.rge || {};
       return [c.k, c.n, c.uc, c.ucA, c.inv, c.vend, c.resp, c.tel, c.cid, c.stCli, c.anexo ? data(c.anexo) : c.anexoTxt, man || '', a['Anotação'] || '',
         g.ref || '', g.venc ? data(g.venc) : '', g.valor == null ? '' : g.valor, g.sit || '', c.fora ? 'SIM' : '', c.semCad ? 'SIM' : '',
@@ -934,6 +946,75 @@ function planoDe_(o) {
   return p.pct == null && p.vlKwh == null ? null : p;
 }
 
+/** O cadastro do portal (Registrar cliente) vale mais que a planilha de controle: plano, entrada no rateio, status,
+    usina, vendedor, responsável e telefone. Cliente CONECTADO que só existe no portal entra como "sem fatura" no último mês. */
+function cobComCadastro_(clientes, cobs, meses, and) {
+  let cad = {};
+  try { cad = cadastroPorUc_(); } catch (e) { return clientes; }
+  const dig = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, ''), usados = {};
+  clientes.forEach(cl => {
+    const o = cad[cl.k] || cad[dig(cl.uc)] || cad[dig(cl.ucA)];
+    if (!o) return;
+    usados[o.id] = true; cl.cadId = o.id;
+    const pc = planoCadastro_(o);
+    if (pc) {
+      const p = cl.plano || { pct: null, sobre: 'total', vlKwh: null, mes: '', manual: {} };
+      p.manual = p.manual || {};
+      if (pc.pct != null) { p.pct = pc.pct; p.manual.pct = true; }
+      if (pc.sobre) { p.sobre = pc.sobre; p.manual.sobre = true; }
+      if (pc.vlKwh != null) { p.vlKwh = pc.vlKwh; p.manual.vlKwh = true; }
+      p.origem = 'cadastro'; cl.plano = p;
+    }
+    if (o.entrada) { cl.anexo = o.entrada; cl.anexoManual = true; }
+    if (o.status) cl.stCli = o.status;
+    if (o.usina) cl.inv = o.usina;
+    if (o.vendedor) cl.vend = o.vendedor;
+    if (o.responsavel) cl.resp = o.responsavel;
+    if (o.telefone) cl.tel = o.telefone;
+  });
+  const ult = Object.keys(meses).sort().pop(), ja = {};
+  Object.keys(cad).forEach(u => {
+    const o = cad[u];
+    if (usados[o.id] || ja[o.id] || dig(o.uc).length < 7 || !/CONECTAD/i.test(o.status || '')) return;
+    ja[o.id] = true;
+    const k = dig(o.uc), pc = planoCadastro_(o);
+    clientes.push({ k: k, n: o.nome, uc: o.uc, ucA: o.ucAntiga || '', inv: o.usina || '', vend: o.vendedor || '', resp: o.responsavel || '', tel: o.telefone || '',
+      cid: o.cidade || '', stCli: o.status || '', anexo: o.entrada || '', anexoG: '', anexoManual: !!o.entrada, anexoTxt: '', nota: '', notaPor: '', notaEm: '',
+      rge: null, fora: true, semCad: false, soPortal: true, cadId: o.id,
+      plano: pc ? { pct: pc.pct, sobre: pc.sobre || 'total', vlKwh: pc.vlKwh, mes: '', origem: 'cadastro', manual: { pct: pc.pct != null, sobre: !!pc.sobre, vlKwh: pc.vlKwh != null } } : null });
+    if (ult) cobs.push({ k: k, c: ult, l: 0, v: null, s: 'sem_fatura', st: '', ref: '', cob: '', vr: '', conf: '', rge: '', pg: '', refPg: '', obs: '', fora: true, and: (and || {})[k + '|' + ult] || null });
+  });
+  return clientes;
+}
+
+/** Ficha das Cobranças → cadastro do portal: grava a entrada no rateio e o plano (cria o cliente no cadastro se ainda não existir). */
+function cobParaCadastro_(o, ent, plano, usuario) {
+  const dig = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
+  const sh = abaCadastro_(), linhas = cadastroLinhas_(sh), t = x => String(x == null ? '' : x).trim();
+  const ucs = [o['UC (chave)'], o['UC'], o['UC antiga']].map(dig).filter(u => u.length >= 7);
+  let i = linhas.findIndex(r => String(r[0]).trim() && ucs.some(u => dig(r[11]) === u || dig(r[CAD_X_]) === u));
+  const agora = new Date(), quem = usuario.nome || usuario.email || '';
+  const X = n => CAD_X_ + CAMPOS_CADASTRO_EXTRA.indexOf(n);
+  let linha;
+  if (i < 0) {
+    const row = Array(COLS_CADASTRO.length).fill('');
+    row[0] = 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 9).toUpperCase(); row[1] = agora; row[2] = quem;
+    row[3] = limpa(t(o['Cliente'])); row[5] = limpa(t(o['Telefone'])); row[8] = limpa(t(o['Cidade'])); row[11] = t(o['UC']) || t(o['UC (chave)']);
+    row[12] = 'RGE'; row[14] = limpa(t(o['Vendedor']));
+    row[X('ucAntiga')] = t(o['UC antiga']); row[X('usina')] = limpa(t(o['Investidor'])); row[X('status')] = limpa(t(o['Status na CLIENTES']));
+    row[X('responsavel')] = limpa(t(o['Responsável'])); row[X('origem')] = 'Cobranças (ficha do cliente)';
+    linha = sh.getLastRow() + 1;
+    sh.getRange(linha, 4, 1, 12).setNumberFormat('@'); sh.getRange(linha, CAD_X_ + 1).setNumberFormat('@');
+    sh.getRange(linha, 1, 1, row.length).setValues([row]);
+  } else { linha = i + 2; sh.getRange(linha, 16, 1, 2).setValues([[agora, quem]]); }
+  sh.getRange(linha, X('entrada') + 1).setValue(ent ? new Date(Number(ent.slice(0, 4)), Number(ent.slice(5, 7)) - 1, Number(ent.slice(8, 10)), 12) : '').setNumberFormat('dd/MM/yyyy');
+  if (plano) {
+    sh.getRange(linha, X('descPct') + 1).setValue(plano.pct === '' ? '' : Math.round(plano.pct * 100 * 100) / 100);
+    sh.getRange(linha, X('descSobre') + 1).setValue(plano.sobre || '');
+    sh.getRange(linha, X('vlKwh') + 1).setValue(plano.vlKwh === '' ? '' : plano.vlKwh);
+  }
+}
+
 /** Lê as duas abas daqui e devolve no formato que a tela usa. null = ainda não foram preenchidas. */
 function cobDados_() {
   const ss = SpreadsheetApp.getActive(), tz = ss.getSpreadsheetTimeZone();
@@ -975,7 +1056,7 @@ function cobDados_() {
         outros: t(o['Outros débitos e créditos']).split(' | ').map(x => { const m = x.match(/^(.*) = (-?[\d.]+)$/); return m ? { desc: m[1], valor: Number(m[2]) } : null; }).filter(Boolean) } : null };
   }).filter(Boolean);
   return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: sync.em || '', avisos: sync.avisos || [],
-    prazoDias: PRAZO_1A_FATURA_DIAS, meses: Object.keys(meses).sort().map(c => ({ comp: c, aba: meses[c] })), clientes: clientes, cobrancas: cobs, faturas: faturas };
+    prazoDias: PRAZO_1A_FATURA_DIAS, meses: Object.keys(meses).sort().map(c => ({ comp: c, aba: meses[c] })), clientes: cobComCadastro_(clientes, cobs, meses, and), cobrancas: cobs, faturas: faturas };
 }
 
 /** Pedido do site. Sem forcar: devolve o que está nas abas (e começa a primeira cópia se estiverem vazias).
@@ -1054,6 +1135,16 @@ function cobSalvarCliente(d, usuario) {
         shC.getRange(o._linha, c('R$/kWh investidor (ajuste manual)')).setValue(vl);
       }
     }
+    // o cadastro do portal é o cadastro único: a entrada no rateio e o plano ficam lá também
+    try {
+      let pl = null;
+      if (d.plano) {
+        const num = x => x === '' || x == null ? '' : Number(String(x).replace(',', '.'));
+        const p0 = num(d.plano.pct);
+        pl = { pct: p0 === '' ? '' : (p0 > 1 ? p0 / 100 : p0), sobre: /^(total|injetado)$/.test(String(d.plano.sobre || '')) ? d.plano.sobre : '', vlKwh: num(d.plano.vlKwh) };
+      }
+      cobParaCadastro_(o, ent, pl, usuario);
+    } catch (e) { console.error('Cobranças → cadastro: ' + e.message); }
     // recalcula a Situação das linhas deste cliente
     const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
     cobRecalc_(k, ent || iso(o['Anexo G (planilha de controle)']));
@@ -1285,7 +1376,8 @@ function cadastroDoTermo_(d, usuario) {
     if (i < 0) {
       const novoId = 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 9).toUpperCase(), linha = sh.getLastRow() + 1;
       sh.getRange(linha, 4, 1, 12).setNumberFormat('@');
-      sh.getRange(linha, 1, 1, COLS_CADASTRO.length).setValues([[novoId, agora, quem].concat(CAMPOS_CADASTRO.map(c => limpa(novo[c]))).concat(['', ''])]);
+      const extra = COLS_CADASTRO_EXTRA.map(c => c === 'Origem' ? 'Termo de adesão' : '');
+      sh.getRange(linha, 1, 1, COLS_CADASTRO.length).setValues([[novoId, agora, quem].concat(CAMPOS_CADASTRO.map(c => limpa(novo[c]))).concat(['', '']).concat(extra)]);
       return 'criado';
     }
     const atual = linhas[i];
@@ -1311,7 +1403,7 @@ function abaCadastro_() {
     sh.setFrozenRows(1);
     // documento, telefone, CEP e UC como TEXTO, para não perder zeros nem virar número
     sh.getRange(2, 4, sh.getMaxRows() - 1, 12).setNumberFormat('@');
-  }
+  } else completaCabecalho_(sh, COLS_CADASTRO);
   return sh;
 }
 
@@ -1324,12 +1416,69 @@ function cadastroObj_(r) {
   const d = v => v instanceof Date ? Utilities.formatDate(v, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm') : String(v || '');
   const o = { id: String(r[0]), criadoEm: d(r[1]), criadoPor: String(r[2] || ''), atualizadoEm: d(r[15]), atualizadoPor: String(r[16] || '') };
   CAMPOS_CADASTRO.forEach((c, i) => { o[c] = String(r[3 + i] == null ? '' : r[3 + i]).trim(); });
+  CAMPOS_CADASTRO_EXTRA.forEach((c, i) => {
+    const v = r[CAD_X_ + i];
+    o[c] = v instanceof Date ? Utilities.formatDate(v, 'America/Sao_Paulo', 'yyyy-MM-dd') : (typeof v === 'number' ? String(v) : String(v == null ? '' : v).trim());
+  });
   return o;
 }
 
-function cadastroListar() {
+/** Cadastro do portal por UC (a nova e a antiga, só os dígitos). */
+function cadastroPorUc_() {
+  const m = {}, dig = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
+  const sh = SpreadsheetApp.getActive().getSheetByName(ABA_CADASTRO);
+  if (!sh || sh.getLastRow() < 2) return m;
+  cadastroLinhas_(abaCadastro_()).forEach(r => {
+    if (!String(r[0]).trim()) return;
+    const o = cadastroObj_(r);
+    [o.uc, o.ucAntiga].forEach(u => { if (dig(u).length >= 7 && !m[dig(u)]) m[dig(u)] = o; });
+  });
+  return m;
+}
+
+/** Plano do cliente no cadastro (null = não preenchido). Desconto em fração (20% → 0,2). */
+function planoCadastro_(o) {
+  if (!o) return null;
+  const n = x => { const v = Number(String(x == null ? '' : x).replace(',', '.')); return String(x == null ? '' : x).trim() !== '' && isFinite(v) ? v : null; };
+  const pct = n(o.descPct), vl = n(o.vlKwh), sob = /^(total|injetado)$/i.test(o.descSobre) ? o.descSobre.toLowerCase() : '';
+  if (pct == null && vl == null && !sob) return null;
+  return { pct: pct == null ? null : (pct > 1 ? pct / 100 : pct), sobre: sob, vlKwh: vl };
+}
+
+/** Rateio: cliente conectado com usina vira (ou completa) uma linha da aba Rateio Beneficiárias. Não apaga nada. */
+function cadastroParaRateio_(c, cache) {
+  const dig = v => String(v == null ? '' : v).replace(/\D/g, '');
+  if (!c || dig(c.uc).length < 7 || dig(c.ug).length < 7 || /CANCEL/i.test(c.status || '')) return '';
+  const sh = cache && cache.sh || ratAba_('benef'), larg = RAT_ABAS_.benef.cols.length;
+  const v = cache && cache.v || (sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, larg).getValues() : []);
+  if (cache) { cache.sh = sh; cache.v = v; }
+  const inicio = /^\d{4}-\d{2}/.test(c.entrada || '') ? Number(c.entrada.slice(0, 4) + c.entrada.slice(5, 7)) : '';
+  const i = v.findIndex(r => [c.uc, c.ucAntiga].some(u => dig(u).length >= 7 && dig(r[0]) === dig(u)) && dig(r[3]) === dig(c.ug));
+  if (i >= 0) {   // já existe: só completa o que está vazio
+    const r = v[i], antes = r.join('|');
+    if (r[1] === '' && c.doc) r[1] = c.doc;
+    if (r[4] === '' && c.usina) r[4] = c.usina;
+    if (r[5] === '' && c.nome) r[5] = c.nome;
+    if (r[6] === '' && c.fornecimento) r[6] = c.fornecimento;
+    if (r[7] === '' && c.consumo) r[7] = Number(c.consumo) || '';
+    if (r[10] === '' && inicio) r[10] = inicio;
+    if (r.join('|') !== antes) { sh.getRange(i + 2, 1, 1, larg).setValues([r]); return 'atualizada'; }
+    return '';
+  }
+  const nova = [c.uc, c.doc || '', 'CONSÓRCIO', c.ug, c.usina || '', c.nome, c.fornecimento || '', Number(c.consumo) || '', '', '', inicio, '', 'Cadastro do portal', ''].map(limpa);
+  sh.getRange(v.length + 2, 1, 1, larg).setValues([nova]);
+  v.push(nova);
+  return 'criada';
+}
+
+function cadastroListar(usuario) {
   const linhas = cadastroLinhas_(abaCadastro_()).filter(r => String(r[0]).trim() && String(r[3]).trim());
-  return { ok: true, clientes: linhas.map(cadastroObj_) };
+  const contrato = !!(usuario && PERFIS_[usuario.perfil] && PERFIS_[usuario.perfil].areas.indexOf('ana') >= 0);
+  // R$/kWh do investidor é valor da empresa: só TI e Admin
+  const clientes = linhas.map(cadastroObj_).map(c => { if (!contrato) delete c.vlKwh; return c; });
+  let usinas = [];
+  try { usinas = ratLer_('usinas').filter(u => String(u.ug || '').trim() && !String(u.inativa || '').trim()).map(u => ({ ug: String(u.ug).trim(), nome: String(u.nome || '').trim() })); } catch (e) {}
+  return { ok: true, clientes: clientes, usinas: usinas, contrato: contrato };
 }
 
 /** Cria (sem id) ou altera (com id) um cliente. Não deixa repetir a mesma UC (ou, sem UC, o mesmo documento). */
@@ -1344,6 +1493,16 @@ function cadastroSalvar(d, usuario) {
   const nd = dig(novo.doc);
   if (nd && nd.length !== 11 && nd.length !== 14) return { ok: false, erro: 'o CPF precisa ter 11 dígitos e o CNPJ, 14' };
   if (novo.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(novo.email)) return { ok: false, erro: 'o e-mail parece incompleto' };
+  // campos do cadastro único (versão 36)
+  const ex = {};
+  CAMPOS_CADASTRO_EXTRA.forEach(c => { ex[c] = txt(d[c], 200); });
+  const numOk = (x, min, max) => x === '' || (isFinite(Number(x.replace(',', '.'))) && Number(x.replace(',', '.')) >= min && Number(x.replace(',', '.')) <= max);
+  if (ex.entrada && !/^\d{4}-\d{2}-\d{2}$/.test(ex.entrada)) return { ok: false, erro: 'a data de entrada no rateio está inválida' };
+  if (!numOk(ex.descPct, 0, 100)) return { ok: false, erro: 'o desconto precisa ser um número de 0 a 100' };
+  if (!numOk(ex.vlKwh, 0, 10)) return { ok: false, erro: 'o R$/kWh do investidor parece errado' };
+  if (!numOk(ex.consumo, 0, 10000000)) return { ok: false, erro: 'o consumo médio precisa ser um número' };
+  if (ex.descSobre && !/^(total|injetado)$/.test(ex.descSobre)) ex.descSobre = '';
+  const contrato = PERFIS_[usuario.perfil] && PERFIS_[usuario.perfil].areas.indexOf('ana') >= 0;
 
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -1353,25 +1512,125 @@ function cadastroSalvar(d, usuario) {
     if (id && iAtual < 0) return { ok: false, erro: 'esse cliente não existe mais (alguém pode ter excluído). Atualize a lista.' };
     // repetido: mesma UC; ou, sem UC, mesmo documento e mesmo nome
     const nu = dig(novo.uc), nomeN = novo.nome.toUpperCase();
+    const na = dig(ex.ucAntiga);
     const rep = linhas.find((r, i) => i !== iAtual && String(r[0]).trim() && (
-      (nu.length >= 7 && dig(r[11]) === nu) || (nu.length < 7 && nd && dig(r[4]) === nd && dig(r[11]).length < 7 && String(r[3]).trim().toUpperCase() === nomeN)));
+      (nu.length >= 7 && (dig(r[11]) === nu || dig(r[CAD_X_]) === nu)) || (na.length >= 7 && (dig(r[11]) === na || dig(r[CAD_X_]) === na)) || (nu.length < 7 && nd && dig(r[4]) === nd && dig(r[11]).length < 7 && String(r[3]).trim().toUpperCase() === nomeN)));
     if (rep) return { ok: false, erro: (nu.length >= 7 ? 'essa UC já está cadastrada para ' : 'esse cliente já está cadastrado: ') + String(rep[3]), duplicado: String(rep[0]) };
 
     const agora = new Date(), quem = usuario.nome || usuario.email;
     const valores = CAMPOS_CADASTRO.map(c => limpa(novo[c]));
+    // R$/kWh do investidor: quem não é TI/Admin não vê o campo, então o valor gravado continua
+    if (!contrato) ex.vlKwh = iAtual >= 0 ? String(linhas[iAtual][CAD_X_ + CAMPOS_CADASTRO_EXTRA.indexOf('vlKwh')]) : '';
+    if (iAtual >= 0 && !ex.origem) ex.origem = String(linhas[iAtual][CAD_X_ + CAMPOS_CADASTRO_EXTRA.indexOf('origem')] || '');
+    if (iAtual < 0 && !ex.origem) ex.origem = 'Portal';
+    const extras = CAMPOS_CADASTRO_EXTRA.map(c => {
+      const v = ex[c];
+      if (c === 'entrada') return v ? new Date(Number(v.slice(0, 4)), Number(v.slice(5, 7)) - 1, Number(v.slice(8, 10)), 12) : '';
+      if ((c === 'descPct' || c === 'vlKwh' || c === 'consumo') && v !== '') return Number(String(v).replace(',', '.'));
+      return limpa(v);
+    });
     let linha, saida;
     if (iAtual >= 0) {
       linha = iAtual + 2;
       sh.getRange(linha, 4, 1, 12).setNumberFormat('@').setValues([valores]);
       sh.getRange(linha, 16, 1, 2).setValues([[agora, quem]]);
+      sh.getRange(linha, CAD_X_ + 1, 1, 1).setNumberFormat('@');
+      sh.getRange(linha, CAD_X_ + 1, 1, extras.length).setValues([extras]);
+      sh.getRange(linha, CAD_X_ + 1 + CAMPOS_CADASTRO_EXTRA.indexOf('entrada')).setNumberFormat('dd/MM/yyyy');
     } else {
       linha = sh.getLastRow() + 1;
       const novoId = 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 9).toUpperCase();
       sh.getRange(linha, 4, 1, 12).setNumberFormat('@');
-      sh.getRange(linha, 1, 1, COLS_CADASTRO.length).setValues([[novoId, agora, quem].concat(valores).concat(['', ''])]);
+      sh.getRange(linha, CAD_X_ + 1, 1, 1).setNumberFormat('@');
+      sh.getRange(linha, 1, 1, COLS_CADASTRO.length).setValues([[novoId, agora, quem].concat(valores).concat(['', '']).concat(extras)]);
+      sh.getRange(linha, CAD_X_ + 1 + CAMPOS_CADASTRO_EXTRA.indexOf('entrada')).setNumberFormat('dd/MM/yyyy');
     }
     saida = cadastroObj_(sh.getRange(linha, 1, 1, COLS_CADASTRO.length).getValues()[0]);
-    return { ok: true, cliente: saida, criado: iAtual < 0 };
+    let rateio = '';
+    try { rateio = cadastroParaRateio_(saida); } catch (e) { console.error('Cadastro → rateio: ' + e.message); }
+    if (!contrato) delete saida.vlKwh;
+    return { ok: true, cliente: saida, criado: iAtual < 0, rateio: rateio };
+  } finally { lock.releaseLock(); }
+}
+
+/**
+ * "Completar pela planilha de controle": usa a aba Cobranças Clientes (a cópia da planilha de controle que as Cobranças já fazem,
+ * por isso é rápido) para completar os campos VAZIOS do cadastro e cadastrar os clientes que ainda não estão no portal
+ * (menos os em cancelamento). Nunca apaga nem troca o que já está preenchido. aplicar = false só conta (prévia).
+ * A usina vira UC geradora pelo nome do investidor (aba Rateio Usinas); o tipo de fornecimento vem da última fatura lida.
+ */
+function cadastroCompletar(aplicar, usuario) {
+  const ss = SpreadsheetApp.getActive(), dig = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
+  const t = x => x instanceof Date ? x : String(x == null ? '' : x).trim();
+  const N = x => String(x == null ? '' : x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const fonte = lerAbaCob_(ss.getSheetByName(ABA_COB_CLI)).filter(o => dig(o['UC']).length >= 7 || dig(o['UC (chave)']).length >= 7);
+  if (!fonte.length) return { ok: false, erro: 'a cópia da planilha de controle ainda não foi feita: abra Clientes → Cobranças e espere carregar (ou clique em Atualizar lá)' };
+  // usinas pelo nome do investidor
+  const usinas = {}; try { ratLer_('usinas').forEach(u => { if (String(u.ug || '').trim()) usinas[N(limparNome(u.nome) || u.nome)] = { ug: String(u.ug).trim(), nome: String(u.nome).trim() }; }); } catch (e) {}
+  const usinaDe = nome => { const k = N(limparNome(nome) || nome); if (!k) return null; if (usinas[k]) return usinas[k];
+    const ks = Object.keys(usinas).filter(n => n.indexOf(k) === 0 || k.indexOf(n) === 0); return ks.length === 1 ? usinas[ks[0]] : null; };
+  // tipo de fornecimento: última fatura lida de cada UC
+  const forn = {};
+  lerAbaCob_(ss.getSheetByName('Faturas Lidas')).forEach(f => { if (String(f['Tipo Fornecimento'] || '').trim()) forn[dig(f['UC'])] = String(f['Tipo Fornecimento']).trim(); });
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return { ok: false, erro: 'a planilha está gravando outra coisa agora; tente de novo em 1 minuto' };
+  try {
+    const sh = abaCadastro_(), linhas = cadastroLinhas_(sh), larg = COLS_CADASTRO.length;
+    const X = n => CAD_X_ + CAMPOS_CADASTRO_EXTRA.indexOf(n);
+    const COL = { nome: 3, telefone: 5, cidade: 8, uc: 11, distribuidora: 12, vendedor: 14, ucAntiga: X('ucAntiga'), ug: X('ug'), usina: X('usina'),
+      status: X('status'), entrada: X('entrada'), responsavel: X('responsavel'), fornecimento: X('fornecimento'), descPct: X('descPct'),
+      descSobre: X('descSobre'), vlKwh: X('vlKwh') };
+    const idx = {};
+    linhas.forEach((r, i) => { if (String(r[0]).trim()) [r[11], r[CAD_X_]].forEach(u => { if (dig(u).length >= 7 && idx[dig(u)] == null) idx[dig(u)] = i; }); });
+    const res = { ok: true, aplicado: !!aplicar, completados: 0, campos: 0, novos: 0, cancelados: 0, exemplosNovos: [] }, mudou = {}, novas = [];
+    const agora = new Date(), quem = 'Planilha de controle (por ' + (usuario.nome || usuario.email || '?') + ')';
+    fonte.forEach(o => {
+      const uc = t(o['UC']) || t(o['UC (chave)']), ucA = t(o['UC antiga']);
+      const n = x => typeof x === 'number' && isFinite(x) ? x : null;
+      const pct = n(o['Desconto % (ajuste manual)']) != null ? n(o['Desconto % (ajuste manual)']) : n(o['Desconto % (ASSINATURA)']);
+      const sob = t(o['Desconto sobre (ajuste manual)']) || t(o['Desconto sobre (ASSINATURA)']);
+      const vl = n(o['R$/kWh investidor (ajuste manual)']) != null ? n(o['R$/kWh investidor (ajuste manual)']) : n(o['R$/kWh investidor (ASSINATURA)']);
+      const ent = o['Entrada no rateio (ajuste manual)'] instanceof Date ? o['Entrada no rateio (ajuste manual)'] : (o['Anexo G (planilha de controle)'] instanceof Date ? o['Anexo G (planilha de controle)'] : '');
+      const us = usinaDe(o['Investidor']);
+      const val = { nome: t(o['Cliente']), telefone: t(o['Telefone']), cidade: t(o['Cidade']), uc: uc, distribuidora: 'RGE', vendedor: t(o['Vendedor']),
+        ucAntiga: ucA, ug: us ? us.ug : '', usina: t(o['Investidor']), status: t(o['Status na CLIENTES']), entrada: ent, responsavel: t(o['Responsável']),
+        fornecimento: forn[dig(uc)] || forn[dig(ucA)] || '', descPct: pct == null ? '' : Math.round((pct > 1 ? pct : pct * 100) * 100) / 100,
+        descSobre: /^(total|injetado)$/.test(sob) ? sob : '', vlKwh: vl == null ? '' : vl };
+      const i = [uc, ucA, o['UC (chave)']].map(dig).filter(u => u.length >= 7).map(u => idx[u]).find(x => x != null);
+      if (i === -1) return;   // a mesma UC já vai ser cadastrada nesta rodada
+      if (i != null) {
+        const r = linhas[i]; let c = 0;
+        Object.keys(COL).forEach(f => { if ((r[COL[f]] === '' || r[COL[f]] == null) && val[f] !== '' && val[f] != null) { r[COL[f]] = val[f] instanceof Date ? val[f] : limpa(val[f]); c++; } });
+        if (c) { res.completados++; res.campos += c; mudou[i] = true; }
+        return;
+      }
+      if (/CANCEL/i.test(val.status)) { res.cancelados++; return; }
+      const row = Array(larg).fill('');
+      row[0] = 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 9).toUpperCase(); row[1] = agora; row[2] = quem;
+      Object.keys(COL).forEach(f => { if (val[f] !== '' && val[f] != null) row[COL[f]] = val[f] instanceof Date ? val[f] : limpa(val[f]); });
+      row[X('origem')] = 'Planilha de controle';
+      novas.push(row); res.novos++; if (res.exemplosNovos.length < 6) res.exemplosNovos.push(val.nome);
+      [uc, ucA].map(dig).filter(u => u.length >= 7).forEach(u => { idx[u] = -1; });
+    });
+    if (aplicar) {
+      const ii = Object.keys(mudou).map(Number);
+      if (ii.length) {
+        sh.getRange(2, CAD_X_ + 1, linhas.length, 1).setNumberFormat('@');
+        ii.forEach(i => sh.getRange(i + 2, 1, 1, larg).setValues([linhas[i]]));
+      }
+      if (novas.length) {
+        const l0 = sh.getLastRow() + 1;
+        sh.getRange(l0, 4, novas.length, 12).setNumberFormat('@'); sh.getRange(l0, CAD_X_ + 1, novas.length, 1).setNumberFormat('@');
+        sh.getRange(l0, 1, novas.length, larg).setValues(novas);
+      }
+      sh.getRange(2, X('entrada') + 1, Math.max(1, sh.getLastRow() - 1), 1).setNumberFormat('dd/MM/yyyy');
+      // clientes conectados com usina também vão para o Rateio
+      let rat = 0;
+      try { const cache = {}; cadastroLinhas_(sh).forEach(r => { if (String(r[0]).trim() && cadastroParaRateio_(cadastroObj_(r), cache)) rat++; }); } catch (e) { console.error('Completar → rateio: ' + e.message); }
+      res.rateio = rat;
+      console.log('Cadastro completado pela planilha de controle por ' + (usuario.email || '?') + ': ' + JSON.stringify(res));
+    }
+    return res;
   } finally { lock.releaseLock(); }
 }
 
