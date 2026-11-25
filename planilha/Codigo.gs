@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pasta_listar: 'rat', fat_nl: 'rat', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_organizar: 'rat', fat_pasta_listar: 'rat', fat_nl: 'rat', uc_tipos: 'cli', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -169,7 +169,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '38 (faturas não lidas guardadas; leitura de PDF escaneado)';
+const VERSAO_SCRIPT = '39 (usina geradora x unidade consumidora em todo o site e no Drive)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -219,6 +219,10 @@ function doPost(e) {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
       return json(ratUsinaSalvar(req.usina || {}, usuario));
     }
+    if (req.acao === 'uc_tipos') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google', auth: true });
+      return json({ ok: true, mapa: tiposUc_() });
+    }
     if (req.acao === 'fat_nl') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
       return json(fatNaoLidas(req.nl || {}, usuario));
@@ -226,6 +230,10 @@ function doPost(e) {
     if (req.acao === 'fat_pasta_listar' || req.acao === 'fat_pasta_baixar') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
       return json(req.acao === 'fat_pasta_listar' ? fatPastaListar(req.dados || {}) : fatPastaBaixar(req.dados || {}));
+    }
+    if (req.acao === 'fat_pdf_organizar') {
+      if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'só para TI e Admin', perfil: true });
+      return json(fatPdfOrganizar(usuario));
     }
     if (req.acao === 'fat_pdf') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o leitor de faturas é só para TI e Admin', perfil: true });
@@ -735,8 +743,33 @@ const COLS_COB_CLI = ['UC (chave)', 'Cliente', 'UC', 'UC antiga', 'Investidor', 
 const ABA_COB_AND = 'Cobranças Andamento';   // o que o portal marcou em cada cobrança (emitida, enviada, paga): nunca é apagada pela cópia
 const COLS_COB_AND = ['Chave', 'UC (chave)', 'Mês', 'Cliente', 'Emitida em', 'Emitida por', 'Valor cobrado (R$)', 'Enviada em', 'Enviada por',
   'Vencimento', 'Paga em', 'Paga por', 'Atualizado em'];
+const ABA_COB_US = 'Cobranças Usinas';   // UCs geradoras da planilha de controle (INVESTIDORES, FATURAS GERADOR, GERADORES - CONSÓRCIO)
+const COLS_COB_US = ['UC', 'UC antiga', 'Usina / investidor', 'Origem'];
 const SIT_COB_ = { pago: 'Pago', atrasado: 'Atrasado', vencida: 'Vencida', aguardando: 'Aguardando', enviar: 'A enviar', nao_emitiu: 'Não emitida',
   sem_fatura: 'Sem fatura', sem_status: 'Sem status', outro: 'Outro', aguarda_1a: 'Aguardando 1ª fatura' };
+
+/**
+ * Tipo de cada UC, numa regra só para o site inteiro (só lê abas da planilha do portal):
+ *   usina       = está no Rateio Usinas ou na lista de usinas da planilha de controle (aba Cobranças Usinas)
+ *   beneficiaria = está no cadastro do portal, na aba Cobranças Clientes ou no Rateio Beneficiárias (com a usina de onde recebe)
+ * Usina vale mais que beneficiária. Devolve { dígitos da UC: [tipo, nome, usina] }. Fica 5 min no cache.
+ */
+function tiposUc_() {
+  const cache = CacheService.getScriptCache();
+  try { const c = cache.get('tipos_uc_v1'); if (c) return JSON.parse(c); } catch (e) {}
+  const ss = SpreadsheetApp.getActive(), m = {}, dig = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
+  const t = x => String(x == null ? '' : x).trim();
+  const usina = (ucs, nome) => ucs.map(dig).filter(u => u.length >= 7).forEach(u => { m[u] = ['usina', t(nome), '']; });
+  const benef = (ucs, nome, us) => ucs.map(dig).filter(u => u.length >= 7).forEach(u => { if (!m[u]) m[u] = ['beneficiaria', t(nome), t(us)]; else if (m[u][0] === 'beneficiaria' && !m[u][2] && us) m[u][2] = t(us); });
+  lerAbaCob_(ss.getSheetByName(ABA_COB_US)).forEach(o => usina([o['UC'], o['UC antiga']], o['Usina / investidor']));
+  try { ratLer_('usinas').forEach(u => usina([u.ug], u.nome)); } catch (e) {}
+  try { cadastroLinhas_(abaCadastro_()).forEach(r => { if (!t(r[0])) return; const o = cadastroObj_(r); benef([o.uc, o.ucAntiga], o.nome, o.usina); }); } catch (e) {}
+  lerAbaCob_(ss.getSheetByName(ABA_COB_CLI)).forEach(o => benef([o['UC (chave)'], o['UC'], o['UC antiga']], o['Cliente'], o['Investidor']));
+  try { ratLer_('benef').forEach(b => benef([b.uc], b.titular || b.favorecido, b.nomeUg)); } catch (e) {}
+  try { cache.put('tipos_uc_v1', JSON.stringify(m), 300); } catch (e) {}
+  return m;
+}
+const tipoUc_ = uc => { const d = String(uc == null ? '' : uc).replace(/\.0+$/, '').replace(/\D/g, ''); return d.length >= 7 ? (tiposUc_()[d] || null) : null; };
 
 /** STATUS da aba do mês → código. */
 function cobStatus_(st, fat) {
@@ -923,6 +956,10 @@ function cobGravarAbas_(r) {
     });
     linhas.sort((a, b) => a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : String(a[6]).localeCompare(String(b[6])));
     escreveAbaCob_(abaCob_(ABA_COB, COLS_COB), COLS_COB, linhas, [12, 13, 17], { 11: '#,##0.00' });
+    // usinas (UCs geradoras) da planilha de controle: a regra do tipo de UC usa
+    const shU = abaCob_(ABA_COB_US, COLS_COB_US);
+    escreveAbaCob_(shU, COLS_COB_US, (r.usinas || []).map(u => [u.uc, u.ucA, u.nome, u.origem]), [], {});
+    try { CacheService.getScriptCache().remove('tipos_uc_v1'); } catch (e) {}
     const props = PropertiesService.getScriptProperties();
     props.setProperty('COB_SYNC', JSON.stringify({ em: Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'), avisos: r.avisos || [] }));
   } finally { lock.releaseLock(); }
@@ -1057,7 +1094,7 @@ function cobDados_() {
     if (uc.length < 7 || m.length !== 6) return null;
     const n = x => typeof x === 'number' && isFinite(x) ? x : null, vc = o['Vencimento'];
     return { uc: uc, ref: m.slice(0, 4) + '-' + m.slice(4), venc: vc instanceof Date ? Utilities.formatDate(vc, tz, 'yyyy-MM-dd') : String(vc || '').trim().replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1'),
-      pdf: /\/d\//.test(t(o['PDF (Drive)'])), valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']),
+      tipo: /usina/i.test(t(o['Tipo da UC'])) ? 'usina' : ((tiposUc_()[uc] || [])[0] || ''), pdf: /\/d\//.test(t(o['PDF (Drive)'])), valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']),
       // linhas da conta (faturas lidas a partir da versão 34): o cálculo da cobrança usa
       itens: n(o['TUSD R$']) != null && n(o['TE R$']) != null ? { tusdTarifa: n(o['TUSD R$/kWh']), teTarifa: n(o['TE R$/kWh']), tusd: n(o['TUSD R$']), te: n(o['TE R$']),
         bandeira: n(o['Bandeira R$']) || 0, cip: n(o['Iluminação pública R$']) || 0, injKwh: n(o['Injetada (TE) kWh']) != null ? n(o['Injetada (TE) kWh']) : n(o['Energia Injetada kWh']),
@@ -1316,6 +1353,26 @@ function lerCobrancas(ssAberta) {
     }
   } else avisos.push('aba ASSINATURA não encontrada (o plano de cada cliente não foi lido)');
 
+  /* ---------- usinas (UCs geradoras): INVESTIDORES, FATURAS GERADOR e GERADORES - CONSÓRCIO ---------- */
+  const usinasCtl = [], vistaU = {};
+  const ucsDoTexto = x => (String(x == null ? '' : x).match(/\d{1,3}(?:\.\d{3}){3}-\d{2}|\b(?:30|40)\d{8}\b/g) || []);
+  [['INVESTIDORES', ['NOVA UC GERADORA', 'UC GERADORA']], ['FATURAS GERADOR', ['NOVA UC', 'UC']], ['GERADORES CONSORCIO', ['UC GERADORA']]].forEach(([aba, cols]) => {
+    const sh = abas[aba]; if (!sh) return;
+    const v = sh.getDataRange().getValues();
+    const h = v.slice(0, 8).findIndex(r => r.map(N).indexOf('INVESTIDOR') >= 0 && cols.some(cn => r.map(N).indexOf(cn) >= 0));
+    if (h < 0) return;
+    const cab = v[h].map(N), ci = cab.indexOf('INVESTIDOR'), cc = cols.map(cn => cab.indexOf(cn)).filter(i => i >= 0);
+    for (let i = h + 1; i < v.length; i++) {
+      const nome = String(v[i][ci] || '').trim(); if (!nome || /^TOTAL/.test(N(nome))) continue;
+      const ucs = [];
+      cc.forEach(c => { const x = v[i][c]; if (typeof x === 'number' && Number.isInteger(x) && x > 1e9) ucs.push(String(x)); else ucsDoTexto(x).forEach(u => ucs.push(u)); });
+      const nova = ucs.find(u => /\./.test(u)) || '', ant = ucs.find(u => !/\./.test(u)) || '';
+      const k = dig(nova) || dig(ant); if (!k || vistaU[k + '|' + aba]) continue;
+      vistaU[k + '|' + aba] = true;
+      usinasCtl.push({ uc: nova, ucA: ant, nome: limparNome(nome) || nome, origem: sh.getName() });
+    }
+  });
+
   /* ---------- PROGRAMAÇÃO: última conta da RGE de cada UC ---------- */
   const prog = lerProgramacao(ss), ultRge = {};
   if (!prog.ok) avisos.push(prog.erro);
@@ -1338,7 +1395,7 @@ function lerCobrancas(ssAberta) {
       stCli: o.st || '', anexo: o.anexo || '', anexoTxt: o.anexoTxt || '', rge: ultRge[k] || null, fora: !!cl.foraDasAbas, semCad: !cad[k], plano: planos[k] || null };
   });
   return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'),
-    meses: meses, clientes: lista, cobrancas: cobs, avisos: avisos };
+    meses: meses, clientes: lista, cobrancas: cobs, usinas: usinasCtl, avisos: avisos };
 }
 
 /* =========================================================
@@ -2103,6 +2160,11 @@ function ucDaOzz(uc) {
   const u = String(uc || '').replace(/\D/g, '');
   if (u.length < 7) return { ok: true, ozz: false };
   const d = v => String(v == null ? '' : v).replace(/\D/g, '');
+  try {
+    const tp = tipoUc_(u);
+    if (tp && tp[0] === 'usina') return { ok: true, ozz: true, tipo: 'usina', nome: tp[1], onde: 'como USINA geradora' + (tp[1] ? ' (' + tp[1] + ')' : '') };
+    if (tp) return { ok: true, ozz: true, tipo: 'beneficiaria', nome: tp[1], usina: tp[2], onde: 'como beneficiária' + (tp[2] ? ' da usina ' + tp[2] : '') };
+  } catch (e) {}
   try { if (cadastroLinhas_(abaCadastro_()).some(r => d(cadastroObj_(r).uc) === u)) return { ok: true, ozz: true, onde: 'no cadastro do portal' }; } catch (e) {}
   try { if (lerClientesExternos_().some(x => d(x.uc) === u || d(x.uc_antiga) === u)) return { ok: true, ozz: true, onde: 'na aba CLIENTES' }; } catch (e) {}
   try { const p = programacaoComCache_(false); if (p.ok && p.contas.some(k => d(k.uc) === u || d(k.ucAntiga) === u)) return { ok: true, ozz: true, onde: 'na PROGRAMAÇÃO' }; } catch (e) {}
@@ -2352,7 +2414,9 @@ const COLS_FATURAS = ['Lido em', 'Lido por', 'Arquivo', 'UC', 'Titular', 'CPF/CN
   // a partir da versão 34: as linhas da conta, para o cálculo da cobrança
   'TUSD R$/kWh', 'TE R$/kWh', 'TUSD R$', 'TE R$', 'Bandeira R$', 'Crédito bandeira R$', 'Iluminação pública R$', 'Injetada (TE) kWh', 'Outros débitos e créditos',
   // a partir da versão 35: o PDF guardado no Drive de quem implantou o script
-  'PDF (Drive)'];
+  'PDF (Drive)',
+  // a partir da versão 39: usina geradora ou unidade consumidora (beneficiária)
+  'Tipo da UC'];
 
 /* ---------- PDFs das faturas: pasta "Faturas RGE (portal OZZ)" no Drive de quem implantou o script ----------
    Uma subpasta por mês de referência (AAAA-MM); o arquivo se chama "UC - Titular.pdf". Ler a mesma fatura de novo
@@ -2364,6 +2428,44 @@ function pastaFaturas_() {
   const f = DriveApp.createFolder(PASTA_FATURAS_NOME);
   props.setProperty('PASTA_FATURAS', f.getId());
   return f;
+}
+/* Usinas geradoras e unidades consumidoras ficam separadas: "Faturas RGE (portal OZZ)/Usinas geradoras/AAAA-MM" e
+   ".../Unidades consumidoras/AAAA-MM" (UC que o portal não reconhece vai para Unidades consumidoras). */
+const PASTA_USINAS = 'Usinas geradoras', PASTA_CONSUMIDORAS = 'Unidades consumidoras';
+function subpasta_(pai, nome) { const it = pai.getFoldersByName(nome); return it.hasNext() ? it.next() : pai.createFolder(nome); }
+function pastaFaturaMes_(uc, mesAAAA_MM) {
+  const tp = tipoUc_(uc);
+  return subpasta_(subpasta_(pastaFaturas_(), tp && tp[0] === 'usina' ? PASTA_USINAS : PASTA_CONSUMIDORAS), mesAAAA_MM);
+}
+/** Organiza os PDFs já guardados: move os que estão nas pastas de mês antigas (ou na pasta errada) para Usinas geradoras /
+    Unidades consumidoras. Mover não muda o link do arquivo. Pastas de mês que ficarem vazias vão para a lixeira. */
+function fatPdfOrganizar(usuario) {
+  const raiz = pastaFaturas_(), res = { ok: true, movidos: 0, usinas: 0, consumidoras: 0, iguais: 0 };
+  const mover = (pastaMes, mesNome, deTipo) => {
+    const fs = pastaMes.getFiles();
+    while (fs.hasNext()) {
+      const f = fs.next(), uc = f.getName().split(' - ')[0], tp = tipoUc_(uc), ehUsina = !!(tp && tp[0] === 'usina');
+      if (deTipo && (deTipo === PASTA_USINAS) === ehUsina) { res.iguais++; continue; }
+      const destino = pastaFaturaMes_(uc, mesNome);
+      // já existe um PDF mais novo desta UC neste mês no lugar certo (é para ele que o link da planilha aponta): o antigo vai para a lixeira
+      if (destino.searchFiles('title contains "' + uc.replace(/"/g, '') + ' - "').hasNext()) { f.setTrashed(true); res.duplicados = (res.duplicados || 0) + 1; continue; }
+      f.moveTo(destino); res.movidos++; ehUsina ? res.usinas++ : res.consumidoras++;
+    }
+    if (!pastaMes.getFiles().hasNext() && !pastaMes.getFolders().hasNext() && deTipo !== undefined) pastaMes.setTrashed(true);
+  };
+  const ps = raiz.getFolders();
+  const lista = []; while (ps.hasNext()) lista.push(ps.next());
+  lista.forEach(p => {
+    const n = p.getName();
+    if (/^\d{4}-\d{2}$/.test(n)) mover(p, n, null);            // estrutura antiga: raiz/AAAA-MM
+    else if (n === PASTA_USINAS || n === PASTA_CONSUMIDORAS) {   // já separada: confere se cada um está no lugar certo
+      const ms = p.getFolders(); while (ms.hasNext()) { const pm = ms.next(); if (/^\d{4}-\d{2}$/.test(pm.getName())) mover(pm, pm.getName(), n); }
+    }
+  });
+  // estrutura antiga: a pasta do mês ficou vazia
+  const ps2 = raiz.getFolders(); while (ps2.hasNext()) { const p = ps2.next(); if (/^\d{4}-\d{2}$/.test(p.getName()) && !p.getFiles().hasNext() && !p.getFolders().hasNext()) p.setTrashed(true); }
+  console.log('PDFs organizados por ' + (usuario.email || '?') + ': ' + JSON.stringify(res));
+  return res;
 }
 function linhaFatura_(sh, uc, mes) {   // linha (1-based) da UC e mês AAAAMM na aba Faturas Lidas; 0 = não tem
   const dig = x => String(x == null ? '' : x).replace(/\.0+$/, '').replace(/\D/g, '');
@@ -2394,8 +2496,7 @@ function faturaPdfSalvar(d, usuario) {
   const nome = (uc + ' - ' + String(d.titular || '').replace(/[\\/:*?"<>|]+/g, ' ').trim()).slice(0, 120) + '.pdf';
   let url;
   try {
-    const raiz = pastaFaturas_(), sub = mes.slice(0, 4) + '-' + mes.slice(4);
-    const it = raiz.getFoldersByName(sub), pasta = it.hasNext() ? it.next() : raiz.createFolder(sub);
+    const sub = mes.slice(0, 4) + '-' + mes.slice(4), pasta = pastaFaturaMes_(uc, sub);
     // substitui o PDF anterior da mesma UC neste mês (o nome pode ter mudado se o titular mudou)
     const velhos = pasta.searchFiles('title contains "' + uc.replace(/"/g, '') + ' - "');
     while (velhos.hasNext()) velhos.next().setTrashed(true);
@@ -2576,9 +2677,13 @@ function faturasSalvar(lista, usuario) {
         nv(f.dias), String(f.emissao || ''), String(f.nf || ''),
         hist.map(h => String(h.mes).slice(4) + '/' + String(h.mes).slice(0, 4) + ': ' + h.kwh).join(' · '),
         nv(f.tusdTarifa), nv(f.teTarifa), nv(f.tusdValor), nv(f.teValor), nv(f.bandeira), nv(f.bandeiraCred), nv(f.cip), nv(f.injKwh), String(f.outros || '').slice(0, 1000)].map(limpa);
+      const iPdf = COLS_FATURAS.indexOf('PDF (Drive)'), tp = tipoUc_(uc);
       linha.push('');   // coluna PDF (Drive): o link é gravado depois, por faturaPdfSalvar
+      linha.push(tp ? (tp[0] === 'usina' ? 'Usina geradora' : 'Unidade consumidora') : '');
       const kF = dig(uc) + '|' + mes;
-      if (idxF[kF] != null) { const pdfAntes = vF[idxF[kF]][larg - 1]; vF[idxF[kF]] = linha; vF[idxF[kF]][larg - 1] = pdfAntes; res.atualizadas++; } else { idxF[kF] = -1; novasF.push(linha); res.faturas++; }
+      if (idxF[kF] != null) { const pdfAntes = vF[idxF[kF]][iPdf]; vF[idxF[kF]] = linha; vF[idxF[kF]][iPdf] = pdfAntes; res.atualizadas++; }
+      else { idxF[kF] = -1; novasF.push(linha); res.faturas++; }
+      if (tp && tp[0] === 'usina') res.usinas = (res.usinas || 0) + 1;
       // mês da fatura → Rateio Consumo (a fatura sobrescreve consumo, injetada, saldo, mínimo e datas)
       const dados = { 2: nv(f.consumo), 3: nv(f.injetada), 4: nv(f.saldo), 5: nv(f.minimo), 6: String(f.leitura || ''), 7: String(f.emissao || ''), 8: String(f.leituraAnt || '') };
       const origem = 'Fatura PDF (' + Utilities.formatDate(agora, 'America/Sao_Paulo', 'dd/MM/yyyy') + ')';
