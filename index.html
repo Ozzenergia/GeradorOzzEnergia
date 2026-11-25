@@ -233,6 +233,16 @@ main.wide{max-width:1180px}
 .ficha-dados div{font-size:14.5px;overflow-wrap:anywhere}
 .ficha-dados a{color:var(--primary)}
 .ficha-vazio{padding:16px;color:var(--muted);font-size:14px}
+.pv-lista{display:grid;gap:0}
+.pv-item{padding:12px 16px;border-bottom:1px solid var(--line);display:grid;gap:4px;font-size:14px}
+.pv-item:last-child{border-bottom:0}
+.pv-topo{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.pv-nota{font-weight:700;border-radius:8px;padding:1px 8px;font-size:13px;background:var(--line)}
+.pv-nota.promotor{background:#d9f5e3;color:#11643a}.pv-nota.neutro{background:#fff1cc;color:#7a5600}.pv-nota.detrator{background:#fde0e0;color:#9b1c1c}
+.pv-trat{font-size:12px;font-weight:700;border-radius:8px;padding:1px 8px;background:#fde0e0;color:#9b1c1c}
+.pv-trat.ok{background:#d9f5e3;color:#11643a}
+.pv-item small{color:var(--muted)}
+.pv-item p{margin:0}
 .ficha .ana-tabela{border:none;border-radius:0}
 .ficha-carregando{padding:40px 20px;text-align:center;color:var(--muted)}
 @media(max-width:700px){.ficha-dados{grid-template-columns:1fr 1fr}.ficha-kpis{grid-template-columns:1fr 1fr}.ficha-top{padding:12px 14px}.ficha-corpo{padding:14px 12px 28px}}
@@ -2848,6 +2858,33 @@ function fichaFechar(){
   $('fichaModal').classList.add('hidden');document.body.style.overflow='';ficha.id=null;
   if(ficha.volta&&ficha.volta.isConnected)ficha.volta.focus({preventScroll:true});
 }
+/* ===== Pós-venda na ficha do cliente: visitas do app (planilha OZZ Visitas, só leitura) ===== */
+const posCache={};
+function posBlocoHtml(id){return `<section class="ficha-bloco" id="${id}"><h3>Pós-venda<span>visitas e feedback</span></h3><div class="ficha-vazio">Carregando as visitas…</div></section>`}
+async function posCarregar(id,ucs,nome){
+  const el=()=>$(id),k=JSON.stringify([ucs,nome]);
+  let r=posCache[k];
+  if(!r){r=await sheetApi('pos_visitas',{ucs:ucs.filter(Boolean),nome:nome||''},{espera:40000});if(r&&r.ok)posCache[k]=r}
+  const b=el();if(!b)return;
+  b.innerHTML=posRender(r);
+}
+function posRender(r){
+  const E=anaEsc,cab=(t)=>`<h3>Pós-venda<span>${t}</span></h3>`;
+  if(!r||!r.ok){let e=(r&&r.erro)||'não foi possível ler';if(/ação desconhecida/.test(e))e='atualize o script da planilha do portal para a versão 44';return cab('')+`<div class="ficha-vazio">⚠️ ${E(e)}</div>`}
+  if(r.naoConfigurado)return cab('ainda não ligado')+'<div class="ficha-vazio">Para ver as visitas aqui, cole o link da planilha <b>OZZ Visitas</b> (a que recebe as visitas dos iPads) na aba <b>Config</b>, célula <b>B7</b>, da planilha do portal.</div>';
+  const vs=r.visitas||[];
+  if(!vs.length)return cab('nenhuma visita')+'<div class="ficha-vazio">Nenhuma visita do pós-venda registrada para este cliente.</div>';
+  const ab=vs.filter(v=>/detrator/i.test(v.perfil)&&v.tratativa&&!/resolvid/i.test(v.tratativa));
+  const dt=x=>{const m=String(x||'').match(/^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}:\d{2}))?/);return m?m[3]+'/'+m[2]+'/'+m[1]+(m[4]?' '+m[4]:''):E(x)};
+  const linha=(rot,v)=>v===''||v==null?'':`<p><small>${rot}:</small> ${E(v)}</p>`;
+  return cab(vs.length+' visita'+(vs.length===1?'':'s')+(ab.length?' · '+ab.length+' tratativa'+(ab.length===1?'':'s')+' em aberto':''))+'<div class="pv-lista">'+vs.map(v=>{
+    const pf=String(v.perfil||'').toLowerCase(),trat=v.tratativa?`<span class="pv-trat${/resolvid/i.test(v.tratativa)?' ok':''}">Tratativa: ${E(v.tratativa)}</span>`:'';
+    return `<div class="pv-item"><div class="pv-topo"><b>${dt(v.data)}</b>${v.nota!==''&&v.nota!=null?`<span class="pv-nota ${pf}">Nota ${E(v.nota)}${v.perfil?' · '+E(v.perfil):''}</span>`:''}${trat}<small>${E(v.func||'')}${v.status&&!/finalizada/i.test(v.status)?' · '+E(v.status):''}</small></div>`+
+      linha('Motivo da nota',v.motivo)+linha('Problema relatado',v.problema)+linha('Próximo passo',v.proximo)+linha('Falta para nota 10',v.falta10)+
+      linha('Economia vs. prometido',v.economia)+linha('Sugestão',v.melhoria)+linha('Anotações',v.anot)+
+      (()=>{const x=[(+v.indic||0)?v.indic+' indicaç'+(+v.indic===1?'ão':'ões'):'',v.brinde?'brinde: '+E(v.brinde)+(v.brindeSt?' ('+E(String(v.brindeSt).toLowerCase())+')':''):'',
+        /^https:\/\//.test(v.assinatura||'')?`<a href="${E(v.assinatura)}" target="_blank" rel="noopener">ver assinatura ↗</a>`:''].filter(Boolean);return x.length?`<p><small>${x.join(' · ')}</small></p>`:''})()+'</div>'}).join('')+'</div>';
+}
 function fichaRender(r){
   const c=r.cliente,k=r.controle,E=anaEsc,dig=soDig;
   const campo=(rot,val)=>val?`<div><small>${rot}</small>${val}</div>`:'';
@@ -2901,8 +2938,10 @@ function fichaRender(r){
   h+=`<section class="ficha-bloco"><h3>Termos de adesão<span>${r.termos.length||''}</span></h3>${r.termos.length?`<div class="ana-tabela"><div class="ana-scroll"><table><thead><tr><th>Proposta</th><th>Gerado em</th><th>Consultor</th><th>Modalidade</th><th>Assinatura</th><th class="num">Consumo</th></tr></thead><tbody>${
     r.termos.map(x=>`<tr><td><b>${E(x.numero||'—')}</b></td><td data-l="Gerado em">${E(x.data)}</td><td data-l="Consultor">${E(x.consultor)}</td><td data-l="Modalidade">${E(x.modalidade)}</td><td data-l="Assinatura">${E(x.assinatura)}</td><td class="num" data-l="Consumo">${ckm(x.consumo)}</td></tr>`).join('')}</tbody></table></div></div>`
     :'<div class="ficha-vazio">Nenhum termo gerado pelo portal para este cliente.</div>'}</section>`;
+  h+=posBlocoHtml('fichaPos');
   if(r.avisos&&r.avisos.length)h+=`<p style="font-size:13px;color:var(--warn);margin:0">⚠️ ${r.avisos.map(E).join(' · ')}</p>`;
   $('fichaCorpo').innerHTML=h;
+  posCarregar('fichaPos',[c.uc,c.ucAntiga,k&&k.uc,k&&k.ucAntiga],c.nome);
 }
 $('fichaFechar').onclick=fichaFechar;
 $('fichaModal').addEventListener('click',e=>{if(e.target===$('fichaModal'))fichaFechar()});
@@ -3463,6 +3502,7 @@ function cbDetalhe(k,volta){
       <td class="num" data-l="Cobrança calculada">${(()=>{const cc=cbCalcFatura(f,c.plano);return cc?brl(cc.cobranca):'<small>'+(f.itens?'sem plano':'ler de novo')+'</small>'})()}</td><td>${cbBtPdf(f)}</td></tr>`).join('')+'</tbody></table></div></div>'
     :'<div class="ficha-vazio">Nenhuma fatura desta UC foi lida no Leitor de faturas ainda.</div>')+'</section>';
   const lista=c.lista.slice().reverse();
+  h+=posBlocoHtml('cbPos');
   h+=`<section class="ficha-bloco"><h3>Todos os meses<span>${c.lista.length} linha${c.lista.length===1?'':'s'}</span></h3><div class="ana-tabela cb-hist"><div class="ana-scroll"><table>
     <thead><tr><th>Mês</th><th class="num">Fatura</th><th>Cobrança</th><th>Situação</th><th>Detalhes</th><th></th></tr></thead><tbody>`+
     lista.map(x=>{const ab=(cb.dados.meses.find(m=>m.comp===x.c)||{}).aba||'';
@@ -3474,6 +3514,7 @@ function cbDetalhe(k,volta){
   $('cbMCorpo').innerHTML=h;
   $('cbEdSalvar').onclick=()=>cbSalvarCliente(c);
   cbLigaBotoes($('cbMCorpo'));cbLigaPdf($('cbMCorpo'));
+  posCarregar('cbPos',[c.uc,c.ucA],c.n);
   $('cbModal').classList.remove('hidden');document.body.style.overflow='hidden';
   setTimeout(()=>{const f=$('cbModal').querySelector('.ficha');f.scrollTop=0;f.focus({preventScroll:true})},0);
 }

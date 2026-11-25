@@ -59,6 +59,11 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   data do envio do Anexo G, marca o rateio como "ENVIADO À RGE" e grava essa data como **entrada no rateio** no cadastro das
   UCs novas (as que nunca estiveram num rateio enviado e ainda não têm data). Quem já tinha data não muda; UC fora do cadastro
   é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
+- **Pós-venda na ficha do cliente:** a ficha (nas Cobranças e no Cadastro de clientes) mostra as visitas do app de pós-venda
+  daquele cliente: data, funcionário, nota e perfil (promotor/neutro/detrator), tratativa (aberta/em contato/resolvida),
+  motivo, problema, próximo passo, anotações, indicações, brinde e o link da assinatura. O portal só **lê** a aba Visitas da
+  planilha central "OZZ Visitas": cole o ID ou link dela em **Config!B7** da planilha do portal (a conta que implantou o
+  Apps Script precisa ter acesso a ela). Acha as visitas pela UC (nova ou antiga) e, se a visita não tiver UC, pelo nome.
 - **Geração real das usinas:** o Leitor lê na tabela do medidor a "Energia Injetada" (na fatura da usina, é a geração do
   mês) e grava em Faturas Lidas. No Rateio de créditos aparece "Fatura da usina de MM/AAAA: X kWh injetados (±% da estimada)",
   e o quadro "Geração estimada × real". **A fatura é o número oficial:** quando há fatura lida da usina no mês, o Rateio já

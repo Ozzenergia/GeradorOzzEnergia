@@ -133,6 +133,7 @@ function configurar() {
     cfg.getRange('C5').setValue('← URL do App da Web da planilha de controle (arquivo PortalImportar)');
     cfg.getRange('C6').setValue('← chave que a função configurarPortal mostrou na planilha de controle');
   }
+  configVisitas_(cfg);
   try { lerClientesExternos_(true); } catch (e) { Logger.log('Planilha de clientes: ' + e.message); } // pede a autorização de leitura já agora
   // deixa a Análise rápida: lê a PROGRAMAÇÃO agora e de 10 em 10 minutos
   try {
@@ -169,7 +170,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '43 (geração real das usinas pela fatura; Contas a pagar confere com a fatura lida)';
+const VERSAO_SCRIPT = '44 (pós-venda na ficha do cliente: visitas, notas e tratativas da planilha OZZ Visitas)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -221,6 +222,12 @@ function doPost(e) {
     if (req.acao === 'rat_usina') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
       return json(ratUsinaSalvar(req.usina || {}, usuario));
+    }
+    if (req.acao === 'pos_visitas') {   // ficha do cliente (Cobranças e Clientes): quem vê pós-venda, análise ou clientes
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google', auth: true });
+      if (!PERFIS_[usuario.perfil].areas.some(a => a === 'pos' || a === 'ana' || a === 'cli'))
+        return json({ ok: false, erro: 'o perfil ' + PERFIS_[usuario.perfil].nome + ' não vê o pós-venda', perfil: true });
+      return json(visitasDoCliente(req.ucs || [], req.nome || ''));
     }
     if (req.acao === 'uc_tipos') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google', auth: true });
@@ -495,6 +502,66 @@ function buscarClientes(q) {
   const lista = Object.keys(porChave).map(k => porChave[k]).slice(0, 8);
   if (aviso) return { ok: true, clientes: lista, aviso: aviso };
   return { ok: true, clientes: lista };
+}
+
+/* ---------- Pós-venda (app de visitas) na ficha do cliente ----------
+ * As visitas ficam na planilha central "OZZ Visitas" (outro arquivo, com o próprio Apps Script que recebe os iPads).
+ * O portal só LÊ a aba Visitas dela: o ID ou link vai em Config!B7. Nada é gravado lá. */
+const ABA_VISITAS_EXT = 'Visitas';
+function configVisitas_(cfg) {
+  if (cfg && !String(cfg.getRange('A7').getValue())) {
+    cfg.getRange('A7').setValue('Planilha de visitas (pós-venda)').setFontWeight('bold');
+    cfg.getRange('C7').setValue('← ID ou link da planilha "OZZ Visitas" (a que recebe as visitas dos iPads). Vazio = a ficha não mostra o pós-venda');
+  }
+}
+
+function lerVisitas_() {
+  const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
+  configVisitas_(cfg);
+  let ref = cfg ? String(cfg.getRange('B7').getValue() || '').trim() : '';
+  if (!ref) return { naoConfigurado: true, lista: [] };
+  const m = ref.match(/\/d\/([a-zA-Z0-9_-]{20,})/); if (m) ref = m[1];
+  const chave = 'visitas_' + ref.slice(-12), c = lerCacheGrande_(chave);
+  if (c && c.em && Date.now() - c.em < 5 * 60 * 1000) return c;   // 5 minutos
+  const sh = SpreadsheetApp.openById(ref).getSheetByName(ABA_VISITAS_EXT);
+  if (!sh) throw new Error('a planilha de visitas não tem a aba ' + ABA_VISITAS_EXT);
+  const ult = sh.getLastRow(), larg = sh.getLastColumn();
+  if (ult < 2) return { em: Date.now(), lista: [] };
+  const v = sh.getRange(1, 1, ult, larg).getValues(), cab = v[0].map(x => String(x || '').trim());
+  const ci = n => cab.indexOf(n), cAss = ci('Assinatura');
+  const links = cAss >= 0 ? sh.getRange(2, cAss + 1, ult - 1, 1).getRichTextValues().map(r => (r[0] && r[0].getLinkUrl()) || '') : [];
+  const dt = x => x instanceof Date ? Utilities.formatDate(x, 'America/Sao_Paulo', 'yyyy-MM-dd HH:mm') : String(x || '');
+  const CAMPOS = { data: 'Data e hora', func: 'Funcionário', cliente: 'Cliente', uc: 'UC / código', nota: 'Nota', perfil: 'Perfil',
+    motivo: 'Motivo da nota', economia: 'Economia vs. prometido', melhoria: 'Sugestão de melhoria', anot: 'Anotações',
+    falta10: 'Falta para nota 10', problema: 'Problema relatado', tratativa: 'Tratativa', proximo: 'Próximo passo',
+    indic: 'Nº de indicações', brinde: 'Brinde', brindeSt: 'Brinde status', status: 'Status', id: 'ID' };
+  const idx = {}; Object.keys(CAMPOS).forEach(k => idx[k] = ci(CAMPOS[k]));
+  const lista = [];
+  for (let i = 1; i < v.length; i++) {
+    const r = v[i], o = {};
+    Object.keys(idx).forEach(k => { const j = idx[k]; o[k] = j < 0 ? '' : (k === 'data' ? dt(r[j]) : r[j] === null ? '' : r[j]); });
+    if (!o.cliente && !o.uc) continue;
+    o.ucDig = String(o.uc || '').replace(/\D/g, '');
+    o.assinatura = links[i - 1] || '';
+    lista.push(o);
+  }
+  const out = { em: Date.now(), lista };
+  gravarCacheGrande_(chave, out);
+  return out;
+}
+
+/** Visitas do pós-venda de um cliente: pela UC (nova ou antiga, só os dígitos) ou, sem UC na visita, pelo nome. Mais recentes primeiro. */
+function visitasDoCliente(ucs, nome) {
+  let base;
+  try { base = lerVisitas_(); } catch (e) { return { ok: false, erro: 'não consegui ler a planilha de visitas: ' + e.message }; }
+  if (base.naoConfigurado) return { ok: true, naoConfigurado: true, visitas: [] };
+  const norm = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+  const digs = (Array.isArray(ucs) ? ucs : [ucs]).map(u => String(u || '').replace(/\D/g, '')).filter(d => d.length >= 6);
+  const nm = norm(nome);
+  const visitas = base.lista.filter(o => (o.ucDig && digs.indexOf(o.ucDig) >= 0) || (nm.length >= 5 && norm(o.cliente) === nm))
+    .map(o => { const x = Object.assign({}, o); delete x.ucDig; return x; })
+    .sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  return { ok: true, visitas };
 }
 
 /**
