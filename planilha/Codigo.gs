@@ -152,12 +152,9 @@ function configurar() {
     atualizarCacheProgramacao();
   } catch (e) { Logger.log('Acionador da programação: ' + e.message); }
   if (!codigo_()) gerarCodigo_();
-  try {
-    SpreadsheetApp.getUi().alert('Planilha configurada',
-      'Código de sincronização: ' + codigo_() + '\n\n' +
-      'Cole este código no portal, em "configurar numeração → Código de sincronização", ' +
-      'em cada computador que vai gerar propostas e termos.', SpreadsheetApp.getUi().ButtonSet.OK);
-  } catch (e) { Logger.log('Código de sincronização: ' + codigo_()); } // rodando pelo editor
+  // aviso que não trava: uma janela (alert) fica esperando o OK e, se ninguém clica, a execução estoura os 6 minutos
+  Logger.log('Planilha configurada. Código de sincronização: ' + codigo_());
+  try { ss.toast('Código de sincronização: ' + codigo_() + ' (cole no portal, em "configurar numeração").', 'Planilha configurada', 20); } catch (e) {}
 }
 
 function mostrarCodigo() {
