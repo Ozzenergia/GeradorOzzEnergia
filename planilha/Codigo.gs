@@ -170,7 +170,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '47 (Termo de adesão leva o desconto da proposta, o consumo e o status para o cadastro)';
+const VERSAO_SCRIPT = '48 (PDFs das faturas sobem em paralelo para o Drive, sem criar pastas repetidas)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -2908,6 +2908,10 @@ function faturaPdfSalvar(d, usuario) {
   if (!linha) return { ok: false, erro: 'guarde os dados da fatura antes do PDF' };
   const nome = (uc + ' - ' + String(d.titular || '').replace(/[\\/:*?"<>|]+/g, ' ').trim()).slice(0, 120) + '.pdf';
   let url;
+  // o portal manda vários PDFs ao mesmo tempo: achar/criar a pasta do mês e trocar o PDF antigo fica numa fila,
+  // senão dois pedidos criam a mesma pasta "2026-10" duas vezes
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(60000)) return { ok: false, ocupado: true, erro: 'a planilha está ocupada agora; tente de novo' };
   try {
     const sub = mes.slice(0, 4) + '-' + mes.slice(4), pasta = pastaFaturaMes_(uc, sub);
     // substitui o PDF anterior da mesma UC neste mês (o nome pode ter mudado se o titular mudou)
@@ -2918,11 +2922,11 @@ function faturaPdfSalvar(d, usuario) {
     arq.setDescription('Lido no portal por ' + (usuario.nome || usuario.email || '?') + ' em ' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm'));
     url = arq.getUrl();
   } catch (e) {
-    return { ok: false, erro: 'não consegui gravar no Google Drive (' + e.message + '). Rode a função "configurar" no editor do Apps Script uma vez para autorizar o Drive.' };
-  }
+    return { ok: false, drive: true, erro: 'não consegui gravar no Google Drive (' + e.message + '). Rode a função "configurar" no editor do Apps Script uma vez para autorizar o Drive.' };
+  } finally { lock.releaseLock(); }
   const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim()), c = cab.indexOf('PDF (Drive)') + 1;
   if (c > 0) sh.getRange(linha, c).setValue(url);
-  return { ok: true, url: url };
+  return { ok: true, url: url, v: 48 };
 }
 /* ---------- Importar faturas de uma pasta do Google Drive ----------
    A pasta precisa estar acessível para a conta que implantou o script (dona ou compartilhada com ela). O portal lista os PDFs
