@@ -148,8 +148,7 @@ function configurar() {
   try { lerClientesExternos_(true); } catch (e) { Logger.log('Planilha de clientes: ' + e.message); } // pede a autorização de leitura já agora
   // deixa a Análise rápida: lê a PROGRAMAÇÃO agora e de 10 em 10 minutos
   try {
-    if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'atualizarCacheProgramacao'))
-      ScriptApp.newTrigger('atualizarCacheProgramacao').timeBased().everyMinutes(10).create();
+    ligarAtualizacaoAutomatica_();
     atualizarCacheProgramacao();
   } catch (e) { Logger.log('Acionador da programação: ' + e.message); }
   if (!codigo_()) gerarCodigo_();
@@ -181,7 +180,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '51 (Cobranças: Pendente pela próxima leitura, Enviar e Disponível upload da fatura)';
+const VERSAO_SCRIPT = '52 (atualização automática em etapas, de hora em hora)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -2252,19 +2251,47 @@ function programacaoComCache_(forcar) {
 }
 
 /** Acionador de 10 em 10 minutos (criado pelo "Configurar planilha"): deixa a leitura pronta. */
-function atualizarCacheProgramacao() {
-  try { lerClientesExternos_(true); } catch (e) { Logger.log('Clientes: ' + e.message); }   // a busca do pós-venda também fica pronta
-  // as abas dos meses primeiro: o PAGO da coluna RGE vai para a PROGRAMAÇÃO antes de ela ser lida
+/* Atualização automática (acionador): lê a planilha de controle e deixa tudo pronto no cache.
+   A leitura inteira passa de 6 minutos (o limite do Google), por isso ela é feita em ETAPAS: cada execução roda as
+   etapas que couberem em ~4 min e a próxima continua de onde parou. Roda de hora em hora, das 7h às 20h
+   (contas Gmail têm 90 min/dia de acionadores; de 10 em 10 min estourava). O tempo de cada etapa vai para o registro. */
+const ATUALIZA_ETAPAS_ = ['clientes', 'cobrancas', 'programacao', 'fluxo'];
+const ATUALIZA_HORAS_ = [7, 20];
+function ligarAtualizacaoAutomatica_() {
+  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'atualizarCacheProgramacao').forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('atualizarCacheProgramacao').timeBased().everyHours(1).create();
+}
+function atualizarCacheProgramacao(e) {
+  const h = Number(Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'H'));
+  if (e && e.triggerUid && (h < ATUALIZA_HORAS_[0] || h > ATUALIZA_HORAS_[1])) return;   // fora do horário (só no acionador)
+  const cache = CacheService.getScriptCache();   // (não usa o LockService: as etapas já usam o lock do script por dentro)
+  if (cache.get('ATUALIZANDO')) { Logger.log('Outra atualização já está rodando.'); return; }
+  cache.put('ATUALIZANDO', '1', 360);
   try {
+    const props = PropertiesService.getScriptProperties(), t0 = Date.now(), LIMITE = 4 * 60000;
+    let i = Number(props.getProperty('ATUALIZA_PROX') || 0) % ATUALIZA_ETAPAS_.length;
+    for (let feitas = 0; feitas < ATUALIZA_ETAPAS_.length; feitas++) {
+      if (feitas && Date.now() - t0 > LIMITE * 0.55) break;   // deixa a próxima etapa para a próxima execução
+      const et = ATUALIZA_ETAPAS_[i], t1 = Date.now();
+      try { atualizaEtapa_(et); } catch (err) { Logger.log(et + ': ' + err.message); }
+      Logger.log('Etapa ' + et + ': ' + ((Date.now() - t1) / 1000).toFixed(1) + ' s');
+      i = (i + 1) % ATUALIZA_ETAPAS_.length;
+      props.setProperty('ATUALIZA_PROX', String(i));
+    }
+  } finally { cache.remove('ATUALIZANDO'); }
+}
+function atualizaEtapa_(et) {
+  if (et === 'clientes') { lerClientesExternos_(true); return; }   // a busca do pós-venda também fica pronta
+  if (et === 'cobrancas') {
+    // as abas dos meses: o PAGO da coluna RGE vai para a PROGRAMAÇÃO
     const c = lerCobrancas();
-    if (c.ok) {
-      cobGravarAbas_(c); cobPortalComLock_();
-      try { const n = progSincronizarPagos_(c); if (n) Logger.log('PROGRAMAÇÃO: ' + n + ' conta(s) marcada(s) PAGO pelas abas dos meses'); } catch (e) { Logger.log('PROGRAMAÇÃO (PAGO): ' + e.message); }
-    } else Logger.log('Cobranças: ' + c.erro);
-  } catch (e) { Logger.log('Cobranças: ' + e.message); }
-  const r = lerProgramacao();
-  if (r.ok) gravarCacheGrande_(CACHE_PROG_, r); else Logger.log('Programação: ' + r.erro);
-  try { const f = lerFluxo(); if (f.ok) gravarCacheGrande_(CACHE_FLUXO_, f); else Logger.log('Fluxo: ' + f.erro); } catch (e) { Logger.log('Fluxo: ' + e.message); }
+    if (!c.ok) { Logger.log('Cobranças: ' + c.erro); return; }
+    cobGravarAbas_(c); cobPortalComLock_();
+    try { const n = progSincronizarPagos_(c); if (n) Logger.log('PROGRAMAÇÃO: ' + n + ' conta(s) marcada(s) PAGO pelas abas dos meses'); } catch (e) { Logger.log('PROGRAMAÇÃO (PAGO): ' + e.message); }
+    return;
+  }
+  if (et === 'programacao') { const r = lerProgramacao(); if (r.ok) gravarCacheGrande_(CACHE_PROG_, r); else Logger.log('Programação: ' + r.erro); return; }
+  if (et === 'fluxo') { const f = lerFluxo(); if (f.ok) gravarCacheGrande_(CACHE_FLUXO_, f); else Logger.log('Fluxo: ' + f.erro); }
 }
 
 /** A equipe marca o pagamento da conta da RGE na coluna RGE das abas dos meses (PAGO), mas a PROGRAMAÇÃO ficava para trás.
@@ -2327,7 +2354,7 @@ function gravarCacheGrande_(base, obj) {
     const n = Math.max(1, Math.ceil(txt.length / TAM));
     for (let i = 0; i < n; i++) partes[base + '_' + i] = txt.slice(i * TAM, (i + 1) * TAM);
     partes[base + '_n'] = String(n);
-    cache.putAll(partes, 1500);
+    cache.putAll(partes, 7200);   // 2 h: a atualização automática roda de hora em hora
   } catch (e) { Logger.log('Cache ' + base + ': ' + e.message); }
 }
 
