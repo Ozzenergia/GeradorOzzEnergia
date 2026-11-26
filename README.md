@@ -59,6 +59,16 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   data do envio do Anexo G, marca o rateio como "ENVIADO À RGE" e grava essa data como **entrada no rateio** no cadastro das
   UCs novas (as que nunca estiveram num rateio enviado e ainda não têm data). Quem já tinha data não muda; UC fora do cadastro
   é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
+- **O que fazer hoje** (Clientes → O que fazer hoje, TI e Admin): um painel com o que está pendente, cada item abre a ficha:
+  cobranças vencidas, para emitir no Asaas, para enviar, que vencem em até 3 dias; faturas da RGE que chegaram no e-mail
+  e falta ler no Leitor; clientes novos sem Anexo G enviado (e se já estão num rateio salvo); 1ª fatura atrasada (mais de
+  90 dias da entrada no rateio); cobranças do portal para conferir; contas da RGE vencidas ou vencendo em até 3 dias.
+- **Consultar UC** (Clientes → Consultar UC): digite a UC (nova ou antiga) ou o nome e veja tudo numa tela: cadastro,
+  cobranças, faturas lidas (com Ver PDF), rateio (usina e % no último rateio), contas da RGE e pós-venda. Para usina:
+  geração estimada × real, último rateio e titular. Cada perfil só vê as partes a que tem acesso.
+- **Termo de adesão → cadastro:** ao registrar o termo, o cliente entra (ou é completado) no cadastro com o **% de desconto
+  da proposta** (pelo número dela ou, sem número, a proposta mais nova da mesma UC), desconto "sobre o total", o consumo
+  médio e o status CONTRATO ASSINADO. Só preenche o que estiver vazio.
 - **Anexo G (formulários da RGE) gerado pelo portal:** no Rateio de créditos, cada rateio salvo tem o botão **📄 Anexo G**.
   A janela confere a soma (100%), avisa UCs sem CPF/CNPJ e pede os dados do titular da usina (nome, CPF/CNPJ, e-mail,
   responsável quando PJ, UC âncora), que ficam guardados na aba Rateio Usinas para a próxima vez. Gera:

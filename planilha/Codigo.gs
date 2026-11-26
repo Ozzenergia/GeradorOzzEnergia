@@ -170,7 +170,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '46 (Anexo G: titular da usina no Rateio Usinas para gerar o G.2 e a lista G.3)';
+const VERSAO_SCRIPT = '47 (Termo de adesão leva o desconto da proposta, o consumo e o status para o cadastro)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -1711,15 +1711,25 @@ function cadastroDoTermo_(d, usuario) {
   let dist = txt(d.distribuidora).split('/')[0].trim();
   if (/^RGE/i.test(dist)) dist = 'RGE';
   const endereco = [txt(d.endereco), txt(d.bairro)].filter(Boolean).join(', ');
-  // o plano vem da proposta (pelo número dela)
-  let plano = '';
+  // o plano e o % de desconto vêm da proposta (pelo número dela; sem número, a proposta mais nova da mesma UC)
+  let plano = '', descPct = '';
   try {
-    const np = txt(d.num_proposta), sp = SpreadsheetApp.getActive().getSheetByName(ABA_PROPOSTAS);
-    if (np && sp && sp.getLastRow() > 1) {
-      const v = sp.getRange(2, 1, sp.getLastRow() - 1, 15).getValues();
-      for (let i = v.length - 1; i >= 0; i--) if (String(v[i][1]).trim() === np) { plano = txt(v[i][14]); break; }
+    const np = txt(d.num_proposta), sp = SpreadsheetApp.getActive().getSheetByName(ABA_PROPOSTAS), nuc = dig(d.codigo_uc);
+    if (sp && sp.getLastRow() > 1) {
+      const v = sp.getRange(2, 1, sp.getLastRow() - 1, 16).getValues();
+      let achou = -1;
+      for (let i = v.length - 1; i >= 0 && achou < 0; i--) if (np && String(v[i][1]).trim() === np) achou = i;
+      for (let i = v.length - 1; i >= 0 && achou < 0; i--) if (nuc.length >= 7 && dig(v[i][6]) === nuc) achou = i;
+      if (achou >= 0) {
+        plano = txt(v[achou][14]);
+        const ds = v[achou][15], n = typeof ds === 'number' ? ds : Number(String(ds == null ? '' : ds).replace('%', '').replace(',', '.').trim());
+        if (String(ds == null ? '' : ds).trim() !== '' && isFinite(n) && n > 0) descPct = n <= 1 ? Math.round(n * 10000) / 100 : Math.round(n * 100) / 100;
+      }
     }
   } catch (e) {}
+  const consumo = Number(String(d.consumo == null ? '' : d.consumo).replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, ''));
+  // contrato e rateio no cadastro (só o que estiver vazio): desconto da proposta (sobre o total, como nos planos) e consumo médio
+  const extrasDoTermo = { descPct: descPct, descSobre: descPct !== '' ? 'total' : '', consumo: consumo > 0 ? Math.round(consumo) : '', status: 'CONTRATO ASSINADO' };
   const novo = { nome: nome, doc: doc, telefone: txt(d.celular), email: txt(d.email).toLowerCase(), endereco: endereco,
     cidade: txt(cu[0]), uf: txt(cu[1]).toUpperCase().slice(0, 2), cep: txt(d.cep), uc: txt(d.codigo_uc), distribuidora: dist,
     plano: plano, vendedor: txt(d.consultor) };
@@ -1734,7 +1744,7 @@ function cadastroDoTermo_(d, usuario) {
     if (i < 0) {
       const novoId = 'C' + Utilities.getUuid().replace(/-/g, '').slice(0, 9).toUpperCase(), linha = sh.getLastRow() + 1;
       sh.getRange(linha, 4, 1, 12).setNumberFormat('@');
-      const extra = COLS_CADASTRO_EXTRA.map(c => c === 'Origem' ? 'Termo de adesão' : '');
+      const extra = CAMPOS_CADASTRO_EXTRA.map(c => c === 'origem' ? 'Termo de adesão' : (extrasDoTermo[c] === undefined ? '' : extrasDoTermo[c]));
       sh.getRange(linha, 1, 1, COLS_CADASTRO.length).setValues([[novoId, agora, quem].concat(CAMPOS_CADASTRO.map(c => limpa(novo[c]))).concat(['', '']).concat(extra)]);
       return 'criado';
     }
@@ -1745,7 +1755,16 @@ function cadastroDoTermo_(d, usuario) {
       if (String(v == null ? '' : v).trim() === '' && novo[c]) { mudou = true; return limpa(novo[c]); }
       return v;
     });
-    if (!mudou) return 'igual';
+    // desconto e consumo da proposta: só onde está vazio (o status "CONTRATO ASSINADO" não passa por cima de um que já existe)
+    let mudouX = false;
+    const vx = CAMPOS_CADASTRO_EXTRA.map((c, k) => {
+      const v = atual[CAD_X_ + k];
+      if (String(v == null ? '' : v).trim() === '' && extrasDoTermo[c] !== undefined && extrasDoTermo[c] !== '') { mudouX = true; return extrasDoTermo[c]; }
+      return v === undefined ? '' : v;
+    });
+    if (!mudou && !mudouX) return 'igual';
+    if (mudouX) sh.getRange(i + 2, CAD_X_ + 1, 1, vx.length).setValues([vx]);
+    if (!mudou) { sh.getRange(i + 2, 16, 1, 2).setValues([[agora, quem]]); return 'completado'; }
     sh.getRange(i + 2, 4, 1, 12).setNumberFormat('@').setValues([valores]);
     sh.getRange(i + 2, 16, 1, 2).setValues([[agora, quem]]);
     return 'completado';
