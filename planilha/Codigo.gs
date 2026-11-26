@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', cob_portal_gerar: 'ana', cob_portal_ajustar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_enviado: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_organizar: 'rat', fat_pasta_listar: 'rat', fat_nl: 'rat', uc_tipos: 'cli', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', rat_titular: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', ctl_marcar: 'ana', cob_portal_gerar: 'ana', cob_portal_ajustar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_enviado: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_organizar: 'rat', fat_pasta_listar: 'rat', fat_nl: 'rat', uc_tipos: 'cli', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', rat_titular: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -170,7 +170,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '49 (PROGRAMAÇÃO recebe o PAGO marcado na coluna RGE das abas dos meses)';
+const VERSAO_SCRIPT = '50 (Controle do mês: RGE paga, PGTO, conferido e observação marcados no portal)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -289,6 +289,10 @@ function doPost(e) {
     if (req.acao === 'cob_portal_ajustar') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google', auth: true });
       return json(cobPortalAjustar(req.cobranca || {}, usuario));
+    }
+    if (req.acao === 'ctl_marcar') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google', auth: true });
+      return json(ctlMarcar(req.ctl || {}, usuario));
     }
     if (req.acao === 'cob_marcar') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para marcar a cobrança', auth: true });
@@ -824,7 +828,7 @@ const PRAZO_1A_FATURA_DIAS = 90;
 const ABA_COB = 'Cobranças';
 const ABA_COB_CLI = 'Cobranças Clientes';
 const COLS_COB = ['Chave', 'Mês', 'Aba', 'Linha', 'Mês ref. RGE', 'UC (chave)', 'Cliente', 'UC', 'Investidor', 'Vendedor', 'Fatura (R$)', 'Cobrança',
-  'Vencimento RGE', 'STATUS (planilha)', 'Situação', 'Conta RGE', 'CONF', 'PGTO', 'REF PGTO', 'Observações'];
+  'Vencimento RGE', 'STATUS (planilha)', 'Situação', 'Conta RGE', 'CONF', 'PGTO', 'REF PGTO', 'Observações', 'Lucro (planilha)', 'Investidor R$ (planilha)'];
 const COLS_COB_CLI = ['UC (chave)', 'Cliente', 'UC', 'UC antiga', 'Investidor', 'Vendedor', 'Responsável', 'Telefone', 'Cidade', 'Status na CLIENTES',
   'Anexo G (planilha de controle)', 'Entrada no rateio (ajuste manual)', 'Anotação', 'Última conta RGE: ref.', 'Última conta RGE: vencimento',
   'Última conta RGE: valor', 'Última conta RGE: situação', 'Fora das abas', 'Não está na CLIENTES', 'Anotado por', 'Anotado em', 'Última conta RGE: link',
@@ -832,7 +836,9 @@ const COLS_COB_CLI = ['UC (chave)', 'Cliente', 'UC', 'UC antiga', 'Investidor', 
   'Desconto % (ajuste manual)', 'Desconto sobre (ajuste manual)', 'R$/kWh investidor (ajuste manual)'];
 const ABA_COB_AND = 'Cobranças Andamento';   // o que o portal marcou em cada cobrança (emitida, enviada, paga): nunca é apagada pela cópia
 const COLS_COB_AND = ['Chave', 'UC (chave)', 'Mês', 'Cliente', 'Emitida em', 'Emitida por', 'Valor cobrado (R$)', 'Enviada em', 'Enviada por',
-  'Vencimento', 'Paga em', 'Paga por', 'Atualizado em'];
+  'Vencimento', 'Paga em', 'Paga por', 'Atualizado em',
+  // Controle do mês (versão 50): o que a equipe marcava nas colunas RGE, PGTO, CONF e OBSERVAÇÕES da aba do mês
+  'RGE paga em', 'RGE paga por', 'PGTO', 'Conferido em', 'Conferido por', 'Observação do mês'];
 const ABA_COB_US = 'Cobranças Usinas';   // UCs geradoras da planilha de controle (INVESTIDORES, FATURAS GERADOR, GERADORES - CONSÓRCIO)
 const COLS_COB_US = ['UC', 'UC antiga', 'Usina / investidor', 'Origem'];
 /* Cobrança criada pelo portal (versão 45): cada fatura da RGE lida de um cliente vira a cobrança do mês (o mesmo padrão
@@ -909,8 +915,10 @@ function lerAndamento_() {
   lerAbaCob_(SpreadsheetApp.getActive().getSheetByName(ABA_COB_AND)).forEach(o => {
     const ch = t(o['Chave']); if (!ch) return;
     m[ch] = { emitida: iso(o['Emitida em']), emitidaPor: t(o['Emitida por']), valor: typeof o['Valor cobrado (R$)'] === 'number' ? o['Valor cobrado (R$)'] : null,
-      enviada: iso(o['Enviada em']), enviadaPor: t(o['Enviada por']), venc: iso(o['Vencimento']), paga: iso(o['Paga em']), pagaPor: t(o['Paga por']), _linha: o._linha };
-    if (!m[ch].emitida && !m[ch].enviada && !m[ch].paga) delete m[ch];
+      enviada: iso(o['Enviada em']), enviadaPor: t(o['Enviada por']), venc: iso(o['Vencimento']), paga: iso(o['Paga em']), pagaPor: t(o['Paga por']), _linha: o._linha,
+      rgePaga: iso(o['RGE paga em']), rgePor: t(o['RGE paga por']), pgto: t(o['PGTO']), conf: iso(o['Conferido em']), confPor: t(o['Conferido por']), obs: t(o['Observação do mês']) };
+    const a = m[ch];
+    if (!a.emitida && !a.enviada && !a.paga && !a.rgePaga && !a.pgto && !a.conf && !a.obs) delete m[ch];
   });
   return m;
 }
@@ -989,6 +997,62 @@ function cobMarcar(d, usuario) {
   } finally { lock.releaseLock(); }
 }
 
+/** Controle do mês: marca na linha do cliente e mês (chave UC|AAAA-MM da aba Cobranças Andamento).
+    d = { k, c, campo: 'rge' | 'pgto' | 'conf' | 'obs', valor, venc: AAAA-MM-DD da conta da RGE, ucs: [UCs do cliente] }.
+    rge = true também marca PAGO na PROGRAMAÇÃO da planilha de controle (mesma UC e vencimento). */
+const PGTO_OPCOES_ = ['REGULAR', 'ATRASO RGE', 'INADIMPLENTE', 'AGUARDANDO PGTO'];
+function ctlMarcar(d, usuario) {
+  const k = String(d && d.k || '').trim(), c = String(d && d.c || '').trim(), campo = String(d && d.campo || '');
+  if (!k || !/^\d{4}-\d{2}$/.test(c)) return { ok: false, erro: 'cliente ou mês não informado' };
+  if (['rge', 'pgto', 'conf', 'obs'].indexOf(campo) < 0) return { ok: false, erro: 'campo inválido' };
+  let valor = d.valor;
+  if (campo === 'pgto') { valor = String(valor || '').trim().toUpperCase(); if (valor && PGTO_OPCOES_.indexOf(valor) < 0) return { ok: false, erro: 'PGTO inválido' }; }
+  if (campo === 'obs') valor = limpa(String(valor == null ? '' : valor).trim().slice(0, 500));
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'a planilha está gravando agora; tente de novo em 1 minuto' };
+  let aviso = '';
+  try {
+    const sh = abaCob_(ABA_COB_AND, COLS_COB_AND), tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+    const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim()), col = n => cab.indexOf(n) + 1;
+    const ch = k + '|' + c, quem = usuario.nome || usuario.email || '';
+    let o = lerAbaCob_(sh).find(x => String(x['Chave']).trim() === ch), linha;
+    if (o) linha = o._linha;
+    else {
+      linha = Math.max(sh.getLastRow(), 1) + 1;
+      const cli = lerAbaCob_(SpreadsheetApp.getActive().getSheetByName(ABA_COB_CLI)).find(x => String(x['UC (chave)']) === k) || {};
+      sh.getRange(linha, col('Chave')).setValue(ch); sh.getRange(linha, col('UC (chave)')).setValue("'" + k);
+      sh.getRange(linha, col('Mês')).setValue("'" + c); sh.getRange(linha, col('Cliente')).setValue(cli['Cliente'] || String(d.nome || ''));
+    }
+    const put = (n, v, fmt) => { const r = sh.getRange(linha, col(n)); r.setValue(v); if (fmt) r.setNumberFormat(fmt); };
+    const hoje = new Date();
+    if (campo === 'rge') {
+      if (valor) { put('RGE paga em', hoje, 'dd/MM/yyyy'); put('RGE paga por', quem); }
+      else { put('RGE paga em', ''); put('RGE paga por', ''); }
+    }
+    if (campo === 'conf') {
+      if (valor) { put('Conferido em', hoje, 'dd/MM/yyyy'); put('Conferido por', quem); }
+      else { put('Conferido em', ''); put('Conferido por', ''); }
+    }
+    if (campo === 'pgto') put('PGTO', valor);
+    if (campo === 'obs') put('Observação do mês', valor);
+    put('Atualizado em', Utilities.formatDate(hoje, 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm') + ' · ' + quem);
+  } finally { lock.releaseLock(); }
+  // conta da RGE paga: a PROGRAMAÇÃO da planilha de controle também (fora do lock: abre outra planilha)
+  if (campo === 'rge' && valor) {
+    try {
+      const venc = String(d.venc || ''), ucs = (Array.isArray(d.ucs) ? d.ucs : []).concat([k]).map(u => String(u || '').replace(/\D/g, '')).filter(u => u.length >= 7);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(venc) && ucs.length) {
+        const pagos = {}; ucs.forEach(u => { pagos[u + '|' + venc] = 'Controle do mês, por ' + (usuario.nome || usuario.email || ''); });
+        const n = progAplicarPagos_(pagos, 'Marcado PAGO no Controle do mês do portal');
+        if (!n) aviso = 'a conta não foi achada na PROGRAMAÇÃO (UC e vencimento ' + venc.split('-').reverse().join('/') + ') ou já estava PAGO';
+      } else aviso = 'sem o vencimento da conta da RGE: a PROGRAMAÇÃO não foi alterada';
+    } catch (e) { aviso = 'não consegui marcar na PROGRAMAÇÃO: ' + e.message; }
+  }
+  const a = lerAndamento_()[k + '|' + c] || null;
+  if (a) delete a._linha;
+  return { ok: true, k: k, c: c, and: a, aviso: aviso };
+}
+
 function abaCob_(nome, cols) {
   const ss = SpreadsheetApp.getActive();
   let sh = ss.getSheetByName(nome);
@@ -1051,10 +1115,11 @@ function cobGravarAbas_(r) {
       const l = porCli[k], sit = cobSituacoes_(l, entradaDe[k], hoje), c = nomes[k] || {};
       l.forEach((x, i) => linhas.push([k + '|' + x.c + '|' + (x.l || 'fora'), x.c, x.fora ? '(fora das abas)' : abaDe[x.c] || '', x.l || '', x.ref || '', k, c.n || '', c.uc || '',
         c.inv || '', c.vend || '', x.v == null ? '' : x.v, x.cob ? data(x.cob) : '', x.vr ? data(x.vr) : '', x.st || '', SIT_COB_[sit[i]] || sit[i],
-        x.rge || '', /^\d{4}-\d{2}-\d{2}$/.test(x.conf) ? data(x.conf) : x.conf || '', x.pg || '', x.refPg || '', x.obs || '']));
+        x.rge || '', /^\d{4}-\d{2}-\d{2}$/.test(x.conf) ? data(x.conf) : x.conf || '', x.pg || '', x.refPg || '', x.obs || '',
+        x.lu == null ? '' : x.lu, x.iv == null ? '' : x.iv]));
     });
     linhas.sort((a, b) => a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : String(a[6]).localeCompare(String(b[6])));
-    escreveAbaCob_(abaCob_(ABA_COB, COLS_COB), COLS_COB, linhas, [12, 13, 17], { 11: '#,##0.00' }, [1, 2, 5, 6, 8]);
+    escreveAbaCob_(abaCob_(ABA_COB, COLS_COB), COLS_COB, linhas, [12, 13, 17], { 11: '#,##0.00', 21: '#,##0.00', 22: '#,##0.00' }, [1, 2, 5, 6, 8]);
     // usinas (UCs geradoras) da planilha de controle: a regra do tipo de UC usa
     const shU = abaCob_(ABA_COB_US, COLS_COB_US);
     escreveAbaCob_(shU, COLS_COB_US, (r.usinas || []).map(u => [u.uc, u.ucA, u.nome, u.origem]), [], {}, [1, 2]);
@@ -1385,7 +1450,8 @@ function cobDados_() {
     if (!fora) meses[c] = t(o['Aba']);
     return { k: t(o['UC (chave)']), c: c, l: Number(o['Linha']) || 0, v: v, s: fora ? 'sem_fatura' : cobStatus_(st, v), st: st, ref: mesTxt_(o['Mês ref. RGE']),
       cob: iso(o['Cobrança']), vr: iso(o['Vencimento RGE']), conf: iso(o['CONF']) || t(o['CONF']), rge: t(o['Conta RGE']), pg: t(o['PGTO']), refPg: t(o['REF PGTO']),
-      obs: t(o['Observações']), fora: fora, and: and[t(o['UC (chave)']) + '|' + c] || null };
+      obs: t(o['Observações']), fora: fora, and: and[t(o['UC (chave)']) + '|' + c] || null,
+      lu: typeof o['Lucro (planilha)'] === 'number' ? o['Lucro (planilha)'] : null, iv: typeof o['Investidor R$ (planilha)'] === 'number' ? o['Investidor R$ (planilha)'] : null };
   });
   let sync = {}; try { sync = JSON.parse(PropertiesService.getScriptProperties().getProperty('COB_SYNC') || '{}'); } catch (e) {}
   const agora = new Date();
@@ -1565,7 +1631,9 @@ function lerCobrancas(ssAberta) {
     if (h < 0) { avisos.push('aba ' + sh.getName() + ': sem cabeçalho CLIENTE'); return; }
     const cab = v[h].map(N), c = n => cab.indexOf(n);
     const C = { cli: c('CLIENTE'), uc: c('UC'), nova: c('NOVA UC'), fat: c('FATURA'), cob: c('COBRANCA'), vr: c('VENCIMENTO RGE'), st: c('STATUS'),
-      vend: c('VENDEDOR'), conf: c('CONF'), rge: c('RGE'), ref: c('REF'), pg: c('PGTO'), refPg: c('REF PGTO'), obs: c('OBSERVACOES'), inv: c('INVESTIDOR') };
+      vend: c('VENDEDOR'), conf: c('CONF'), rge: c('RGE'), ref: c('REF'), pg: c('PGTO'), refPg: c('REF PGTO'), obs: c('OBSERVACOES'), inv: c('INVESTIDOR'),
+      lu: c('LUCRO'), ivR: cab.lastIndexOf('INVESTIDOR') };   // a 2ª coluna INVESTIDOR (depois de INJETADO) é o valor em R$
+    if (C.ivR === C.inv) C.ivR = -1;
     if (C.cli < 0 || (C.uc < 0 && C.nova < 0)) { avisos.push('aba ' + sh.getName() + ': sem coluna UC'); return; }
     // ano da aba: pelas datas de cobrança (a aba DEZEMBRO pode ser do ano passado)
     const votos = {};
@@ -1593,7 +1661,8 @@ function lerCobrancas(ssAberta) {
       const rgeV = C.rge >= 0 ? r[C.rge] : '';
       cobs.push({ k: k, c: comp, l: i + 1, v: fat, s: statusDe(st, fat), st: st, ref: ref, cob: C.cob >= 0 ? iso(r[C.cob]) : '', vr: C.vr >= 0 ? iso(r[C.vr]) : '',
         conf: C.conf >= 0 ? (iso(r[C.conf]) || txt(r[C.conf])) : '', rge: rgeV instanceof Date ? 'PAGO ' + txt(rgeV) : txt(rgeV).toUpperCase(),
-        pg: C.pg >= 0 ? txt(r[C.pg]).toUpperCase() : '', refPg: C.refPg >= 0 ? txt(r[C.refPg]).toUpperCase() : '', obs: C.obs >= 0 ? txt(r[C.obs]) : '' });
+        pg: C.pg >= 0 ? txt(r[C.pg]).toUpperCase() : '', refPg: C.refPg >= 0 ? txt(r[C.refPg]).toUpperCase() : '', obs: C.obs >= 0 ? txt(r[C.obs]) : '',
+        lu: C.lu >= 0 ? num(r[C.lu]) : null, iv: C.ivR >= 0 ? num(r[C.ivR]) : null });
       // dados do cliente: a aba mais nova ganha
       const cl = clientes[k] || (clientes[k] = { k: k });
       cl.n = nome;
@@ -2194,6 +2263,12 @@ function progSincronizarPagos_(c) {
     (ucsDe[x.k] || [dig(x.k)]).forEach(u => { pagos[u + '|' + x.vr] = abaDe[x.c] || x.c; });
   });
   if (!Object.keys(pagos).length) return 0;
+  return progAplicarPagos_(pagos, 'Marcado PAGO pelo portal', true);
+}
+
+/** pagos = { 'UC|AAAA-MM-DD': origem }: as contas da PROGRAMAÇÃO (UC nova ou antiga + vencimento) que ainda não estão PAGO viram PAGO. */
+function progAplicarPagos_(pagos, texto, deAba) {
+  const dig = x => String(x == null ? '' : x).replace(/\.0+$/, '').replace(/\D/g, '');
   const ss = SpreadsheetApp.openById(idPlanilhaControle_()), sh = ss.getSheetByName(ABA_PROGRAMACAO_EXT);
   if (!sh || sh.getLastRow() < 2) return 0;
   const tz = ss.getSpreadsheetTimeZone();
@@ -2212,7 +2287,7 @@ function progSincronizarPagos_(c) {
     if (!aba) return;
     const cel = sh.getRange(i + 2, C.sit + 1);
     cel.setValue('PAGO');
-    cel.setNote('Marcado PAGO pelo portal em ' + quando + ': a coluna RGE da aba ' + aba + ' está PAGO' + (r[C.sit] ? ' (antes: ' + r[C.sit] + ')' : ''));
+    cel.setNote(texto + ' em ' + quando + ': ' + (deAba ? 'a coluna RGE da aba ' + aba + ' está PAGO' : aba) + (r[C.sit] ? ' (antes: ' + r[C.sit] + ')' : ''));
     n++;
   });
   if (n) { try { CacheService.getScriptCache().remove(CACHE_PROG_ + '_n'); } catch (e) {} }
