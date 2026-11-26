@@ -59,6 +59,12 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   data do envio do Anexo G, marca o rateio como "ENVIADO À RGE" e grava essa data como **entrada no rateio** no cadastro das
   UCs novas (as que nunca estiveram num rateio enviado e ainda não têm data). Quem já tinha data não muda; UC fora do cadastro
   é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
+- **Controle do mês** (Clientes → Controle do mês): a aba do mês da planilha dentro do site. Escolhe o mês e aparece uma
+  linha por cliente: fatura, conta da RGE, investidor (R$), lucro, cobrança, vencimento da RGE, situação (com os botões
+  emitida → enviada → paga), **RGE paga**, **PGTO**, **Conferido** e **observação**. Os quatro últimos são marcados ali
+  mesmo e ficam na aba Cobranças Andamento do portal; marcar "RGE paga" também marca PAGO na PROGRAMAÇÃO (mesma UC e
+  vencimento). O que já está marcado na planilha aparece como "planilha". Totais do mês (faturado, recebido, contas da RGE
+  pagas, lucro estimado), filtros e "Baixar o mês (Excel)". Sem fatura lida no portal, usa LUCRO e INVESTIDOR da aba.
 - **PROGRAMAÇÃO acompanha as abas dos meses:** a cada 10 minutos, a conta da RGE marcada **PAGO** na coluna RGE da aba do
   mês também fica **PAGO** na aba PROGRAMAÇÃO da planilha de controle (mesma UC, nova ou antiga, e mesma data de vencimento),
   com uma nota na célula dizendo de qual aba veio. Só marca PAGO: nunca desfaz nem muda outra situação. Para desligar,
