@@ -59,6 +59,10 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   data do envio do Anexo G, marca o rateio como "ENVIADO À RGE" e grava essa data como **entrada no rateio** no cadastro das
   UCs novas (as que nunca estiveram num rateio enviado e ainda não têm data). Quem já tinha data não muda; UC fora do cadastro
   é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
+- **Cobranças abrem na hora:** o navegador guarda uma cópia da última leitura das Cobranças (IndexedDB, por usuário; é
+  apagada ao sair). A tela e o painel "O que fazer hoje" abrem com essa cópia ("Mostrando o que foi lido em dd/mm às hh:mm ·
+  atualizando…") e a leitura nova entra sozinha quando chega. Se uma ficha ou a janela de marcar estiver aberta, a leitura
+  nova espera ela fechar, para não perder o que está sendo digitado.
 - **O que fazer hoje** (tela inicial do portal — abre ao entrar e ao clicar no logo OZZ; TI e Admin): um painel com o que está pendente, cada item abre a ficha:
   cobranças vencidas, para emitir no Asaas, para enviar, que vencem em até 3 dias; faturas da RGE que chegaram no e-mail
   e falta ler no Leitor; clientes novos sem Anexo G enviado (e se já estão num rateio salvo); 1ª fatura atrasada (mais de
