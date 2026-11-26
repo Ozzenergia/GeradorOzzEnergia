@@ -89,6 +89,7 @@ main.wide.xl{max-width:1560px}
 .ana-top h2{font-size:25px;font-weight:700;letter-spacing:-.3px}
 .ana-top p{color:var(--muted);font-size:14px;margin-top:2px}
 .ana-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+#cbKpis{grid-template-columns:repeat(3,1fr)}
 .ana-kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;text-align:left;font:inherit;color:var(--ink);cursor:pointer;border-left:5px solid var(--line)}
 .ana-kpi:hover{border-color:var(--primary-line)}
 .ana-kpi.on{outline:2px solid var(--primary-line);outline-offset:1px}
@@ -348,6 +349,8 @@ main.wide.xl{max-width:1560px}
 .cb-st.aguardando{background:#e7effa;color:#1f4b8a}
 .cb-st.enviar{background:var(--warn-soft);color:var(--warn)}
 .cb-st.nao_emitiu{background:#efe7fd;color:#5b21b6}
+.cb-st.pendente{background:var(--err-soft,#fdecec);color:var(--err,#b42318)}
+.cb-st.tem_fatura{background:var(--warn-soft);color:var(--warn)}
 .cb-st.sem_fatura,.cb-st.sem_status,.cb-st.outro{background:var(--line);color:var(--muted)}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .cb-st.aguardando{background:#16263d;color:#93c5fd}:root:not([data-theme="light"]) .cb-st.nao_emitiu{background:#261a40;color:#c4b5fd}}
 :root[data-theme="dark"] .cb-st.aguardando{background:#16263d;color:#93c5fd}:root[data-theme="dark"] .cb-st.nao_emitiu{background:#261a40;color:#c4b5fd}
@@ -450,6 +453,7 @@ main.wide.xl{max-width:1560px}
 }
 @media(max-width:760px){
   .ana-kpis{grid-template-columns:repeat(2,1fr)}.ana-kpi b{font-size:18px}
+  #cbKpis{grid-template-columns:repeat(2,1fr)}
   .ana-filtros input{flex-basis:100%}.ana-filtros select{flex:1;min-width:0}
   .ana-tabela thead{display:none}
   .ana-tabela table,.ana-tabela tbody,.ana-tabela tr,.ana-tabela td{display:block;width:100%}
@@ -2268,6 +2272,7 @@ function extrasFatura(t){
   x.minimo=x.fornecimento?(/mono/i.test(x.fornecimento)?30:/bi/i.test(x.fornecimento)?50:100):'';
   const le=t.match(/(\d\d\/\d\d\/20\d\d)\s+(\d\d\/\d\d\/20\d\d)\s+(\d{1,2})\s*\n\s*Pr[óo]xima leitura/i);if(le){x.leitura=le[1];x.leituraAnt=le[2];x.dias=+le[3]}
   const em=t.match(/DATA DE EMISS[ÃA]O:\s*(\d\d\/\d\d\/20\d\d)/i);if(em)x.emissao=em[1];
+  const pl=t.match(/Pr[óo]xima leitura\s*:?\s*(\d\d\/\d\d\/20\d\d)/i);if(pl)x.proxLeitura=pl[1];
   const nf=t.match(/NOTA FISCAL N[ºo°]\s*(\d+)/i);if(nf)x.nf=nf[1];
   const pa=t.match(/Participa[çc][ãa]o na gera[çc][ãa]o\s*([\d.,]+)\s*%/i);if(pa)x.participacao=+pa[1].replace(',','.');
   const sa=t.match(/Saldo em Energia da Instala[çc][ãa]o:[^\d\n]*([\d.]*\d,\d+|\d+)\s*kWh/i);if(sa)x.saldo=n(sa[1]);
@@ -2390,7 +2395,7 @@ function lfDetalhe(i){
     ['Injetada por mês',i.injetadaMeses],['Saldo',n(i.saldo,1)?n(i.saldo,1)+' kWh':''],['Saldo a expirar',n(i.saldoExpirar,1)?n(i.saldoExpirar,1)+' kWh':''],
     ['Participação na geração',n(i.participacao,2)?n(i.participacao,2)+'%':''],['Custo mínimo',kwh(i.minimo)],
     ['Energia injetada no medidor',n(i.geracaoMed)?n(i.geracaoMed)+' kWh'+(ucTipo(i.uc)&&ucTipo(i.uc).tipo==='usina'?' (geração da usina no mês)':''):''],
-    ['Leitura anterior',i.leituraAnt],['Leitura atual',i.leitura],['Dias',n(i.dias)],['Data de emissão',i.emissao],['Nota fiscal',i.nf],
+    ['Leitura anterior',i.leituraAnt],['Leitura atual',i.leitura],['Dias',n(i.dias)],['Próxima leitura',i.proxLeitura],['Data de emissão',i.emissao],['Nota fiscal',i.nf],
     ['TUSD (R$/kWh com tributos)',i.tusdTarifa?String(i.tusdTarifa).replace('.',','):''],['TE (R$/kWh com tributos)',i.teTarifa?String(i.teTarifa).replace('.',','):''],
     ['TUSD + TE do consumo',i.tusdValor!=null&&i.tusdValor!==''?brl(i.tusdValor)+' + '+brl(i.teValor):''],['Adicional de bandeira',i.bandeira?brl(i.bandeira):''],
     ['Iluminação pública',i.cip?brl(i.cip):''],['Outros débitos e créditos',i.outros||''],['Arquivo',i.arquivo]];
@@ -2568,7 +2573,7 @@ $('lfLimpar').onclick=()=>{lf.itens=[];$('lfMsg').textContent='';lfRender()};
 $('lfSalvar').onclick=async()=>{
   const pend=lf.itens.filter(i=>i.estado==='ok'&&!i.salva&&(!i.ocr||i.conferido));if(!pend.length||lf.salvando)return;
   lf.salvando=true;lfRender();$('lfMsg').textContent='Guardando…';
-  const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','emissao','nf','historico','tusdTarifa','teTarifa','tusdValor','teValor','bandeira','bandeiraCred','cip','injKwh','outros','geracaoMed'];
+  const campos=['arquivo','uc','titular','doc','distribuidora','classe','fornecimento','tensao','mes','vencimento','valor','consumo','injetada','injetadaMeses','saldo','saldoExpirar','participacao','minimo','leituraAnt','leitura','dias','proxLeitura','emissao','nf','historico','tusdTarifa','teTarifa','tusdValor','teValor','bandeira','bandeiraCred','cip','injKwh','outros','geracaoMed'];
   // em lotes de 100 (uma pasta pode ter centenas de faturas)
   const r={ok:true,faturas:0,atualizadas:0,historico:0,fornecimento:0,usinas:0,ignoradas:[]};
   for(let k=0;k<pend.length;k+=100){
@@ -3357,12 +3362,12 @@ $('fxCustos').onchange=e=>{fx.custos=e.target.checked;if(!fx.custos&&fx.tipo==='
    Junta as abas dos meses (uma linha por UC e aba) e mostra o que falta emitir, enviar e receber.
    "Mês" = a aba da planilha (mês da cobrança); "ref. RGE" = a coluna REF* (mês da conta da RGE). */
 const cb={dados:null,L:[],cli:{},meses:[],mes:null,grupo:'pend',vista:'lista',busca:'',vend:'',inv:'',carregando:false};
-const CB_ST={pago:'Pago',atrasado:'Atrasado',vencida:'Vencida',aguardando:'Aguardando',enviar:'A enviar',nao_emitiu:'Não emitida',sem_fatura:'Sem fatura',sem_status:'Sem status',outro:'Outro',aguarda_1a:'Aguardando 1ª fatura'};
-const CB_CURTO={pago:'Pago',atrasado:'Atras.',vencida:'Venc.',aguardando:'Aguard.',enviar:'Enviar',nao_emitiu:'Não emit.',sem_fatura:'Sem fat.',sem_status:'S/ status',outro:'?',aguarda_1a:'1ª fat.'};
-const CB_GRUPOS={pend:{nome:'Pendentes',e:['atrasado','vencida','nao_emitiu','sem_fatura','enviar','aguardando','sem_status','outro']},
-  nemit:{nome:'Não emitidas',e:['nao_emitiu','sem_fatura']},env:{nome:'A enviar',e:['enviar']},agu:{nome:'Aguardando pagamento',e:['aguardando','sem_status','outro']},
+const CB_ST={pago:'Pago',atrasado:'Atrasado',vencida:'Vencida',aguardando:'Aguardando',enviar:'Disponível upload da fatura',tem_fatura:'Enviar',pendente:'Pendente',nao_emitiu:'Não emitida',sem_fatura:'Sem fatura',sem_status:'Sem status',outro:'Outro',aguarda_1a:'Aguardando 1ª fatura'};
+const CB_CURTO={pago:'Pago',atrasado:'Atras.',vencida:'Venc.',aguardando:'Aguard.',enviar:'Upload',tem_fatura:'Enviar',pendente:'Pend.',nao_emitiu:'Não emit.',sem_fatura:'Sem fat.',sem_status:'S/ status',outro:'?',aguarda_1a:'1ª fat.'};
+const CB_GRUPOS={pend:{nome:'Em aberto',e:['atrasado','vencida','pendente','nao_emitiu','sem_fatura','tem_fatura','enviar','aguardando','sem_status','outro']},
+  nemit:{nome:'Não emitidas',e:['nao_emitiu','sem_fatura']},pdt:{nome:'Pendentes',e:['pendente']},tf:{nome:'Enviar',e:['tem_fatura']},env:{nome:'Disponível upload da fatura',e:['enviar']},agu:{nome:'Aguardando pagamento',e:['aguardando','sem_status','outro']},
   atr:{nome:'Atrasadas',e:['atrasado','vencida']},novo:{nome:'Aguardando 1ª fatura',e:['aguarda_1a']},pago:{nome:'Pagas',e:['pago']},todas:{nome:'Todas',e:null}};
-const CB_PRI={atrasado:0,vencida:0,enviar:2,aguardando:3,sem_status:3,outro:3,nao_emitiu:4,sem_fatura:4,aguarda_1a:6,pago:9};
+const CB_PRI={atrasado:0,vencida:0,pendente:1,tem_fatura:1,enviar:2,aguardando:3,sem_status:3,outro:3,nao_emitiu:4,sem_fatura:4,aguarda_1a:6,pago:9};
 const cbRef=r=>r?r.slice(5,7)+'/'+r.slice(0,4):'';
 const cbMaisUm=r=>{let y=+r.slice(0,4),m=+r.slice(5,7)+1;if(m>12){m=1;y++}return y+'-'+String(m).padStart(2,'0')};
 const cbDias=(a,b)=>Math.round((Date.parse(b+'T12:00:00')-Date.parse(a+'T12:00:00'))/864e5);
@@ -3484,7 +3489,27 @@ function cbCalcCliente(c){
     else if(e!=='pago'&&a.emitida&&['nao_emitiu','sem_fatura','aguarda_1a','sem_status','outro'].includes(e))e='enviar';
     x.e=e});
   c.abertos=c.lista.filter(x=>cbAberto(x.e));
-  c.lista.forEach(x=>{x.chegou=false;x.mot=cbMotivo(x,cb.hoje);x.pri=CB_PRI[x.e]!=null?CB_PRI[x.e]:5;if(x.chegou&&x.e!=='aguarda_1a')x.pri=1});
+  c.lista.forEach(x=>{x.chegou=false;x.mot=cbMotivo(x,cb.hoje);x.f=cbFase(x,c);x.pri=CB_PRI[x.f]!=null?CB_PRI[x.f]:5});
+}
+/* fase mostrada nas Cobranças (x.e continua sendo a situação de base, usada no fluxo do portal):
+   Enviar            = ainda não emitida, mas a fatura da RGE já chegou/foi lida (ou o portal já calculou a cobrança)
+   Pendente          = não emitida e já passou da próxima leitura que veio na fatura anterior (o prazo da RGE)
+   Não emitida       = não emitida e ainda no prazo (ou sem fatura anterior lida para saber o prazo) */
+function cbFase(x,c){
+  if(!['nao_emitiu','sem_fatura','aguarda_1a'].includes(x.e))return x.e;
+  if(x.chegou||(x.pc&&x.pc.valor!=null))return 'tem_fatura';
+  if(x.e==='aguarda_1a')return x.e;
+  const p=cbPrazo(x,c);x.prazo=p;
+  if(p&&cb.hoje>p.d){x.mot='<span class="alerta">Passou do prazo: a leitura estava prevista para '+anaDataBR(p.d)+(p.est?' (estimada)':'')+' e a conta ainda não saiu.</span> '+x.mot;return 'pendente'}
+  if(p)x.mot='No prazo: próxima leitura em '+anaDataBR(p.d)+(p.est?' (estimada)':'')+'. '+x.mot;
+  return x.e;
+}
+/* prazo da conta desta linha: a próxima leitura da última fatura lida antes dela (aba do mês = mês de pagamento; a conta é do mês anterior) */
+function cbPrazo(x,c){
+  let y=+x.c.slice(0,4),m=+x.c.slice(5,7)-1;if(m<1){m=12;y--}
+  const ref=x.ref||y+'-'+String(m).padStart(2,'0');
+  const f=(c.fats||[]).filter(f=>f.ref<ref&&f.prox&&f.prox.d).pop();
+  return f?{d:f.prox.d,est:f.prox.est,ref:f.ref}:null;
 }
 /* o que está acontecendo com esta cobrança (texto curto, com HTML) */
 function cbMotivo(x,hoje){
@@ -3526,7 +3551,7 @@ function cbMotivo(x,hoje){
     }else if(ant.length)p.push('Nenhuma conta da RGE desta UC na PROGRAMAÇÃO. Última cobrada: '+(ultRef?'ref. '+cbRef(ultRef)+' (aba '+fxMesNome(ultAba)+')':'aba '+fxMesNome(ultAba))+'.');
     else p.push('Nenhuma conta da RGE desta UC na PROGRAMAÇÃO ainda.');
     if(x.e==='enviar')p.unshift('Marcada para enviar, mas sem valor de fatura.');
-  }else if(x.e==='enviar')p.push('Fatura pronta ('+brl(x.v)+'): falta enviar a cobrança ao cliente.');
+  }else if(x.e==='enviar')p.push('Fatura pronta ('+brl(x.v)+'): disponível para upload da fatura.');
   else if(x.e==='aguardando'||x.e==='sem_status'||x.e==='outro'){
     if(x.e==='sem_status')p.push('Tem fatura, mas a coluna STATUS está vazia.');
     if(x.e==='outro')p.push('STATUS na planilha: "'+E(x.st)+'".');
@@ -3693,7 +3718,7 @@ function ucMostrar(e){
   // cobranças
   if(c){const L=c.lista.slice().sort((a,b)=>a.c<b.c?1:-1).slice(0,8);
     h+=`<section class="ficha-bloco"><h3>Cobranças<span>${c.abertos.length?c.abertos.length+' em aberto':'nada em aberto'}</span></h3><div class="ana-tabela cb-hist"><div class="ana-scroll"><table><thead><tr><th>Mês</th><th class="num">Valor</th><th>Vencimento</th><th>Situação</th></tr></thead><tbody>${
-      L.map(x=>`<tr><td data-l="Mês">${fxMesNome(x.c)}</td><td class="num" data-l="Valor">${x.v>0?brl(x.v):'—'}</td><td data-l="Vencimento">${x.cob?anaDataBR(x.cob):'—'}</td><td><span class="cb-st ${x.e}">${CB_ST[x.e]||x.e}</span></td></tr>`).join('')}</tbody></table></div></div></section>`;
+      L.map(x=>`<tr><td data-l="Mês">${fxMesNome(x.c)}</td><td class="num" data-l="Valor">${x.v>0?brl(x.v):'—'}</td><td data-l="Vencimento">${x.cob?anaDataBR(x.cob):'—'}</td><td><span class="cb-st ${x.f||x.e}">${CB_ST[x.f||x.e]||x.e}</span></td></tr>`).join('')}</tbody></table></div></div></section>`;
     const fs=(c.fats||[]).slice().reverse().slice(0,6);
     h+=`<section class="ficha-bloco"><h3>Faturas da RGE lidas<span>${(c.fats||[]).length||'nenhuma'}</span></h3>${fs.length?`<div class="ana-tabela cb-hist"><div class="ana-scroll"><table><thead><tr><th>Ref.</th><th>Vencimento</th><th class="num">Conta RGE</th><th class="num">Consumo</th><th class="num">Injetada</th><th></th></tr></thead><tbody>${
       fs.map(f=>`<tr><td><b>${cbRef(f.ref)}</b></td><td>${f.venc?anaDataBR(f.venc):'—'}</td><td class="num">${f.valor!=null?brl(f.valor):'—'}</td><td class="num">${f.cons!=null?Math.round(f.cons).toLocaleString('pt-BR'):'—'}</td><td class="num">${f.inj!=null?Math.round(f.inj).toLocaleString('pt-BR'):'—'}</td><td>${cbBtPdf(f)}</td></tr>`).join('')}</tbody></table></div></div>`:'<div class="ficha-vazio">Nenhuma fatura desta UC lida no Leitor.</div>'}</section>`}
@@ -3726,7 +3751,7 @@ function cbFiltroBase(x){
     if(!(t.includes(qn)||(d.length>=4&&(String(c.uc).replace(/\D/g,'')+' '+String(c.ucA).replace(/\D/g,'')).includes(d))))return false}
   return true;
 }
-const cbNoGrupo=(x,g)=>!CB_GRUPOS[g].e||CB_GRUPOS[g].e.includes(x.e);
+const cbNoGrupo=(x,g)=>!CB_GRUPOS[g].e||CB_GRUPOS[g].e.includes(x.f||x.e);
 function cbRender(){
   try{if(!$('tab-ctl').classList.contains('hidden'))ctlRender()}catch(e){}
   if(!cb.dados)return;
@@ -3734,10 +3759,12 @@ function cbRender(){
   const base=cb.L.filter(x=>noMes(x)&&cbFiltroBase(x));
   const de=g=>base.filter(x=>cbNoGrupo(x,g));
   const soma=l=>l.reduce((a,x)=>a+(x.v>0?x.v:0),0);
-  const ne=de('nemit'),env=de('env'),agu=de('agu'),atr=de('atr'),nov=de('novo');
+  const ne=de('nemit'),pdt=de('pdt'),tf=de('tf'),env=de('env'),agu=de('agu'),atr=de('atr'),nov=de('novo');
   const k=(g,cls,tit,l,sub)=>`<button type="button" class="ana-kpi ${cls}${cb.grupo===g?' on':''}" data-g="${g}"><small>${tit}</small><b>${l.length}</b><span>${sub}</span></button>`;
-  $('cbKpis').innerHTML=k('nemit','k-nemit','Não emitidas',ne,ne.filter(x=>x.chegou).length+' com conta da RGE já recebida'+(nov.length?' · '+nov.length+' cliente'+(nov.length===1?' novo':'s novos')+' no prazo':''))+
-    k('env','k-env','A enviar',env,env.length?brl(soma(env))+' em faturas prontas':'nenhuma')+
+  $('cbKpis').innerHTML=k('nemit','k-nemit','Não emitidas',ne,'no prazo da RGE'+(nov.length?' · '+nov.length+' cliente'+(nov.length===1?' novo':'s novos')+' no prazo':''))+
+    k('pdt','k-atr','Pendentes',pdt,pdt.length?'passaram da próxima leitura':'nenhuma')+
+    k('tf','k-env','Enviar',tf,tf.length?'já têm a fatura da RGE':'nenhuma')+
+    k('env','k-env','Disponível upload da fatura',env,env.length?brl(soma(env))+' em faturas prontas':'nenhuma')+
     k('agu','k-agu','Aguardando pagamento',agu,brl(soma(agu)))+
     k('atr','k-atr','Atrasadas',atr,brl(soma(atr)));
   $('cbKpis').querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{cb.grupo=cb.grupo===b.dataset.g?'pend':b.dataset.g;cbRender()});
@@ -3759,7 +3786,7 @@ function cbRender(){
       <td data-l="Mês">${fxMesNome(x.c)}${x.ref?'<small>ref. RGE '+cbRef(x.ref)+'</small>':''}</td>
       <td class="num" data-l="Fatura">${x.v>0?brl(x.v):'—'}${cbPortalTag(x)}</td>
       <td data-l="Cobrança">${x.cob?anaDataBR(x.cob):'—'}${x.vr?'<small>venc. RGE '+cbDM(x.vr)+'</small>':''}</td>
-      <td>${pill(x.e)}${x.st&&CB_ST[x.e]&&x.e!=='outro'&&x.st.toUpperCase()!==CB_ST[x.e].toUpperCase()?'<small>'+E(x.st)+'</small>':''}</td>
+      <td>${pill(x.f||x.e)}${x.st&&CB_ST[x.e]&&x.e!=='outro'&&x.st.toUpperCase()!==CB_ST[x.e].toUpperCase()?'<small>'+E(x.st)+'</small>':''}</td>
       <td class="cb-motivo">${x.mot||''}</td><td>${cbBotoes(x)}</td></tr>`}).join('')
       :'<tr><td colspan="7" class="ana-vazio">Nenhuma cobrança com esses filtros.</td></tr>';
     const tot=soma(lista),cl=new Set(lista.map(x=>x.k)).size;
@@ -3772,10 +3799,10 @@ function cbRender(){
     const cls=Object.values(cb.cli).filter(c=>c.lista.length&&cbFiltroBase(c.lista[0])&&(cb.grupo==='todas'||c.lista.some(x=>noMes(x)&&cbNoGrupo(x,cb.grupo))))
       .sort((a,b)=>b.abertos.length-a.abertos.length||a.n.localeCompare(b.n,'pt-BR'));
     $('cbGradeCab').innerHTML='<tr><th class="fixa">Cliente</th>'+ms.map(m=>`<th class="m${m===cb.mes?' on':''}">${MESES_NOME[+m.slice(5,7)-1]}<small style="display:block;font-weight:500">${m.slice(2,4)}</small></th>`).join('')+'<th class="num">Em aberto</th></tr>';
-    const pior=l=>l.slice().sort((a,b)=>(CB_PRI[a.e]??5)-(CB_PRI[b.e]??5))[0];
+    const pior=l=>l.slice().sort((a,b)=>(CB_PRI[a.f||a.e]??5)-(CB_PRI[b.f||b.e]??5))[0];
     $('cbGrade').innerHTML=cls.length?cls.map(c=>`<tr data-k="${E(c.k)}"><td class="fixa"><b>${E(c.n)}</b><small>${E(c.uc)}</small></td>`+ms.map(m=>{
       const l=c.lista.filter(x=>x.c===m);if(!l.length)return '<td class="m"><span class="cb-vazio-m" title="Não está na aba">·</span></td>';
-      const x=pior(l);return `<td class="m" title="${E(fxMesNome(m)+': '+(CB_ST[x.e]||x.e)+(x.v>0?' · '+brl(x.v):'')+(x.ref?' · ref. RGE '+cbRef(x.ref):''))}">${pill(x.e,1)}</td>`}).join('')+
+      const x=pior(l);return `<td class="m" title="${E(fxMesNome(m)+': '+(CB_ST[x.f||x.e]||x.e)+(x.v>0?' · '+brl(x.v):'')+(x.ref?' · ref. RGE '+cbRef(x.ref):''))}">${pill(x.f||x.e,1)}</td>`}).join('')+
       `<td class="num">${c.abertos.length?'<span class="cb-aberto">'+c.abertos.length+'</span>':'—'}</td></tr>`).join('')
       :`<tr><td colspan="${ms.length+2}" class="ana-vazio">Nenhum cliente com esses filtros.</td></tr>`;
     $('cbGradeRodape').innerHTML=`<span>${cls.length} cliente${cls.length===1?'':'s'}</span><span>· = não está na aba daquele mês</span>`;
@@ -3865,7 +3892,7 @@ function cbRenderFaturas(){
     else if(!cobr)oq='Fatura lida; esta referência ainda não aparece nas abas de cobrança.';
     else if(cobr.e==='nao_emitiu'||cobr.e==='sem_fatura')oq='<span class="ok">Fatura lida: dá para emitir a cobrança.</span>';
     if(f&&f.pdf)oq+=(oq?' ':'')+cbBtPdf(f);
-    const cob=cobr?`<span class="cb-st ${cobr.e}">${CB_ST[cobr.e]||cobr.e}</span><small>aba ${fxMesNome(cobr.c)}${cobr.v>0?' · '+brl(cobr.v):''}</small>`:'—';
+    const cob=cobr?`<span class="cb-st ${cobr.f||cobr.e}">${CB_ST[cobr.f||cobr.e]||cobr.e}</span><small>aba ${fxMesNome(cobr.c)}${cobr.v>0?' · '+brl(cobr.v):''}</small>`:'—';
     return `<tr data-k="${E(c.k)}"><td><b>${E(c.n)}</b><small>${E(c.uc)}${c.inv?' · '+E(c.inv):''}</small></td><td data-l="Fatura">${fat}</td><td data-l="Cobrança">${cob}</td><td class="cb-motivo">${oq}</td></tr>`}).join('')
     :'<tr><td colspan="4" class="ana-vazio">Nenhum cliente com esses filtros.</td></tr>';
   $('cbFatRodape').innerHTML=`<span>Ref. ${cbRef(M)}: <b>${cnt('lida')}</b> lida${cnt('lida')===1?'':'s'} de ${linhas.length} clientes ativos</span>`+(cb.fatSemCliente||cb.fatUsinas?`<span>${cb.fatUsinas?`${cb.fatUsinas} fatura${cb.fatUsinas===1?'':'s'} de usina (ficam fora das cobranças)`:''}${cb.fatUsinas&&cb.fatSemCliente?' · ':''}${cb.fatSemCliente?`${cb.fatSemCliente} de UC que não está nas cobranças`:''}</span>`:'');
@@ -4026,7 +4053,7 @@ function cbDetalhe(k,volta){
       const det=[x.ref&&'ref. RGE '+cbRef(x.ref),x.vr&&'venc. RGE '+anaDataBR(x.vr),x.rge&&'conta RGE: '+x.rge.toLowerCase(),x.conf&&'conf. '+(/^\d{4}-/.test(x.conf)?anaDataBR(x.conf):x.conf),
         x.pg&&'PGTO '+x.pg.toLowerCase()+(x.refPg?' ('+x.refPg.toLowerCase()+')':''),x.obs&&'obs.: '+x.obs].filter(Boolean).map(E).join(' · ');
       return `<tr><td data-l="Mês"><b>${fxMesNome(x.c)}</b><small>${x.fora?'fora das abas':'aba '+E(ab)+(x.l?', linha '+x.l:'')}</small></td><td class="num" data-l="Fatura">${x.v>0?brl(x.v):'—'}</td>
-        <td data-l="Cobrança">${x.cob?anaDataBR(x.cob):'—'}</td><td><span class="cb-st ${x.e}">${CB_ST[x.e]||x.e}</span>${x.st?'<small>'+E(x.st)+'</small>':''}</td>
+        <td data-l="Cobrança">${x.cob?anaDataBR(x.cob):'—'}</td><td><span class="cb-st ${x.f||x.e}">${CB_ST[x.f||x.e]||x.e}</span>${x.st?'<small>'+E(x.st)+'</small>':''}</td>
         <td class="cb-motivo">${det||'—'}${(x.e!=='pago'||x.and)&&x.motBase?'<br>'+x.motBase:''}</td><td>${cbBotoes(x,true)}</td></tr>`}).join('')+'</tbody></table></div></div></section>';
   $('cbMCorpo').innerHTML=h;
   $('cbEdSalvar').onclick=()=>cbSalvarCliente(c);
@@ -4085,7 +4112,7 @@ function cbCsv(){
   const cab=['Mês (aba)','Aba','Linha','Mês ref. RGE','Cliente','UC','UC antiga','Investidor','Vendedor','Status na CLIENTES','Entrada no rateio','Fatura (R$)','Cobrança','Vencimento RGE','STATUS (planilha)','Situação','Conta RGE','CONF','PGTO','REF PGTO','Observações','Anotação do cliente','O que está acontecendo'];
   const linhas=cb.L.slice().sort((a,b)=>a.c<b.c?-1:a.c>b.c?1:a.cli.n.localeCompare(b.cli.n,'pt-BR')).map(x=>{const c=x.cli,ab=(cb.dados.meses.find(m=>m.comp===x.c)||{}).aba||'';
     return [x.c.slice(5,7)+'/'+x.c.slice(0,4),x.fora?'(fora das abas)':ab,x.l||'',cbRef(x.ref),c.n,c.uc,c.ucA,c.inv,c.vend,c.stCli,c.anexo?anaDataBR(c.anexo):c.anexoTxt,n(x.v),x.cob?anaDataBR(x.cob):'',x.vr?anaDataBR(x.vr):'',
-      x.st,CB_ST[x.e]||x.e,x.rge,/^\d{4}-/.test(x.conf)?anaDataBR(x.conf):x.conf,x.pg,x.refPg,x.obs,c.nota||'',semHtml(x.mot)].map(q).join(';')});
+      x.st,CB_ST[x.f||x.e]||x.e,x.rge,/^\d{4}-/.test(x.conf)?anaDataBR(x.conf):x.conf,x.pg,x.refPg,x.obs,c.nota||'',semHtml(x.mot)].map(q).join(';')});
   const blob=new Blob(['﻿'+cab.join(';')+'\r\n'+linhas.join('\r\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='cobrancas_'+cb.hoje+'.csv';document.body.appendChild(a);a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);
@@ -4127,7 +4154,7 @@ function ctlFiltra(x,L,soBase){
     if(!(t.includes(q)||(d.length>=4&&(soDig(c.uc)+' '+soDig(c.ucA)+' '+c.k).includes(d))))return false}
   if(soBase)return true;
   switch(ctl.f){
-    case 'nemit':return ['nao_emitiu','sem_fatura'].includes(x.e);case 'env':return x.e==='enviar';
+    case 'nemit':return ['nao_emitiu','sem_fatura','pendente','tem_fatura'].includes(x.f||x.e);case 'env':return x.e==='enviar';
     case 'agu':return ['aguardando','sem_status','outro'].includes(x.e);case 'atr':return ['atrasado','vencida'].includes(x.e);
     case 'pago':return x.e==='pago';case 'rge':return !!x.vr&&!L.rgePaga;case 'conf':return !L.conf&&!L.confPlan;default:return true}
 }
@@ -4160,7 +4187,7 @@ function ctlRender(){
       <td class="num" data-l="Conta RGE">${num(L.conta)}</td><td class="num" data-l="Investidor R$">${num(L.inv)}</td>
       <td class="num ${L.lucro!=null&&L.lucro<0?'fx-neg':''}" data-l="Lucro">${num(L.lucro)}</td>
       <td data-l="Cobrança">${x.cob?anaDataBR(x.cob):'—'}</td><td data-l="Venc. RGE">${x.vr?anaDataBR(x.vr):'—'}${x.ref?'<small>ref. '+cbRef(x.ref)+'</small>':''}</td>
-      <td data-l="Situação">${pill(x.e)}<div class="ctl-bts">${cbBotoes(x)}</div></td>
+      <td data-l="Situação">${pill(x.f||x.e)}<div class="ctl-bts">${cbBotoes(x)}</div></td>
       <td data-l="RGE paga" class="ctl-c"><label class="ctl-chk" title="${L.rgePlan&&!L.rgePortal?'Marcado PAGO na coluna RGE da planilha':L.rgePortal?'Marcado no portal: '+E(x.and.rgePor)+' em '+anaDataBR(x.and.rgePaga):'Marque quando a conta da RGE for paga (também marca PAGO na PROGRAMAÇÃO)'}">
         <input type="checkbox" data-ctl="rge"${L.rgePaga?' checked':''}${L.rgePlan&&!L.rgePortal?' disabled':''}${!x.vr?' disabled':''}><span>${L.rgePaga?(L.rgePortal?anaDataBR(x.and.rgePaga).slice(0,5):'planilha'):''}</span></label></td>
       <td data-l="PGTO"><select data-ctl="pgto" aria-label="PGTO de ${E(c.n)}"><option value=""></option>${CTL_PGTO.map(p=>`<option${p===L.pgto?' selected':''}>${p}</option>`).join('')}${L.pgto&&!CTL_PGTO.includes(L.pgto)?`<option selected>${E(L.pgto)}</option>`:''}</select></td>
@@ -4200,7 +4227,7 @@ $('ctlCsv').onclick=()=>{
   const c=v=>{let s=String(v==null?'':v);if(/^[=+\-@]/.test(s))s="'"+s;return /[;"\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s},n=v=>v==null||v===''?'':String(Math.round(v*100)/100).replace('.',',');
   const cab=['Cliente','UC','UC antiga','Investidor','Vendedor','Fatura','Conta RGE','Investidor R$','Lucro','Cobrança','Vencimento RGE','Ref. RGE','Situação','RGE paga','PGTO','Conferido','Observação'];
   const lin=cb.L.filter(x=>x.c===ctl.mes&&ctlFiltra(x,ctlLinha(x),true)).map(x=>{const L=ctlLinha(x),q=x.cli;
-    return [q.n,q.uc,q.ucA,q.inv,q.vend,n(x.v>0?x.v:''),n(L.conta),n(L.inv),n(L.lucro),x.cob?anaDataBR(x.cob):'',x.vr?anaDataBR(x.vr):'',x.ref?cbRef(x.ref):'',CB_ST[x.e]||x.e,L.rgePaga?'PAGO':'',L.pgto,L.conf?anaDataBR(L.conf):L.confPlan,L.obs].map(c).join(';')});
+    return [q.n,q.uc,q.ucA,q.inv,q.vend,n(x.v>0?x.v:''),n(L.conta),n(L.inv),n(L.lucro),x.cob?anaDataBR(x.cob):'',x.vr?anaDataBR(x.vr):'',x.ref?cbRef(x.ref):'',CB_ST[x.f||x.e]||x.e,L.rgePaga?'PAGO':'',L.pgto,L.conf?anaDataBR(L.conf):L.confPlan,L.obs].map(c).join(';')});
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+[cab.join(';'),...lin].join('\r\n')],{type:'text/csv;charset=utf-8'}));
   a.download='controle-'+ctl.mes+'.csv';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
 };

@@ -170,7 +170,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '50 (Controle do mês: RGE paga, PGTO, conferido e observação marcados no portal)';
+const VERSAO_SCRIPT = '51 (Cobranças: Pendente pela próxima leitura, Enviar e Disponível upload da fatura)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -850,7 +850,7 @@ const COLS_COB_PORTAL = ['Chave', 'UC (chave)', 'Mês', 'Mês ref. RGE', 'Client
   'Desconto %', 'Desconto sobre', 'Desconto (R$)', 'Cobrança calculada (R$)', 'Injetada (kWh)', 'R$/kWh investidor', 'Investidor (R$)', 'Lucro (R$)',
   'Vencimento da cobrança', 'Valor ajustado (R$)', 'Motivo do ajuste', 'Ajustado por', 'Situação', 'Aviso', 'Plano de', 'Calculada em'];
 const COB_NAO_REPASSA_ = /Art\.?\s*32[13]|Ajuste Saldo/i;   // parcelamento da distribuidora e ajuste de saldo não vão para o cliente (conferido com a ASSINATURA)
-const SIT_COB_ = { pago: 'Pago', atrasado: 'Atrasado', vencida: 'Vencida', aguardando: 'Aguardando', enviar: 'A enviar', nao_emitiu: 'Não emitida',
+const SIT_COB_ = { pago: 'Pago', atrasado: 'Atrasado', vencida: 'Vencida', aguardando: 'Aguardando', enviar: 'Disponível upload da fatura', nao_emitiu: 'Não emitida',
   sem_fatura: 'Sem fatura', sem_status: 'Sem status', outro: 'Outro', aguarda_1a: 'Aguardando 1ª fatura' };
 
 /**
@@ -1238,6 +1238,20 @@ function cobParaCadastro_(o, ent, plano, usuario) {
 }
 
 /** Faturas da RGE lidas pelo Leitor (aba Faturas Lidas), no formato das Cobranças: uma por UC e mês de referência. */
+/* Próxima leitura da fatura (AAAA-MM-DD): a da própria conta; nas faturas lidas antes da versão 51, estimada
+   pela leitura atual + os dias do ciclo (est = true). É o prazo para sair a conta do mês seguinte. */
+function proxLeitura_(o, tz) {
+  const d = x => {
+    if (x instanceof Date && !isNaN(x)) return Utilities.formatDate(x, tz, 'yyyy-MM-dd');
+    const m = String(x == null ? '' : x).match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+  };
+  const p = d(o['Próxima Leitura']);
+  if (p) return { d: p, est: false };
+  const la = d(o['Leitura Atual']), dias = Number(o['Dias']) || 30;
+  if (!la) return null;
+  const t = new Date(la + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() + (dias >= 25 && dias <= 35 ? dias : 30));
+  return { d: t.toISOString().slice(0, 10), est: true };
+}
 function fatLidasCob_() {
   const ss = SpreadsheetApp.getActive(), tz = ss.getSpreadsheetTimeZone();
   const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
@@ -1248,6 +1262,7 @@ function fatLidasCob_() {
     if (uc.length < 7 || m.length !== 6) return null;
     const n = x => typeof x === 'number' && isFinite(x) ? x : null, vc = o['Vencimento'];
     return { uc: uc, ucTxt: t(o['UC']), ref: m.slice(0, 4) + '-' + m.slice(4), venc: vc instanceof Date ? Utilities.formatDate(vc, tz, 'yyyy-MM-dd') : String(vc || '').trim().replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1'),
+      prox: proxLeitura_(o, tz),
       tipo: /usina/i.test(t(o['Tipo da UC'])) ? 'usina' : ((tipos[uc] || [])[0] || ''), pdf: /\/d\//.test(t(o['PDF (Drive)'])), valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']),
       // linhas da conta (faturas lidas a partir da versão 34): o cálculo da cobrança usa
       itens: n(o['TUSD R$']) != null && n(o['TE R$']) != null ? { tusdTarifa: n(o['TUSD R$/kWh']), teTarifa: n(o['TE R$/kWh']), tusd: n(o['TUSD R$']), te: n(o['TE R$']),
@@ -2958,7 +2973,9 @@ const COLS_FATURAS = ['Lido em', 'Lido por', 'Arquivo', 'UC', 'Titular', 'CPF/CN
   // a partir da versão 39: usina geradora ou unidade consumidora (beneficiária)
   'Tipo da UC',
   // a partir da versão 43: o que o medidor registrou como energia injetada na rede (na usina, é a geração do mês)
-  'Geração injetada kWh (medidor)'];
+  'Geração injetada kWh (medidor)',
+  // a partir da versão 51: data da próxima leitura (o prazo da conta do mês seguinte, nas Cobranças)
+  'Próxima Leitura'];
 
 /* ---------- PDFs das faturas: pasta "Faturas RGE (portal OZZ)" no Drive de quem implantou o script ----------
    Uma subpasta por mês de referência (AAAA-MM); o arquivo se chama "UC - Titular.pdf". Ler a mesma fatura de novo
@@ -3227,6 +3244,7 @@ function faturasSalvar(lista, usuario) {
       linha.push('');   // coluna PDF (Drive): o link é gravado depois, por faturaPdfSalvar
       linha.push(tp ? (tp[0] === 'usina' ? 'Usina geradora' : 'Unidade consumidora') : '');
       linha.push(nv(f.geracaoMed));
+      linha.push(String(f.proxLeitura || ''));
       const kF = dig(uc) + '|' + mes;
       if (idxF[kF] != null) { const pdfAntes = vF[idxF[kF]][iPdf]; vF[idxF[kF]] = linha; vF[idxF[kF]][iPdf] = pdfAntes; res.atualizadas++; }
       else { idxF[kF] = -1; novasF.push(linha); res.faturas++; }
