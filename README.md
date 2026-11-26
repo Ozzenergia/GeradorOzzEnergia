@@ -59,6 +59,32 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   data do envio do Anexo G, marca o rateio como "ENVIADO À RGE" e grava essa data como **entrada no rateio** no cadastro das
   UCs novas (as que nunca estiveram num rateio enviado e ainda não têm data). Quem já tinha data não muda; UC fora do cadastro
   é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
+- **Anexo G (formulários da RGE) gerado pelo portal:** no Rateio de créditos, cada rateio salvo tem o botão **📄 Anexo G**.
+  A janela confere a soma (100%), avisa UCs sem CPF/CNPJ e pede os dados do titular da usina (nome, CPF/CNPJ, e-mail,
+  responsável quando PJ, UC âncora), que ficam guardados na aba Rateio Usinas para a próxima vez. Gera:
+  **Anexo G.2 (Word)**, o formulário de alteração de percentuais e beneficiárias, com a tabela de até 30 UCs (acima disso
+  sai "conforme lista anexa"); e a **Lista de rateio G.3 (Excel)** da geração compartilhada (UC, %, CPF/CNPJ sem pontos,
+  nome), sem limite de linhas. Os modelos ficam em `modelos/ANEXO_G2_MODELO.docx` e `modelos/ANEXO_G3_MODELO.xlsx`.
+  Depois de assinar e enviar para microgeracaorge@cpfl.com.br, use **Marcar enviado à RGE**.
+- **Cobrança do mês criada pelo portal (período em paralelo):** cada fatura da RGE lida no Leitor (de cliente, não de usina)
+  vira uma cobrança na aba **Cobranças Portal**: valor sem a OZZ, desconto do plano (cadastro do cliente; senão a ASSINATURA),
+  cobrança, investidor e lucro, com vencimento **2 dias antes** do vencimento da conta da RGE (Config!B8 muda os dias).
+  O mês da cobrança segue o padrão de cada cliente na planilha de controle (aba do mês da referência ou do seguinte);
+  cliente novo usa o mês do vencimento da RGE. Nas Cobranças a cobrança aparece como "Não emitida" com o valor pronto para
+  emitir no Asaas; a ficha tem "Ajustar valor" (pede o motivo e guarda quem mudou). Cobrança já emitida não muda se a fatura
+  for relida: só aparece um aviso. A vista **Planilha × portal** mostra iguais, diferentes, só no portal e só na planilha,
+  e o botão "Recalcular cobranças do portal" (use uma vez depois de atualizar o script, para as faturas já lidas).
+  Quando os números baterem por 1 ou 2 meses, a planilha de controle pode deixar de ser a fonte.
+- **Pós-venda na ficha do cliente:** a ficha (nas Cobranças e no Cadastro de clientes) mostra as visitas do app de pós-venda
+  daquele cliente: data, funcionário, nota e perfil (promotor/neutro/detrator), tratativa (aberta/em contato/resolvida),
+  motivo, problema, próximo passo, anotações, indicações, brinde e o link da assinatura. O portal só **lê** a aba Visitas da
+  planilha central "OZZ Visitas": cole o ID ou link dela em **Config!B7** da planilha do portal (a conta que implantou o
+  Apps Script precisa ter acesso a ela). Acha as visitas pela UC (nova ou antiga) e, se a visita não tiver UC, pelo nome.
+- **Geração real das usinas:** o Leitor lê na tabela do medidor a "Energia Injetada" (na fatura da usina, é a geração do
+  mês) e grava em Faturas Lidas. No Rateio de créditos aparece "Fatura da usina de MM/AAAA: X kWh injetados (±% da estimada)",
+  e o quadro "Geração estimada × real". **A fatura é o número oficial:** quando há fatura lida da usina no mês, o Rateio já
+  usa essa geração; a estimada (aba Rateio Geração) só entra quando a fatura ainda não chegou. Nas **Contas a pagar**, cada conta é conferida com a
+  fatura lida da mesma UC e mês ("✓ confere" ou o valor da fatura) e tem o botão **Ver PDF**.
 
 - **Pós-venda** (`posvenda/`) — cópia do app de visitas de pós-venda (repositório `visita_P-s_Vendas`, que segue
   instalado nos iPads e não foi alterado). Usa a mesma planilha central de visitas, mas guarda os dados do aparelho

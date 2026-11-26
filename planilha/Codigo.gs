@@ -34,7 +34,7 @@ const PERFIS_ = {
 };
 function temRat_(u) { const p = PERFIS_[u && u.perfil]; return !!(p && p.areas.indexOf('rat') >= 0); }
 const AREA_DA_ACAO_ = { proposta: 'ger', termo: 'ger', buscar: 'ger', clientes: 'pos', programacao: 'ana', fluxo: 'ana',
-  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_enviado: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_organizar: 'rat', fat_pasta_listar: 'rat', fat_nl: 'rat', uc_tipos: 'cli', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', uc_ozz: 'ger' };
+  cli_listar: 'cli', cli_salvar: 'cli', cli_excluir: 'cli', cli_ficha: 'cli', cli_completar: 'ana', importar_contas: 'cli', importar_status: 'cli', prog_situacao: 'ana', cobrancas: 'ana', cob_cliente: 'ana', cob_marcar: 'ana', cob_portal_gerar: 'ana', cob_portal_ajustar: 'ana', rat_dados: 'rat', rat_salvar: 'rat', rat_enviado: 'rat', rat_importar: 'rat', fat_salvar: 'rat', fat_pdf: 'rat', fat_pdf_organizar: 'rat', fat_pasta_listar: 'rat', fat_nl: 'rat', uc_tipos: 'cli', fat_pasta_baixar: 'rat', fat_pdf_ler: 'ana', rat_usina: 'rat', rat_titular: 'rat', uc_ozz: 'ger' };
 const NOME_AREA_ = { ger: 'Geradores', pos: 'Pós-venda', ana: 'Análise', cli: 'Clientes', rat: 'Rateio' };
 
 /* Cadastro de clientes do portal (aba "Clientes" desta planilha; não é a aba CLIENTES da planilha de controle) */
@@ -133,6 +133,7 @@ function configurar() {
     cfg.getRange('C5').setValue('← URL do App da Web da planilha de controle (arquivo PortalImportar)');
     cfg.getRange('C6').setValue('← chave que a função configurarPortal mostrou na planilha de controle');
   }
+  configVisitas_(cfg);
   try { lerClientesExternos_(true); } catch (e) { Logger.log('Planilha de clientes: ' + e.message); } // pede a autorização de leitura já agora
   // deixa a Análise rápida: lê a PROGRAMAÇÃO agora e de 10 em 10 minutos
   try {
@@ -169,7 +170,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '42 (rateio enviado à RGE grava a entrada no rateio no cadastro)';
+const VERSAO_SCRIPT = '46 (Anexo G: titular da usina no Rateio Usinas para gerar o G.2 e a lista G.3)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -203,7 +204,10 @@ function doPost(e) {
     if (req.acao === 'buscar') return json(buscarPorUC(req.uc, req.numero));
     if (req.acao === 'programacao') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver a análise', auth: true });
-      return json(programacaoComCache_(!!req.forcar));
+      const pr = programacaoComCache_(!!req.forcar);
+      // faturas lidas no Leitor: Contas a pagar confere o valor e mostra o PDF
+      if (pr && pr.ok) { try { pr.faturas = fatResumo_().map(f => ({ uc: f.uc, mes: f.mes, valor: f.valor, pdf: f.pdf })); } catch (e) {} }
+      return json(pr);
     }
     if (/^cli_/.test(req.acao)) {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para usar o cadastro de clientes', auth: true });
@@ -215,9 +219,19 @@ function doPost(e) {
     }
     if (req.acao === 'prog_situacao') return json(programacaoSituacao(req, usuario));
     if (req.acao === 'uc_ozz') return json(ucDaOzz(req.uc));
+    if (req.acao === 'rat_titular') {
+      if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
+      return json(ratTitularSalvar(req.usina || {}, usuario));
+    }
     if (req.acao === 'rat_usina') {
       if (!usuario.email || !temRat_(usuario)) return json({ ok: false, erro: 'o rateio é só para TI e Admin', perfil: true });
       return json(ratUsinaSalvar(req.usina || {}, usuario));
+    }
+    if (req.acao === 'pos_visitas') {   // ficha do cliente (Cobranças e Clientes): quem vê pós-venda, análise ou clientes
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google', auth: true });
+      if (!PERFIS_[usuario.perfil].areas.some(a => a === 'pos' || a === 'ana' || a === 'cli'))
+        return json({ ok: false, erro: 'o perfil ' + PERFIS_[usuario.perfil].nome + ' não vê o pós-venda', perfil: true });
+      return json(visitasDoCliente(req.ucs || [], req.nome || ''));
     }
     if (req.acao === 'uc_tipos') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google', auth: true });
@@ -267,6 +281,14 @@ function doPost(e) {
     if (req.acao === 'cobrancas') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para ver as cobranças', auth: true });
       return json(cobrancasComCache_(!!req.forcar));
+    }
+    if (req.acao === 'cob_portal_gerar') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google', auth: true });
+      return json(cobPortalGerar(usuario));
+    }
+    if (req.acao === 'cob_portal_ajustar') {
+      if (!usuario.email) return json({ ok: false, erro: 'faça login com Google', auth: true });
+      return json(cobPortalAjustar(req.cobranca || {}, usuario));
     }
     if (req.acao === 'cob_marcar') {
       if (!usuario.email) return json({ ok: false, erro: 'faça login com Google para marcar a cobrança', auth: true });
@@ -492,6 +514,66 @@ function buscarClientes(q) {
   const lista = Object.keys(porChave).map(k => porChave[k]).slice(0, 8);
   if (aviso) return { ok: true, clientes: lista, aviso: aviso };
   return { ok: true, clientes: lista };
+}
+
+/* ---------- Pós-venda (app de visitas) na ficha do cliente ----------
+ * As visitas ficam na planilha central "OZZ Visitas" (outro arquivo, com o próprio Apps Script que recebe os iPads).
+ * O portal só LÊ a aba Visitas dela: o ID ou link vai em Config!B7. Nada é gravado lá. */
+const ABA_VISITAS_EXT = 'Visitas';
+function configVisitas_(cfg) {
+  if (cfg && !String(cfg.getRange('A7').getValue())) {
+    cfg.getRange('A7').setValue('Planilha de visitas (pós-venda)').setFontWeight('bold');
+    cfg.getRange('C7').setValue('← ID ou link da planilha "OZZ Visitas" (a que recebe as visitas dos iPads). Vazio = a ficha não mostra o pós-venda');
+  }
+}
+
+function lerVisitas_() {
+  const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
+  configVisitas_(cfg);
+  let ref = cfg ? String(cfg.getRange('B7').getValue() || '').trim() : '';
+  if (!ref) return { naoConfigurado: true, lista: [] };
+  const m = ref.match(/\/d\/([a-zA-Z0-9_-]{20,})/); if (m) ref = m[1];
+  const chave = 'visitas_' + ref.slice(-12), c = lerCacheGrande_(chave);
+  if (c && c.em && Date.now() - c.em < 5 * 60 * 1000) return c;   // 5 minutos
+  const sh = SpreadsheetApp.openById(ref).getSheetByName(ABA_VISITAS_EXT);
+  if (!sh) throw new Error('a planilha de visitas não tem a aba ' + ABA_VISITAS_EXT);
+  const ult = sh.getLastRow(), larg = sh.getLastColumn();
+  if (ult < 2) return { em: Date.now(), lista: [] };
+  const v = sh.getRange(1, 1, ult, larg).getValues(), cab = v[0].map(x => String(x || '').trim());
+  const ci = n => cab.indexOf(n), cAss = ci('Assinatura');
+  const links = cAss >= 0 ? sh.getRange(2, cAss + 1, ult - 1, 1).getRichTextValues().map(r => (r[0] && r[0].getLinkUrl()) || '') : [];
+  const dt = x => x instanceof Date ? Utilities.formatDate(x, 'America/Sao_Paulo', 'yyyy-MM-dd HH:mm') : String(x || '');
+  const CAMPOS = { data: 'Data e hora', func: 'Funcionário', cliente: 'Cliente', uc: 'UC / código', nota: 'Nota', perfil: 'Perfil',
+    motivo: 'Motivo da nota', economia: 'Economia vs. prometido', melhoria: 'Sugestão de melhoria', anot: 'Anotações',
+    falta10: 'Falta para nota 10', problema: 'Problema relatado', tratativa: 'Tratativa', proximo: 'Próximo passo',
+    indic: 'Nº de indicações', brinde: 'Brinde', brindeSt: 'Brinde status', status: 'Status', id: 'ID' };
+  const idx = {}; Object.keys(CAMPOS).forEach(k => idx[k] = ci(CAMPOS[k]));
+  const lista = [];
+  for (let i = 1; i < v.length; i++) {
+    const r = v[i], o = {};
+    Object.keys(idx).forEach(k => { const j = idx[k]; o[k] = j < 0 ? '' : (k === 'data' ? dt(r[j]) : r[j] === null ? '' : r[j]); });
+    if (!o.cliente && !o.uc) continue;
+    o.ucDig = String(o.uc || '').replace(/\D/g, '');
+    o.assinatura = links[i - 1] || '';
+    lista.push(o);
+  }
+  const out = { em: Date.now(), lista };
+  gravarCacheGrande_(chave, out);
+  return out;
+}
+
+/** Visitas do pós-venda de um cliente: pela UC (nova ou antiga, só os dígitos) ou, sem UC na visita, pelo nome. Mais recentes primeiro. */
+function visitasDoCliente(ucs, nome) {
+  let base;
+  try { base = lerVisitas_(); } catch (e) { return { ok: false, erro: 'não consegui ler a planilha de visitas: ' + e.message }; }
+  if (base.naoConfigurado) return { ok: true, naoConfigurado: true, visitas: [] };
+  const norm = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+  const digs = (Array.isArray(ucs) ? ucs : [ucs]).map(u => String(u || '').replace(/\D/g, '')).filter(d => d.length >= 6);
+  const nm = norm(nome);
+  const visitas = base.lista.filter(o => (o.ucDig && digs.indexOf(o.ucDig) >= 0) || (nm.length >= 5 && norm(o.cliente) === nm))
+    .map(o => { const x = Object.assign({}, o); delete x.ucDig; return x; })
+    .sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  return { ok: true, visitas };
 }
 
 /**
@@ -753,6 +835,15 @@ const COLS_COB_AND = ['Chave', 'UC (chave)', 'Mês', 'Cliente', 'Emitida em', 'E
   'Vencimento', 'Paga em', 'Paga por', 'Atualizado em'];
 const ABA_COB_US = 'Cobranças Usinas';   // UCs geradoras da planilha de controle (INVESTIDORES, FATURAS GERADOR, GERADORES - CONSÓRCIO)
 const COLS_COB_US = ['UC', 'UC antiga', 'Usina / investidor', 'Origem'];
+/* Cobrança criada pelo portal (versão 45): cada fatura da RGE lida de um cliente vira a cobrança do mês (o mesmo padrão
+   que a planilha de controle usa para aquele cliente: aba do mês da referência ou do seguinte),
+   com o cálculo da ASSINATURA (desconto do plano) e vencimento N dias antes do vencimento da conta da RGE (Config!B8, padrão 2).
+   Os ajustes à mão ficam nas colunas "Valor ajustado", "Motivo do ajuste" e "Ajustado por" (o recálculo não apaga). */
+const ABA_COB_PORTAL = 'Cobranças Portal';
+const COLS_COB_PORTAL = ['Chave', 'UC (chave)', 'Mês', 'Mês ref. RGE', 'Cliente', 'UC da fatura', 'Vencimento RGE', 'Conta RGE (R$)', 'Sem a OZZ (R$)',
+  'Desconto %', 'Desconto sobre', 'Desconto (R$)', 'Cobrança calculada (R$)', 'Injetada (kWh)', 'R$/kWh investidor', 'Investidor (R$)', 'Lucro (R$)',
+  'Vencimento da cobrança', 'Valor ajustado (R$)', 'Motivo do ajuste', 'Ajustado por', 'Situação', 'Aviso', 'Plano de', 'Calculada em'];
+const COB_NAO_REPASSA_ = /Art\.?\s*32[13]|Ajuste Saldo/i;   // parcelamento da distribuidora e ajuste de saldo não vão para o cliente (conferido com a ASSINATURA)
 const SIT_COB_ = { pago: 'Pago', atrasado: 'Atrasado', vencida: 'Vencida', aguardando: 'Aguardando', enviar: 'A enviar', nao_emitiu: 'Não emitida',
   sem_fatura: 'Sem fatura', sem_status: 'Sem status', outro: 'Outro', aguarda_1a: 'Aguardando 1ª fatura' };
 
@@ -1081,6 +1172,195 @@ function cobParaCadastro_(o, ent, plano, usuario) {
   }
 }
 
+/** Faturas da RGE lidas pelo Leitor (aba Faturas Lidas), no formato das Cobranças: uma por UC e mês de referência. */
+function fatLidasCob_() {
+  const ss = SpreadsheetApp.getActive(), tz = ss.getSpreadsheetTimeZone();
+  const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
+  const t = x => x instanceof Date ? Utilities.formatDate(x, tz, 'dd/MM/yyyy') : String(x == null ? '' : x).trim();
+  let tipos = {}; try { tipos = tiposUc_(); } catch (e) {}
+  return lerAbaCob_(ss.getSheetByName('Faturas Lidas')).map(o => {
+    const uc = String(o['UC'] == null ? '' : o['UC']).replace(/\.0+$/, '').replace(/\D/g, ''), m = String(o['Mês Ref (AAAAMM)'] || '').replace(/\D/g, '');
+    if (uc.length < 7 || m.length !== 6) return null;
+    const n = x => typeof x === 'number' && isFinite(x) ? x : null, vc = o['Vencimento'];
+    return { uc: uc, ucTxt: t(o['UC']), ref: m.slice(0, 4) + '-' + m.slice(4), venc: vc instanceof Date ? Utilities.formatDate(vc, tz, 'yyyy-MM-dd') : String(vc || '').trim().replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1'),
+      tipo: /usina/i.test(t(o['Tipo da UC'])) ? 'usina' : ((tipos[uc] || [])[0] || ''), pdf: /\/d\//.test(t(o['PDF (Drive)'])), valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']),
+      // linhas da conta (faturas lidas a partir da versão 34): o cálculo da cobrança usa
+      itens: n(o['TUSD R$']) != null && n(o['TE R$']) != null ? { tusdTarifa: n(o['TUSD R$/kWh']), teTarifa: n(o['TE R$/kWh']), tusd: n(o['TUSD R$']), te: n(o['TE R$']),
+        bandeira: n(o['Bandeira R$']) || 0, cip: n(o['Iluminação pública R$']) || 0, injKwh: n(o['Injetada (TE) kWh']) != null ? n(o['Injetada (TE) kWh']) : n(o['Energia Injetada kWh']),
+        outros: t(o['Outros débitos e créditos']).split(' | ').map(x => { const m = x.match(/^(.*) = (-?[\d.]+)$/); return m ? { desc: m[1], valor: Number(m[2]) } : null; }).filter(Boolean) } : null };
+  }).filter(Boolean);
+}
+
+/** O cálculo da cobrança (o mesmo da tela e da aba ASSINATURA). it = itens da fatura; plano = { pct (fração), sobre, vlKwh }. */
+function cobCalc_(it, plano, contaRge) {
+  const r2 = v => Math.round(v * 100) / 100;
+  const tt = it.tusd + it.te, rep = (it.outros || []).filter(o => !COB_NAO_REPASSA_.test(o.desc)).reduce((a, o) => a + o.valor, 0);
+  const sem = tt + (it.bandeira || 0) + (it.cip || 0) + rep;
+  const base = plano.sobre === 'injetado' ? (it.injKwh || 0) * ((it.tusdTarifa || 0) + (it.teTarifa || 0)) + (it.bandeira || 0) : tt + (it.bandeira || 0);
+  const desconto = plano.pct * base, cobranca = sem - desconto, investidor = plano.vlKwh != null ? (it.injKwh || 0) * plano.vlKwh : null;
+  return { sem: r2(sem), desconto: r2(desconto), cobranca: r2(cobranca), investidor: investidor == null ? null : r2(investidor),
+    lucro: contaRge != null ? r2(cobranca - contaRge - (investidor || 0)) : null };
+}
+
+const mesMais1_ = m => { let y = Number(m.slice(0, 4)), n = Number(m.slice(5, 7)) + 1; if (n > 12) { n = 1; y++; } return y + '-' + String(n).padStart(2, '0'); };
+
+/** Dias antes do vencimento da RGE para vencer a cobrança (Config!B8; padrão 2). */
+function cobDiasAntes_() {
+  const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
+  if (!cfg) return 2;
+  if (!String(cfg.getRange('A8').getValue())) {
+    cfg.getRange('A8').setValue('Cobrança: dias antes do venc. da RGE').setFontWeight('bold');
+    cfg.getRange('B8').setValue(2);
+    cfg.getRange('C8').setValue('← a cobrança criada pelo portal vence estes dias antes do vencimento da conta da RGE');
+  }
+  const v = Number(cfg.getRange('B8').getValue());
+  return isFinite(v) && v >= 0 && v <= 60 ? Math.round(v) : 2;
+}
+
+/** Gera (ou recalcula) a aba Cobranças Portal a partir das faturas lidas. Chamar com o lock da planilha já pego.
+    Não muda os valores de uma cobrança já emitida no portal (só avisa se o novo cálculo for diferente) e nunca apaga o ajuste à mão. */
+function cobPortalGerar_() {
+  const ss = SpreadsheetApp.getActive(), tz = ss.getSpreadsheetTimeZone();
+  const dig = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
+  const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : String(x == null ? '' : x).trim();
+  const data = s => /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)), 12) : '';
+  const num = x => typeof x === 'number' && isFinite(x) ? x : null;
+  // clientes: aba Cobranças Clientes (planilha de controle + ASSINATURA) e o cadastro do portal (vale mais)
+  const cli = {}, liga = (u, o) => { const d = dig(u); if (d.length >= 7 && !cli[d]) cli[d] = o; };
+  let cad = {}; try { cad = cadastroPorUc_(); } catch (e) {}
+  const doCad = (o, base) => {
+    const pc = planoCadastro_(o), p = base.plano ? Object.assign({}, base.plano) : { pct: null, sobre: 'total', vlKwh: null };
+    if (pc) { if (pc.pct != null) p.pct = pc.pct; if (pc.sobre) p.sobre = pc.sobre; if (pc.vlKwh != null) p.vlKwh = pc.vlKwh; base.planoDe = 'cadastro'; }
+    base.plano = p.pct == null && p.vlKwh == null ? null : p;
+    if (o.nome && !base.n) base.n = o.nome;
+    if (o.entrada) base.entrada = o.entrada;
+    return base;
+  };
+  lerAbaCob_(ss.getSheetByName(ABA_COB_CLI)).forEach(o => {
+    const k = dig(o['UC (chave)']); if (!k) return;
+    let b = { k: k, n: String(o['Cliente'] || ''), plano: planoDe_(o), planoDe: 'ASSINATURA' };
+    if (b.plano && (b.plano.manual || {}).pct) b.planoDe = 'ajuste nas Cobranças';
+    const cd = cad[k] || cad[dig(o['UC'])] || cad[dig(o['UC antiga'])];
+    if (cd) b = doCad(cd, b);
+    [k, o['UC'], o['UC antiga']].forEach(u => liga(u, b));
+  });
+  Object.keys(cad).forEach(u => {   // só no cadastro do portal
+    if (cli[u]) return;
+    const o = cad[u], b = doCad(o, { k: dig(o.uc) || u, n: o.nome, plano: null, planoDe: '' });
+    [o.uc, o.ucAntiga].forEach(x => liga(x, b));
+  });
+  const sh = abaCob_(ABA_COB_PORTAL, COLS_COB_PORTAL), antes = {};
+  lerAbaCob_(sh).forEach(o => { const ch = String(o['Chave'] || '').trim(); if (ch) antes[ch] = o; });
+  const and = lerAndamento_(), dias = cobDiasAntes_(), agora = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm');
+  const res = { criadas: 0, recalculadas: 0, faltaPlano: 0, conferir: 0 }, linhas = {};
+  // em que mês cobrar: cada cliente tem o seu padrão na planilha de controle (a fatura de ref. 10 vai para a aba de outubro
+  // ou de novembro) e quase nunca muda. Vale o da última cobrança dele com ref.; cliente novo: o mês do vencimento da RGE.
+  const nMes = m => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1, deN = n => Math.floor(n / 12) + '-' + String(n % 12 + 1).padStart(2, '0');
+  const desloc = {}, ultC = {};
+  lerAbaCob_(ss.getSheetByName(ABA_COB)).forEach(o => {
+    const k = dig(o['UC (chave)']), c = mesTxt_(o['Mês']), r = mesTxt_(o['Mês ref. RGE']);
+    if (!k || !/^\d{4}-\d{2}$/.test(c) || !/^\d{4}-\d{2}$/.test(r) || !(typeof o['Fatura (R$)'] === 'number' && o['Fatura (R$)'] > 0)) return;
+    if (ultC[k] && ultC[k] > c) return;
+    ultC[k] = c; desloc[k] = nMes(c) - nMes(r);
+  });
+  fatLidasCob_().forEach(f => {
+    if (f.tipo === 'usina') return;
+    const c = cli[f.uc]; if (!c) return;
+    const dl = desloc[c.k] != null && desloc[c.k] >= 0 && desloc[c.k] <= 2 ? desloc[c.k] : null;
+    const comp = dl != null ? deN(nMes(f.ref) + dl) : /^\d{4}-\d{2}/.test(f.venc) ? f.venc.slice(0, 7) : mesMais1_(f.ref);
+    const ch = c.k + '|' + comp, a = antes[ch] || {}, an = and[ch];
+    const avisos = [];
+    let sit = 'Calculada', calc = null;
+    if (!c.plano || c.plano.pct == null) { sit = 'Falta o plano'; res.faltaPlano++; }
+    else if (!f.itens) { sit = 'Conferir'; avisos.push('a fatura foi lida antes da versão 34, sem as linhas da conta: leia o PDF de novo no Leitor'); }
+    else calc = cobCalc_(f.itens, c.plano, f.valor);
+    if (f.itens && !(f.itens.injKwh > 0)) { if (sit === 'Calculada') sit = 'Conferir'; avisos.push('a fatura não tem energia injetada (o cliente já recebe os créditos?)'); }
+    let venc = '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(f.venc)) { const d = data(f.venc); d.setDate(d.getDate() - dias); venc = Utilities.formatDate(d, tz, 'yyyy-MM-dd'); }
+    else avisos.push('sem o vencimento da conta da RGE');
+    let L = [ch, c.k, comp, f.ref, c.n, f.ucTxt || f.uc, data(f.venc), f.valor == null ? '' : f.valor,
+      calc ? calc.sem : '', c.plano && c.plano.pct != null ? c.plano.pct : '', c.plano ? c.plano.sobre || 'total' : '', calc ? calc.desconto : '', calc ? calc.cobranca : '',
+      f.itens && f.itens.injKwh != null ? f.itens.injKwh : '', c.plano && c.plano.vlKwh != null ? c.plano.vlKwh : '', calc && calc.investidor != null ? calc.investidor : '',
+      calc && calc.lucro != null ? calc.lucro : '', data(venc), a['Valor ajustado (R$)'] === undefined ? '' : a['Valor ajustado (R$)'], a['Motivo do ajuste'] || '',
+      a['Ajustado por'] || '', '', '', c.plano ? c.planoDe : '', agora];
+    const ajustada = num(a['Valor ajustado (R$)']) != null;
+    if (ajustada && sit === 'Calculada') sit = 'Ajustada';
+    if (an && (an.emitida || an.enviada || an.paga) && antes[ch]) {
+      // já emitida: fica como estava; só avisa se a fatura nova deu outro valor
+      const velho = num(a['Cobrança calculada (R$)']);
+      L = COLS_COB_PORTAL.map(n => a[n] === undefined ? '' : a[n]);
+      L[COLS_COB_PORTAL.indexOf('Calculada em')] = a['Calculada em'] || agora;
+      if (calc && velho != null && Math.abs(calc.cobranca - velho) > 0.009) avisos.push('a fatura foi relida e o cálculo novo deu ' + calc.cobranca.toFixed(2).replace('.', ',') + ' (a cobrança já foi emitida: não mudei)');
+      sit = 'Emitida';
+    } else if (antes[ch]) res.recalculadas++; else res.criadas++;
+    if (sit === 'Conferir') res.conferir++;
+    L[COLS_COB_PORTAL.indexOf('Situação')] = sit;
+    L[COLS_COB_PORTAL.indexOf('Aviso')] = avisos.join(' · ');
+    linhas[ch] = L;
+  });
+  // cobrança que perdeu a fatura (linha apagada da Faturas Lidas) mas já foi emitida ou ajustada: continua
+  Object.keys(antes).forEach(ch => {
+    if (linhas[ch]) return;
+    const a = antes[ch], an = and[ch];
+    if ((an && (an.emitida || an.enviada || an.paga)) || num(a['Valor ajustado (R$)']) != null) linhas[ch] = COLS_COB_PORTAL.map(n => a[n] === undefined ? '' : a[n]);
+  });
+  const out = Object.keys(linhas).sort((x, y) => { const a = linhas[x], b = linhas[y]; return a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : String(a[4]).localeCompare(String(b[4])); }).map(ch => linhas[ch]);
+  out.forEach(L => [6, 17].forEach(i => { if (typeof L[i] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(L[i])) L[i] = data(L[i]); }));
+  escreveAbaCob_(sh, COLS_COB_PORTAL, out, [7, 18], { 8: '#,##0.00', 9: '#,##0.00', 10: '0.00%', 12: '#,##0.00', 13: '#,##0.00', 16: '#,##0.00', 17: '#,##0.00', 19: '#,##0.00' }, [1, 2, 3, 4, 6]);
+  res.total = out.length;
+  return res;
+}
+
+/** Recalcula depois da cópia da planilha de controle (o plano e a ligação UC → cliente podem ter mudado). */
+function cobPortalComLock_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return;
+  try { cobPortalGerar_(); } catch (e) { Logger.log('Cobranças do portal: ' + e.message); } finally { lock.releaseLock(); }
+}
+
+/** Botão "Recalcular" das Cobranças (e 1ª vez, para as faturas já lidas). */
+function cobPortalGerar(usuario) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return { ok: false, erro: 'a planilha está gravando agora; tente de novo em 1 minuto' };
+  try { const r = cobPortalGerar_(); console.log('Cobranças do portal recalculadas por ' + (usuario.email || '?') + ': ' + JSON.stringify(r)); return Object.assign({ ok: true }, r); }
+  finally { lock.releaseLock(); }
+}
+
+/** Ajuste à mão do valor de uma cobrança do portal (valor vazio = volta a valer o calculado). Pede o motivo. */
+function cobPortalAjustar(d, usuario) {
+  const ch = String(d && d.chave || '').trim(), motivo = String(d && d.motivo || '').trim().slice(0, 300);
+  const valor = d && d.valor !== '' && d.valor != null ? Number(d.valor) : null;
+  if (!ch) return { ok: false, erro: 'cobrança não informada' };
+  if (valor != null && !(valor >= 0)) return { ok: false, erro: 'valor inválido' };
+  if (valor != null && !motivo) return { ok: false, erro: 'diga o motivo do ajuste' };
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'a planilha está gravando agora; tente de novo em 1 minuto' };
+  try {
+    const sh = abaCob_(ABA_COB_PORTAL, COLS_COB_PORTAL), o = lerAbaCob_(sh).find(x => String(x['Chave']).trim() === ch);
+    if (!o) return { ok: false, erro: 'não achei esta cobrança na aba ' + ABA_COB_PORTAL + ': clique em Recalcular' };
+    const cab = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(x => String(x).trim()), col = n => cab.indexOf(n) + 1;
+    const quem = (usuario.nome || usuario.email || '') + ' em ' + Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm');
+    sh.getRange(o._linha, col('Valor ajustado (R$)')).setValue(valor == null ? '' : Math.round(valor * 100) / 100).setNumberFormat('#,##0.00');
+    sh.getRange(o._linha, col('Motivo do ajuste')).setValue(valor == null ? '' : limpa(motivo));
+    sh.getRange(o._linha, col('Ajustado por')).setValue(valor == null ? '' : quem);
+    if (!/^(Emitida|Falta o plano|Conferir)$/.test(String(o['Situação']))) sh.getRange(o._linha, col('Situação')).setValue(valor == null ? 'Calculada' : 'Ajustada');
+    return { ok: true, chave: ch, valor: valor, motivo: valor == null ? '' : motivo, por: valor == null ? '' : quem };
+  } finally { lock.releaseLock(); }
+}
+
+/** As cobranças do portal, no formato da tela. */
+function cobPortalLer_() {
+  const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
+  const n = x => typeof x === 'number' && isFinite(x) ? x : null, t = x => String(x == null ? '' : x).trim();
+  return lerAbaCob_(SpreadsheetApp.getActive().getSheetByName(ABA_COB_PORTAL)).filter(o => t(o['Chave'])).map(o => ({
+    ch: t(o['Chave']), k: t(o['UC (chave)']).replace(/\D/g, ''), c: mesTxt_(o['Mês']), ref: mesTxt_(o['Mês ref. RGE']), n: t(o['Cliente']), uc: t(o['UC da fatura']),
+    vr: iso(o['Vencimento RGE']), conta: n(o['Conta RGE (R$)']), sem: n(o['Sem a OZZ (R$)']), pct: n(o['Desconto %']), sobre: t(o['Desconto sobre']),
+    desc: n(o['Desconto (R$)']), calc: n(o['Cobrança calculada (R$)']), inj: n(o['Injetada (kWh)']), vlKwh: n(o['R$/kWh investidor']), inv: n(o['Investidor (R$)']),
+    lucro: n(o['Lucro (R$)']), venc: iso(o['Vencimento da cobrança']), aj: n(o['Valor ajustado (R$)']), motivo: t(o['Motivo do ajuste']), ajPor: t(o['Ajustado por']),
+    sit: t(o['Situação']), aviso: t(o['Aviso']), planoDe: t(o['Plano de']), em: t(o['Calculada em']) }));
+}
+
 /** Lê as duas abas daqui e devolve no formato que a tela usa. null = ainda não foram preenchidas. */
 function cobDados_() {
   const ss = SpreadsheetApp.getActive(), tz = ss.getSpreadsheetTimeZone();
@@ -1110,19 +1390,10 @@ function cobDados_() {
   let sync = {}; try { sync = JSON.parse(PropertiesService.getScriptProperties().getProperty('COB_SYNC') || '{}'); } catch (e) {}
   const agora = new Date();
   // faturas da RGE lidas pelo Leitor (aba Faturas Lidas): uma por UC e mês de referência
-  const faturas = lerAbaCob_(ss.getSheetByName('Faturas Lidas')).map(o => {
-    const uc = String(o['UC'] == null ? '' : o['UC']).replace(/\.0+$/, '').replace(/\D/g, ''), m = String(o['Mês Ref (AAAAMM)'] || '').replace(/\D/g, '');
-    if (uc.length < 7 || m.length !== 6) return null;
-    const n = x => typeof x === 'number' && isFinite(x) ? x : null, vc = o['Vencimento'];
-    return { uc: uc, ref: m.slice(0, 4) + '-' + m.slice(4), venc: vc instanceof Date ? Utilities.formatDate(vc, tz, 'yyyy-MM-dd') : String(vc || '').trim().replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1'),
-      tipo: /usina/i.test(t(o['Tipo da UC'])) ? 'usina' : ((tiposUc_()[uc] || [])[0] || ''), pdf: /\/d\//.test(t(o['PDF (Drive)'])), valor: n(o['Valor Total (R$)']), cons: n(o['Consumo kWh']), inj: n(o['Energia Injetada kWh']), saldo: n(o['Saldo kWh']), lido: iso(o['Lido em']), por: t(o['Lido por']),
-      // linhas da conta (faturas lidas a partir da versão 34): o cálculo da cobrança usa
-      itens: n(o['TUSD R$']) != null && n(o['TE R$']) != null ? { tusdTarifa: n(o['TUSD R$/kWh']), teTarifa: n(o['TE R$/kWh']), tusd: n(o['TUSD R$']), te: n(o['TE R$']),
-        bandeira: n(o['Bandeira R$']) || 0, cip: n(o['Iluminação pública R$']) || 0, injKwh: n(o['Injetada (TE) kWh']) != null ? n(o['Injetada (TE) kWh']) : n(o['Energia Injetada kWh']),
-        outros: t(o['Outros débitos e créditos']).split(' | ').map(x => { const m = x.match(/^(.*) = (-?[\d.]+)$/); return m ? { desc: m[1], valor: Number(m[2]) } : null; }).filter(Boolean) } : null };
-  }).filter(Boolean);
+  const faturas = fatLidasCob_();
+  let portal = []; try { portal = cobPortalLer_(); portal.forEach(p => { p.and = and[p.k + '|' + p.c] || null; }); } catch (e) { console.error('Cobranças do portal: ' + e.message); }
   return { ok: true, hoje: Utilities.formatDate(agora, 'America/Sao_Paulo', 'yyyy-MM-dd'), lidoEm: sync.em || '', avisos: sync.avisos || [],
-    prazoDias: PRAZO_1A_FATURA_DIAS, meses: Object.keys(meses).sort().map(c => ({ comp: c, aba: meses[c] })), clientes: cobComCadastro_(clientes, cobs, meses, and), cobrancas: cobs, faturas: faturas };
+    prazoDias: PRAZO_1A_FATURA_DIAS, meses: Object.keys(meses).sort().map(c => ({ comp: c, aba: meses[c] })), clientes: cobComCadastro_(clientes, cobs, meses, and), cobrancas: cobs, faturas: faturas, portal: portal, diasAntes: cobDiasAntes_() };
 }
 
 /** Pedido do site. Sem forcar: devolve o que está nas abas (e começa a primeira cópia se estiverem vazias).
@@ -1161,7 +1432,7 @@ function cobrancasPreparar() {
   let est;
   try {
     const r = lerCobrancas();
-    if (r.ok) { cobGravarAbas_(r); est = { estado: 'pronto', fim: Date.now() }; }
+    if (r.ok) { cobGravarAbas_(r); cobPortalComLock_(); est = { estado: 'pronto', fim: Date.now() }; }
     else est = { estado: 'erro', erro: r.erro, fim: Date.now() };
   } catch (e) { est = { estado: 'erro', erro: String(e && e.message || e).slice(0, 300), fim: Date.now() }; }
   props.setProperty('COB_ESTADO', JSON.stringify(est));
@@ -1214,6 +1485,7 @@ function cobSalvarCliente(d, usuario) {
     // recalcula a Situação das linhas deste cliente
     const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : '';
     cobRecalc_(k, ent || iso(o['Anexo G (planilha de controle)']));
+    if (d.plano) { try { cobPortalGerar_(); } catch (e) { console.error('Cobranças do portal: ' + e.message); } }   // o plano mudou: recalcula
     return { ok: true, k: k, entrada: ent, nota: nota, notaPor: usuario.nome || usuario.email || '', notaEm: quando };
   } finally { lock.releaseLock(); }
 }
@@ -1376,7 +1648,7 @@ function lerCobrancas(ssAberta) {
 
   /* ---------- usinas (UCs geradoras): INVESTIDORES, FATURAS GERADOR e GERADORES - CONSÓRCIO ---------- */
   const usinasCtl = [], vistaU = {};
-  const ucsDoTexto = x => (String(x == null ? '' : x).match(/\d{1,3}(?:\.\d{3}){3}-\d{2}|\b(?:30|40)\d{8}\b/g) || []);
+  const ucsDoTexto = x => (String(x == null ? '' : x).match(/\d{1,3}(?:\.\d{3}){1,2}\.00\d-\d{2}|\b(?:30|40)\d{8}\b/g) || []);   // UC nova termina em .001-XX (763.071.001-39, 1.597.422.001-78)
   [['INVESTIDORES', ['NOVA UC GERADORA', 'UC GERADORA']], ['FATURAS GERADOR', ['NOVA UC', 'UC']], ['GERADORES CONSORCIO', ['UC GERADORA']]].forEach(([aba, cols]) => {
     const sh = abas[aba]; if (!sh) return;
     const v = sh.getDataRange().getValues();
@@ -1871,7 +2143,7 @@ function atualizarCacheProgramacao() {
   const r = lerProgramacao();
   if (r.ok) gravarCacheGrande_(CACHE_PROG_, r); else Logger.log('Programação: ' + r.erro);
   try { const f = lerFluxo(); if (f.ok) gravarCacheGrande_(CACHE_FLUXO_, f); else Logger.log('Fluxo: ' + f.erro); } catch (e) { Logger.log('Fluxo: ' + e.message); }
-  try { const c = lerCobrancas(); if (c.ok) cobGravarAbas_(c); else Logger.log('Cobranças: ' + c.erro); } catch (e) { Logger.log('Cobranças: ' + e.message); }
+  try { const c = lerCobrancas(); if (c.ok) { cobGravarAbas_(c); cobPortalComLock_(); } else Logger.log('Cobranças: ' + c.erro); } catch (e) { Logger.log('Cobranças: ' + e.message); }
 }
 
 /** Guarda um objeto grande no cache, em pedaços de 90 KB (25 min: sobra tempo entre uma renovação e outra). */
@@ -2033,8 +2305,9 @@ function limpa(x) {
  * As abas são criadas sozinhas na primeira vez que o TI abre a tela. Preencha direto nelas (uma linha por item).
  * ====================================================================== */
 const RAT_ABAS_ = {
-  usinas:  { nome: 'Rateio Usinas', cols: ['Unidade Geradora UC', 'Nome da UG', 'Geração Anual (kWh)', 'Concessionária', 'Início Operação (AAAAMM)', 'Inativar (X)'],
-             chaves: ['ug', 'nome', 'geracaoAnual', 'concessionaria', 'inicio', 'inativa'] },
+  usinas:  { nome: 'Rateio Usinas', cols: ['Unidade Geradora UC', 'Nome da UG', 'Geração Anual (kWh)', 'Concessionária', 'Início Operação (AAAAMM)', 'Inativar (X)',
+             'Titular da UG (Anexo G)', 'CPF/CNPJ do titular', 'E-mail do titular', 'Responsável (quando PJ)', 'CPF do responsável', 'UC âncora'],
+             chaves: ['ug', 'nome', 'geracaoAnual', 'concessionaria', 'inicio', 'inativa', 'titular', 'docTitular', 'emailTitular', 'resp', 'respCpf', 'ancora'] },
   benef:   { nome: 'Rateio Beneficiárias', cols: ['Número da UC', 'CNPJ/CPF', 'Favorecido', 'Unidade Geradora', 'Nome da UG', 'Titular da UC',
              'Tipo Fornecimento', 'Consumo Referência kWh', 'Desconto', 'Grupo Tarifário', 'Início Titularidade (AAAAMM)', 'Término Titularidade (AAAAMM)', 'Observações', 'Fator Ajuste'],
              chaves: ['uc', 'doc', 'favorecido', 'ug', 'nomeUg', 'titular', 'fornecimento', 'consumoRef', 'desconto', 'grupo', 'inicio', 'termino', 'obs', 'fator'] },
@@ -2131,6 +2404,7 @@ function ratUsinaSalvar(u, usuario) {
     const anual = somaAno && (ano === anoHoje || anualAntes === '' || anualAntes == null) ? somaAno : (anualAntes !== '' && anualAntes != null ? anualAntes : (Number(u.geracaoAnual) || ''));
     const linhaU = [ug, nome, anual, String(u.concessionaria || 'RGE').trim(),
       inicio.length === 6 ? Number(inicio) : (criada ? '' : vU[iU][4]), u.inativa ? 'X' : ''];
+    for (let j = 6; j < lu; j++) linhaU.push(criada ? '' : vU[iU][j]);   // dados do titular (Anexo G): ficam como estão
     if (criada) shU.getRange(shU.getLastRow() + 1, 1, 1, lu).setValues([linhaU]);
     else shU.getRange(2 + iU, 1, 1, lu).setValues([linhaU]);
     console.log('Rateio: usina ' + ug + (criada ? ' cadastrada' : ' alterada') + ' por ' + usuario.email);
@@ -2139,9 +2413,48 @@ function ratUsinaSalvar(u, usuario) {
   } finally { lock.releaseLock(); }
 }
 
+/** Anexo G: grava os dados do titular da usina (nome, CPF/CNPJ, e-mail, responsável, UC âncora) na aba Rateio Usinas. */
+function ratTitularSalvar(d, usuario) {
+  const dig = x => String(x == null ? '' : x).replace(/\.0+$/, '').replace(/\D/g, '');
+  const ug = dig(d && d.ug);
+  if (ug.length < 7) return { ok: false, erro: 'usina não informada' };
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return { ok: false, erro: 'outra gravação em andamento; tente de novo' };
+  try {
+    const sh = ratAba_('usinas'), lu = RAT_ABAS_.usinas.cols.length;
+    const v = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, lu).getValues() : [];
+    const i = v.findIndex(r => dig(r[0]) === ug);
+    if (i < 0) return { ok: false, erro: 'usina não encontrada na aba Rateio Usinas' };
+    const t = x => limpa(String(x == null ? '' : x).trim().slice(0, 200));
+    const vals = [t(d.titular), t(d.docTitular), t(d.emailTitular), t(d.resp), t(d.respCpf), t(d.ancora)];
+    sh.getRange(2 + i, 7, 1, 6).setNumberFormat('@').setValues([vals]);
+    console.log('Anexo G: titular da usina ' + ug + ' salvo por ' + (usuario.email || '?'));
+    return { ok: true };
+  } finally { lock.releaseLock(); }
+}
+
+/** Faturas lidas, resumidas: { uc (dígitos), mes AAAAMM, valor, gerMed (energia injetada no medidor), auto (injetada usada na própria UC), pdf, tipo } */
+function fatResumo_() {
+  const tz = SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  return lerAbaCob_(SpreadsheetApp.getActive().getSheetByName('Faturas Lidas')).map(o => {
+    const uc = String(o['UC'] == null ? '' : o['UC']).replace(/\.0+$/, '').replace(/\D/g, ''), m = String(o['Mês Ref (AAAAMM)'] || '').replace(/\D/g, '');
+    if (uc.length < 7 || m.length !== 6) return null;
+    const n = x => typeof x === 'number' && isFinite(x) ? x : null;
+    return { uc: uc, mes: Number(m), valor: n(o['Valor Total (R$)']), gerMed: n(o['Geração injetada kWh (medidor)']), auto: n(o['Injetada (TE) kWh']),
+      pdf: /\/d\//.test(String(o['PDF (Drive)'] || '')), tipo: /usina/i.test(String(o['Tipo da UC'] || '')) ? 'usina' : '' };
+  }).filter(Boolean);
+}
+
 function ratDados() {
   const out = { ok: true };
   Object.keys(RAT_ABAS_).forEach(k => { out[k] = ratLer_(k); });
+  // geração real das usinas: o que o medidor da fatura registrou como energia injetada
+  try {
+    // a usina pode estar no Rateio pela UC antiga e a fatura pela nova (ou o contrário): a aba Cobranças Usinas liga as duas
+    const par = {}, d = v => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
+    lerAbaCob_(SpreadsheetApp.getActive().getSheetByName(ABA_COB_US)).forEach(o => { const a = d(o['UC']), b = d(o['UC antiga']); if (a && b) { par[a] = b; par[b] = a; } });
+    out.reais = fatResumo_().filter(f => f.gerMed > 0).map(f => Object.assign(f, { alt: par[f.uc] || '' }));
+  } catch (e) { out.reais = []; }
   out.gerados = out.gerados.slice(-3000);
   out.planilha = SpreadsheetApp.getActive().getUrl();
   return out;
@@ -2495,7 +2808,9 @@ const COLS_FATURAS = ['Lido em', 'Lido por', 'Arquivo', 'UC', 'Titular', 'CPF/CN
   // a partir da versão 35: o PDF guardado no Drive de quem implantou o script
   'PDF (Drive)',
   // a partir da versão 39: usina geradora ou unidade consumidora (beneficiária)
-  'Tipo da UC'];
+  'Tipo da UC',
+  // a partir da versão 43: o que o medidor registrou como energia injetada na rede (na usina, é a geração do mês)
+  'Geração injetada kWh (medidor)'];
 
 /* ---------- PDFs das faturas: pasta "Faturas RGE (portal OZZ)" no Drive de quem implantou o script ----------
    Uma subpasta por mês de referência (AAAA-MM); o arquivo se chama "UC - Titular.pdf". Ler a mesma fatura de novo
@@ -2759,6 +3074,7 @@ function faturasSalvar(lista, usuario) {
       const iPdf = COLS_FATURAS.indexOf('PDF (Drive)'), tp = tipoUc_(uc);
       linha.push('');   // coluna PDF (Drive): o link é gravado depois, por faturaPdfSalvar
       linha.push(tp ? (tp[0] === 'usina' ? 'Usina geradora' : 'Unidade consumidora') : '');
+      linha.push(nv(f.geracaoMed));
       const kF = dig(uc) + '|' + mes;
       if (idxF[kF] != null) { const pdfAntes = vF[idxF[kF]][iPdf]; vF[idxF[kF]] = linha; vF[idxF[kF]][iPdf] = pdfAntes; res.atualizadas++; }
       else { idxF[kF] = -1; novasF.push(linha); res.faturas++; }
@@ -2801,6 +3117,8 @@ function faturasSalvar(lista, usuario) {
         if (mudou) shB.getRange(2, 7, vB.length, 1).setValues(vB.map(r => [r[6]]));
       }
     }
+    // a fatura lida vira a cobrança do mês (aba Cobranças Portal)
+    try { res.cobrancas = cobPortalGerar_(); } catch (e) { console.error('Cobranças do portal: ' + e.message); res.cobrancasErro = e.message; }
     console.log('Leitor de faturas: ' + lista.length + ' por ' + usuario.email + ' → ' + JSON.stringify(res).slice(0, 300));
     return Object.assign({ ok: true }, res);
   } finally { lock.releaseLock(); }
