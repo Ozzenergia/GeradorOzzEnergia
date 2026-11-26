@@ -1732,6 +1732,7 @@ function voltarSePedido(){
   }
 }
 function sairComMotivo(msg){
+  try{cacheLocal.limpar();cb.dados=null;cb.doCache=null}catch(e){}
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo');localStorage.removeItem('ozz_pv_salvos')}catch(e){}
   try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML='';fx.dados=null;['fxCorpo','fxKpis','fxMeses','fxMesesTot','fxRodape'].forEach(i=>$(i).innerHTML='');cli.lista=null;$('cliCorpo').innerHTML='';$('cliRodape').innerHTML='';cliFechar()}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
@@ -1754,6 +1755,7 @@ function iniciarGoogle(){
 // sem acesso de visitante: quem tinha entrado como visitante volta para a tela de login
 (function(){const v=getSessao();if(v&&v.tipo!=='google')setSessao(null)})();
 $('lgOut').onclick=()=>{
+  try{cacheLocal.limpar();cb.dados=null;cb.doCache=null}catch(e){}
   sessaoMem=null;setSessao(null);idTok=null;try{sessionStorage.removeItem('ozz_idtok');sessionStorage.removeItem('ozz_vercomo');localStorage.removeItem('ozz_pv_salvos')}catch(e){}
   try{ana.dados=null;$('anaCorpo').innerHTML='';$('anaKpis').innerHTML='';$('anaRodape').innerHTML='';fx.dados=null;['fxCorpo','fxKpis','fxMeses','fxMesesTot','fxRodape'].forEach(i=>$(i).innerHTML='');cli.lista=null;$('cliCorpo').innerHTML='';$('cliRodape').innerHTML='';cliFechar()}catch(e){}
   try{google.accounts.id.disableAutoSelect()}catch(e){}
@@ -3299,9 +3301,42 @@ const cbMaisUm=r=>{let y=+r.slice(0,4),m=+r.slice(5,7)+1;if(m>12){m=1;y++}return
 const cbDias=(a,b)=>Math.round((Date.parse(b+'T12:00:00')-Date.parse(a+'T12:00:00'))/864e5);
 const cbDM=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7):'';
 const cbAberto=e=>e!=='pago'&&e!=='aguarda_1a';
+/* Cópia local das Cobranças (IndexedDB, só neste navegador e por usuário; apagada ao sair):
+   a tela abre na hora com o que foi lido da última vez e a leitura nova chega por trás. */
+const cacheLocal={
+  db:null,
+  abrir(){if(!this.db)this.db=new Promise((ok,er)=>{try{const q=indexedDB.open('ozz-portal-cache',1);q.onupgradeneeded=()=>q.result.createObjectStore('c');q.onsuccess=()=>ok(q.result);q.onerror=()=>er(q.error)}catch(e){er(e)}});return this.db},
+  async op(modo,f){try{const d=await this.abrir();return await new Promise(ok=>{const t=d.transaction('c',modo),q=f(t.objectStore('c'));t.oncomplete=()=>ok(q&&q.result);t.onerror=t.onabort=()=>ok(null)})}catch(e){return null}},
+  get(k){return this.op('readonly',o=>o.get(k))},
+  set(k,v){return this.op('readwrite',o=>o.put(v,k))},
+  limpar(){return this.op('readwrite',o=>o.clear())}
+};
+const cbChaveLocal=()=>{const u=sessao();return u&&u.email?'cob|'+u.email.toLowerCase():null};
+async function cbDoCache(){   // mostra a última leitura guardada (se a tela ainda está vazia)
+  if(cb.dados)return false;const k=cbChaveLocal();if(!k)return false;
+  const c=await cacheLocal.get(k);if(!c||!c.txt||cb.dados)return false;
+  let r;try{r=JSON.parse(c.txt)}catch(e){return false}
+  if(!r||!r.ok||!r.clientes)return false;
+  cbPreparar(r);cb.doCache=c.em;cbRender();cbSubCache();return true;
+}
+function cbSubCache(){
+  if(!cb.doCache)return;const d=new Date(cb.doCache);
+  $('cbSub').textContent='Mostrando o que foi lido em '+d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' às '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+(cb.carregando?' · atualizando…':'');
+}
+// leitura nova chegou com a ficha ou a janela de marcar aberta: aplica quando fechar (para não perder o que está sendo digitado)
+function cbAplicarNovo(r){
+  if(!$('cbModal').classList.contains('hidden')||!$('cbAcModal').classList.contains('hidden')){cb.pendente=r;return}
+  cb.pendente=null;cb.doCache=null;cbPreparar(r);
+  if(r.avisos&&r.avisos.length){$('cbErro').textContent='⚠️ '+r.avisos.join(' · ');$('cbErro').style.display='block'}
+  cbRender();
+  try{if(!$('tab-hoje').classList.contains('hidden'))hjRender()}catch(e){}
+}
+function cbAplicarPendente(){if(cb.pendente&&$('cbModal').classList.contains('hidden')&&$('cbAcModal').classList.contains('hidden'))cbAplicarNovo(cb.pendente)}
 async function cbCarregar(forcar){
-  if(cb.carregando)return;cb.carregando=true;
-  const bt=$('cbAtualizar');bt.disabled=true;bt.textContent='Carregando…';$('cbErro').style.display='none';
+  if(cb.carregando)return;
+  if(!cb.dados)await cbDoCache();
+  if(cb.carregando)return;cb.carregando=true;cbSubCache();
+  const bt=$('cbAtualizar');bt.disabled=true;bt.textContent=cb.doCache?'Atualizando…':'Carregando…';$('cbErro').style.display='none';
   if(!cb.dados)$('cbCorpo').innerHTML='<tr><td colspan="6" class="ana-vazio">Lendo a planilha…</td></tr>';
   const aviso=setTimeout(()=>{if(cb.carregando)bt.textContent='Lendo a planilha… (pode levar até 1 min)'},6000);
   let r=await sheetApi('cobrancas',{forcar:!!forcar},{espera:60000});
@@ -3319,13 +3354,14 @@ async function cbCarregar(forcar){
   if(!r||!r.ok){
     let e=(r&&r.erro)||'não foi possível ler a planilha';
     if(/ação desconhecida/.test(e))e='a planilha do portal ainda está com o script antigo (atualize o Apps Script para a versão 31 e implante uma Nova versão)';
-    $('cbErro').textContent='⚠️ '+e;$('cbErro').style.display='block';
+    if(cb.doCache)e+=' (mostrando o que foi lido da última vez)';
+    $('cbErro').textContent='⚠️ '+e;$('cbErro').style.display='block';cbSubCache();
     if(!cb.dados)$('cbCorpo').innerHTML='<tr><td colspan="6" class="ana-vazio">Sem dados para mostrar.</td></tr>';
     return;
   }
-  cbPreparar(r);
-  if(r.avisos&&r.avisos.length){$('cbErro').textContent='⚠️ '+r.avisos.join(' · ');$('cbErro').style.display='block'}
-  cbRender();
+  // guarda uma cópia limpa antes de montar a tela (a montagem acrescenta campos nos objetos)
+  const k=cbChaveLocal();if(k){try{cacheLocal.set(k,{em:Date.now(),txt:JSON.stringify(r)})}catch(e){}}
+  cbAplicarNovo(r);
 }
 function cbPreparar(r){
   const hoje=r.hoje,cli={};
@@ -3449,7 +3485,7 @@ const hjEspera=f=>new Promise(ok=>{const t0=Date.now(),v=()=>{if(f()||Date.now()
 async function hjDados(recarregar){
   const t=[ucTiposCarregar()];
   if(hjPode('ana')){
-    if(recarregar||!cb.dados)t.push((async()=>{await hjEspera(()=>!cb.carregando);await cbCarregar();await hjEspera(()=>!cb.carregando)})());
+    if(recarregar||!cb.dados||cb.doCache)t.push((async()=>{await hjEspera(()=>!cb.carregando);await cbCarregar();await hjEspera(()=>!cb.carregando)})());
     if(recarregar||!ana.dados)t.push((async()=>{await hjEspera(()=>!ana.carregando);await anaCarregar();await hjEspera(()=>!ana.carregando)})());
   }
   if(hjPode('rat')&&(recarregar||!rat.dados))t.push((async()=>{await hjEspera(()=>!rat.carregando);await ratCarregar();await hjEspera(()=>!rat.carregando)})());
@@ -3458,9 +3494,12 @@ async function hjDados(recarregar){
 }
 async function hjAbrir(recarregar){
   if(hj.carregando)return;hj.carregando=true;const bt=$('hjAtualizar');bt.disabled=true;
-  if(!cb.dados||recarregar)$('hjCarr').textContent='Lendo as cobranças, as contas e o rateio… (a primeira vez pode levar até 1 minuto)';
+  // abre na hora com a última leitura guardada neste navegador; a leitura nova chega por trás
+  if(hjPode('ana')&&!cb.dados&&await cbDoCache())hjRender();
+  if(cb.doCache){const d=new Date(cb.doCache);$('hjCarr').textContent='Mostrando o que foi lido em '+d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' às '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+' · atualizando…'}
+  else if(!cb.dados||recarregar)$('hjCarr').textContent='Lendo as cobranças, as contas e o rateio… (a primeira vez pode levar até 1 minuto)';
   try{await hjDados(recarregar)}finally{hj.carregando=false;bt.disabled=false}
-  $('hjCarr').textContent=cb.dados?'':'⚠️ Não consegui ler as cobranças. Clique em Atualizar.';
+  $('hjCarr').textContent=!cb.dados?'⚠️ Não consegui ler as cobranças. Clique em Atualizar.':cb.doCache?'⚠️ Não consegui atualizar: mostrando o que foi lido da última vez. Clique em Atualizar.':'';
   hjRender();
 }
 $('hjAtualizar').onclick=()=>hjAbrir(true);
@@ -3609,7 +3648,7 @@ function ucMostrar(e){
   if($('ucAbRat'))$('ucAbRat').onclick=()=>{rat.ug=us.ug;abrir('ana','rateio')};
 }
 
-function cbAbrir(){if(!cb.dados)cbCarregar();else cbRender()}
+function cbAbrir(){if(!cb.dados||(cb.doCache&&!cb.carregando))cbCarregar();else{cbRender();cbSubCache()}}
 function cbFiltroBase(x){
   const c=x.cli,q=cb.busca;
   if(cb.vend&&c.vend!==cb.vend)return false;
@@ -3834,7 +3873,7 @@ function cbAcao(x,ac){
   $('cbAcMsg').textContent='';$('cbAcOk').disabled=false;
   $('cbAcModal').classList.remove('hidden');setTimeout(()=>{const f=$('cbAcCampos').querySelector('input');(f||$('cbAcOk')).focus()},0);
 }
-function cbAcFechar(){$('cbAcModal').classList.add('hidden');cbAcAtual=null}
+function cbAcFechar(){$('cbAcModal').classList.add('hidden');cbAcAtual=null;setTimeout(cbAplicarPendente,0)}
 $('cbAcCancelar').onclick=cbAcFechar;
 $('cbAcModal').addEventListener('click',e=>{if(e.target===$('cbAcModal'))cbAcFechar()});
 $('cbAcOk').onclick=async()=>{
@@ -3963,6 +4002,7 @@ function cbFechar(){
   if($('cbModal').classList.contains('hidden'))return;
   $('cbModal').classList.add('hidden');document.body.style.overflow='';
   if(cb.volta&&cb.volta.isConnected)cb.volta.focus({preventScroll:true});
+  setTimeout(cbAplicarPendente,0);
 }
 $('cbMFechar').onclick=cbFechar;
 $('cbModal').addEventListener('click',e=>{if(e.target===$('cbModal'))cbFechar()});
