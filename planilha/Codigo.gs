@@ -170,7 +170,7 @@ function gerarCodigo_() {
   PropertiesService.getScriptProperties().setProperty('CODIGO', 'OZZ-' + partes.join('-'));
 }
 
-const VERSAO_SCRIPT = '48 (PDFs das faturas sobem em paralelo para o Drive, sem criar pastas repetidas)';
+const VERSAO_SCRIPT = '49 (PROGRAMAÇÃO recebe o PAGO marcado na coluna RGE das abas dos meses)';
 // Planilha de controle (PROGRAMAÇÃO / CLIENTES): o pós-venda busca os clientes na aba CLIENTES dela. Pode trocar em Config!B4.
 const PLANILHA_CLIENTES_PADRAO = '1aASwKbuJxs09pq3mh6pTDBq-O5usmIv-G3ZqMC5YfUQ';
 const ABA_CLIENTES_EXT = 'CLIENTES';
@@ -2159,10 +2159,64 @@ function programacaoComCache_(forcar) {
 /** Acionador de 10 em 10 minutos (criado pelo "Configurar planilha"): deixa a leitura pronta. */
 function atualizarCacheProgramacao() {
   try { lerClientesExternos_(true); } catch (e) { Logger.log('Clientes: ' + e.message); }   // a busca do pós-venda também fica pronta
+  // as abas dos meses primeiro: o PAGO da coluna RGE vai para a PROGRAMAÇÃO antes de ela ser lida
+  try {
+    const c = lerCobrancas();
+    if (c.ok) {
+      cobGravarAbas_(c); cobPortalComLock_();
+      try { const n = progSincronizarPagos_(c); if (n) Logger.log('PROGRAMAÇÃO: ' + n + ' conta(s) marcada(s) PAGO pelas abas dos meses'); } catch (e) { Logger.log('PROGRAMAÇÃO (PAGO): ' + e.message); }
+    } else Logger.log('Cobranças: ' + c.erro);
+  } catch (e) { Logger.log('Cobranças: ' + e.message); }
   const r = lerProgramacao();
   if (r.ok) gravarCacheGrande_(CACHE_PROG_, r); else Logger.log('Programação: ' + r.erro);
   try { const f = lerFluxo(); if (f.ok) gravarCacheGrande_(CACHE_FLUXO_, f); else Logger.log('Fluxo: ' + f.erro); } catch (e) { Logger.log('Fluxo: ' + e.message); }
-  try { const c = lerCobrancas(); if (c.ok) { cobGravarAbas_(c); cobPortalComLock_(); } else Logger.log('Cobranças: ' + c.erro); } catch (e) { Logger.log('Cobranças: ' + e.message); }
+}
+
+/** A equipe marca o pagamento da conta da RGE na coluna RGE das abas dos meses (PAGO), mas a PROGRAMAÇÃO ficava para trás.
+    Aqui a conta da PROGRAMAÇÃO com a mesma UC (nova ou antiga) e a mesma DATA DE VENCIMENTO vira PAGO, com uma nota na célula.
+    Só marca PAGO: nunca desfaz nem mexe em outra situação. Desliga com NÃO em Config!B9. c = resultado de lerCobrancas(). */
+function progSincronizarPagos_(c) {
+  const cfg = SpreadsheetApp.getActive().getSheetByName(ABA_CONFIG);
+  if (cfg) {
+    if (!String(cfg.getRange('A9').getValue())) {
+      cfg.getRange('A9').setValue('PROGRAMAÇÃO: PAGO pelas abas').setFontWeight('bold');
+      cfg.getRange('B9').setValue('SIM');
+      cfg.getRange('C9').setValue('← SIM: a cada 10 min, a conta da RGE marcada PAGO na coluna RGE da aba do mês também fica PAGO na PROGRAMAÇÃO (mesma UC e vencimento). NÃO desliga');
+    }
+    if (/^N/i.test(String(cfg.getRange('B9').getValue()).trim())) return 0;
+  }
+  const dig = x => String(x == null ? '' : x).replace(/\.0+$/, '').replace(/\D/g, '');
+  const ucsDe = {}; (c.clientes || []).forEach(cl => { ucsDe[cl.k] = [cl.k, cl.uc, cl.ucA].map(dig).filter(u => u.length >= 7); });
+  const abaDe = {}; (c.meses || []).forEach(m => { abaDe[m.comp] = m.aba; });
+  const pagos = {};
+  (c.cobrancas || []).forEach(x => {
+    if (!/^PAGO/i.test(String(x.rge || '').trim()) || !/^\d{4}-\d{2}-\d{2}$/.test(String(x.vr || ''))) return;
+    (ucsDe[x.k] || [dig(x.k)]).forEach(u => { pagos[u + '|' + x.vr] = abaDe[x.c] || x.c; });
+  });
+  if (!Object.keys(pagos).length) return 0;
+  const ss = SpreadsheetApp.openById(idPlanilhaControle_()), sh = ss.getSheetByName(ABA_PROGRAMACAO_EXT);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  const tz = ss.getSpreadsheetTimeZone();
+  const up = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const larg = sh.getLastColumn(), cab = sh.getRange(1, 1, 1, larg).getValues()[0].map(up);
+  const C = { uc: cab.indexOf('NUMERO DA UC'), ant: cab.indexOf('UC ANTIGA'), venc: cab.indexOf('DATA DE VENCIMENTO'), sit: cab.indexOf('SITUACAO') };
+  if (C.sit < 0 || C.venc < 0 || C.uc < 0) return 0;
+  const iso = x => x instanceof Date && !isNaN(x) ? Utilities.formatDate(x, tz, 'yyyy-MM-dd') : String(x || '').trim().replace(/^(\d{2})\/(\d{2})\/(\d{4}).*/, '$3-$2-$1');
+  const v = sh.getRange(2, 1, sh.getLastRow() - 1, larg).getValues();
+  const quando = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm');
+  let n = 0;
+  v.forEach((r, i) => {
+    if (up(r[C.sit]) === 'PAGO') return;
+    const vc = iso(r[C.venc]); if (!/^\d{4}-\d{2}-\d{2}$/.test(vc)) return;
+    const aba = [r[C.uc], C.ant >= 0 ? r[C.ant] : ''].map(dig).filter(u => u.length >= 7).map(u => pagos[u + '|' + vc]).find(Boolean);
+    if (!aba) return;
+    const cel = sh.getRange(i + 2, C.sit + 1);
+    cel.setValue('PAGO');
+    cel.setNote('Marcado PAGO pelo portal em ' + quando + ': a coluna RGE da aba ' + aba + ' está PAGO' + (r[C.sit] ? ' (antes: ' + r[C.sit] + ')' : ''));
+    n++;
+  });
+  if (n) { try { CacheService.getScriptCache().remove(CACHE_PROG_ + '_n'); } catch (e) {} }
+  return n;
 }
 
 /** Guarda um objeto grande no cache, em pedaços de 90 KB (25 min: sobra tempo entre uma renovação e outra). */
