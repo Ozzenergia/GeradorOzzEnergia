@@ -1136,6 +1136,7 @@ body.locked{overflow:hidden}
     <button class="btn pri" id="lfSalvar" type="button">💾 Guardar na planilha</button>
     <button class="btn sec" id="lfLimpar" type="button">Limpar lista</button>
     <span class="rat-msg" id="lfMsg" role="status" aria-live="polite"></span>
+    <button class="btn sec sm hidden" type="button" id="lfPdfDeNovo">↻ Tentar de novo os PDFs que faltaram</button>
   </div>
   <details class="rat-ajuda">
     <summary>Onde os dados ficam</summary>
@@ -2544,21 +2545,47 @@ $('lfSalvar').onclick=async()=>{
   if(typeof rat!=='undefined')rat.dados=null;   // o rateio relê as abas na próxima vez que abrir
   try{cb.dados=null}catch(e){}                   // as cobranças também (usam as faturas lidas)
   lfRender();
-  // depois dos dados, os PDFs vão um a um para a pasta "Faturas RGE (portal OZZ)" no Drive de quem implantou o script
-  const base=$('lfMsg').textContent,comPdf=pend.filter(i=>(i.file||i.driveId)&&!i.pdfOk);let ok=0;const erros=[];
-  for(let n=0;n<comPdf.length;n++){
-    const i=comPdf[n];$('lfMsg').textContent=base+` · guardando os PDFs no Drive (${n+1}/${comPdf.length})…`;
-    try{
-      let pdf;
-      if(i.driveId)pdf={uc:i.uc,mes:i.mes,titular:i.titular||'',driveId:i.driveId,pasta:i.pasta,pastaNome:i.pastaNome||''};   // o script copia da pasta de origem
-      else{const b=new Uint8Array(await i.file.arrayBuffer());let bin='';for(let k=0;k<b.length;k+=0x8000)bin+=String.fromCharCode.apply(null,b.subarray(k,k+0x8000));
-        pdf={uc:i.uc,mes:i.mes,titular:i.titular||'',b64:btoa(bin)}}
-      const rp=await sheetApi('fat_pdf',{pdf},{espera:120000});
-      if(rp&&rp.ok){ok++;i.pdfOk=true}else erros.push(i.arquivo+': '+((rp&&rp.erro)||'falhou'));
-    }catch(e){erros.push(i.arquivo+': '+e.message)}
-  }
-  if(comPdf.length)$('lfMsg').textContent=base+` · ${ok} PDF${ok===1?'':'s'} guardado${ok===1?'':'s'} no Drive`+(erros.length?` · ⚠️ ${erros.slice(0,5).join('; ').replace(/ação desconhecida/,'atualize o script da planilha para a versão 37')}${erros.length>5?' e mais '+(erros.length-5):''}`:'');
+  // depois dos dados, os PDFs vão para a pasta "Faturas RGE (portal OZZ)" no Drive de quem implantou o script
+  await lfEnviarPdfs(pend.filter(i=>(i.file||i.driveId)&&!i.pdfOk),$('lfMsg').textContent);
 };
+/* Envio dos PDFs ao Drive: 3 de cada vez (script versão 48 em diante; antes, um por um), com aviso para não fechar a página.
+   Para quando o mesmo erro do Drive se repete (falta de autorização, por exemplo) e deixa um botão para tentar de novo. */
+const lfPdf={enviando:false,falhas:[]};
+window.addEventListener('beforeunload',e=>{if(lfPdf.enviando){e.preventDefault();e.returnValue='Os PDFs ainda estão sendo guardados no Drive.';return e.returnValue}});
+async function lfEnviarPdfs(lista,base){
+  if(!lista.length||lfPdf.enviando)return;
+  lfPdf.enviando=true;$('lfPdfDeNovo').classList.add('hidden');
+  let ok=0,feitos=0,par=1,parar='',seguidas=0;const erros=[],fila=lista.slice(),total=lista.length,msg=$('lfMsg');
+  const mostra=()=>{msg.textContent=base+` · guardando os PDFs no Drive: ${feitos}/${total}`+(erros.length?` (${erros.length} com erro)`:'')+' · não feche esta página até terminar'};
+  const um=async i=>{
+    let pdf;
+    if(i.driveId)pdf={uc:i.uc,mes:i.mes,titular:i.titular||'',driveId:i.driveId,pasta:i.pasta,pastaNome:i.pastaNome||''};   // o script copia da pasta de origem
+    else{const b=new Uint8Array(await i.file.arrayBuffer());let bin='';for(let k=0;k<b.length;k+=0x8000)bin+=String.fromCharCode.apply(null,b.subarray(k,k+0x8000));
+      pdf={uc:i.uc,mes:i.mes,titular:i.titular||'',b64:btoa(bin)}}
+    let rp=await sheetApi('fat_pdf',{pdf},{espera:120000});
+    if(rp&&!rp.ok&&rp.ocupado)rp=await sheetApi('fat_pdf',{pdf},{espera:120000});   // a planilha estava gravando outra coisa: mais uma vez
+    return rp;
+  };
+  const processa=async i=>{
+    try{const rp=await um(i);
+      if(rp&&rp.ok){ok++;seguidas=0;i.pdfOk=true;if(rp.v>=48)par=3}
+      else{const e=(rp&&rp.erro)||'falhou';erros.push({i,e});seguidas++;if(rp&&(rp.drive||rp.perfil||rp.auth)||seguidas>=5)parar=e}}
+    catch(e){erros.push({i,e:e.message});seguidas++;if(seguidas>=5)parar=e.message}
+    feitos++;mostra();
+  };
+  const trabalhador=async()=>{while(fila.length&&!parar)await processa(fila.shift())};
+  mostra();
+  // o primeiro vai sozinho (a resposta diz a versão do script); da versão 48 em diante, três ao mesmo tempo
+  await processa(fila.shift());
+  await Promise.all(Array.from({length:par},trabalhador));
+  lfPdf.enviando=false;
+  lfPdf.falhas=lista.filter(i=>!i.pdfOk);
+  const faltam=lfPdf.falhas.length,E=e=>String(e).replace(/ação desconhecida/,'atualize o script da planilha para a versão 48');
+  msg.textContent=base+` · ${ok} PDF${ok===1?'':'s'} guardado${ok===1?'':'s'} no Drive`+
+    (parar?` · ⚠️ parei: ${E(parar)}`:'')+(faltam?` · ${faltam} PDF${faltam===1?'':'s'} sem guardar`+(!parar&&erros.length?` (${erros.slice(0,3).map(x=>x.i.arquivo.split(/[\/›]/).pop().trim()+': '+E(x.e)).join('; ')}${erros.length>3?'…':''})`:''):'');
+  $('lfPdfDeNovo').classList.toggle('hidden',!faltam);
+}
+$('lfPdfDeNovo').onclick=()=>{const l=lfPdf.falhas.filter(i=>!i.pdfOk&&(i.file||i.driveId));if(l.length)lfEnviarPdfs(l,'Tentando de novo')};
 
 /* ===== Rateio de créditos (TI e Admin): monta as linhas a partir das abas e calcula no navegador ===== */
 const rat={dados:null,ug:'',mes:0,base:(()=>{try{const b=localStorage.getItem('ozz_rat_base');return ['3M','12M','MMAA'].includes(b)?b:'3M'}catch(e){return '3M'}})(),ed:{},ger:{},carregando:false,salvando:false,linhas:[],calc:null};
