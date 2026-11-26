@@ -93,7 +93,7 @@ function testarClientes() {
 /** Pede de novo TODAS as autorizações do script (Drive, acionadores, e-mail…). Use quando aparecer
  * "You do not have permission to call …": o Google deixa desmarcar permissões na tela de autorização. */
 function autorizar() {
-  try { ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL); } catch (e) { Logger.log('requireAllScopes: ' + e.message); }
+  ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);   // sem try: o erro é o que faz o editor abrir a tela de autorização
   const ok = [];
   try { DriveApp.getRootFolder().getName(); ok.push('Drive ✓'); } catch (e) { ok.push('Drive ✗ ' + e.message); }
   try { ScriptApp.getProjectTriggers(); ok.push('Acionadores ✓'); } catch (e) { ok.push('Acionadores ✗ ' + e.message); }
@@ -101,7 +101,7 @@ function autorizar() {
 }
 
 function configurar() {
-  try { ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL); } catch (e) { Logger.log('Autorização: ' + e.message); }
+  try { ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL); } catch (e) { Logger.log('Faltam autorizações: rode a função "autorizar" no editor. (' + e.message + ')'); }
   const ss = SpreadsheetApp.getActive();
   const cria = (nome, cols) => {
     const sh = ss.getSheetByName(nome) || ss.insertSheet(nome);
