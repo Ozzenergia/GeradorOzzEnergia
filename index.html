@@ -37,7 +37,8 @@ body{font-family:Outfit,system-ui,sans-serif;background:var(--bg);color:var(--in
 .top{background:linear-gradient(100deg,var(--p1) 0%,var(--p2) 50%,var(--p3) 100%);color:#fff}
 .hwrap{padding:16px 48px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(255,255,255,.1)}
 .logo{display:flex;align-items:center;gap:20px}
-.brand{display:flex;align-items:center;gap:8px}
+.brand{display:flex;align-items:center;gap:8px;cursor:pointer;border-radius:8px}
+.brand:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 .brand svg{width:34px;height:34px}
 .brand b{font-weight:800;font-size:15px;letter-spacing:.5px}
 .brand span{font-weight:400;font-size:15px;opacity:.9}
@@ -665,7 +666,7 @@ body.locked{overflow:hidden}
 <div class="top">
   <div class="hwrap">
     <div class="logo">
-      <div class="brand">
+      <div class="brand" id="brandHome" role="button" tabindex="0" title="Início: O que fazer hoje">
         <svg viewBox="0 0 40 40" fill="none" stroke="#fff" stroke-width="2.6"><circle cx="20" cy="20" r="16"/><path d="M11 15h10l-10 10h10M21 15h9l-9 10h9" stroke-linejoin="round"/></svg>
         <b>OZZ</b><span>ENERGIA</span>
       </div>
@@ -1687,7 +1688,8 @@ function aplicarPerfil(){
     document.querySelectorAll('.mcat').forEach(m=>m.classList.toggle('sem-acesso',!ok.includes(m.dataset.cat)));
     document.querySelectorAll('.drop-menu button[data-area]').forEach(b=>b.classList.toggle('sem-acesso',!ok.includes(b.dataset.area)));
     const atual=MENU[catAtual]&&MENU[catAtual].itens.find(i=>i.id===ultimoItem[catAtual]);
-    if(!ok.includes(catAtual)||(atual&&atual.area&&!ok.includes(atual.area)))abrir(ok.includes(catAtual)?catAtual:ok[0],ok.includes(catAtual)?MENU[catAtual].itens[0].id:null);
+    const okCat=podeCategoria(catAtual);
+    if(!okCat||(atual&&atual.area&&!ok.includes(atual.area)))abrir(okCat?catAtual:'ini',okCat?MENU[catAtual].itens[0].id:null);
     else{const it=MENU[catAtual].itens.find(i=>i.id===ultimoItem[catAtual]);if(it&&it.aoAbrir&&sessao())setTimeout(it.aoAbrir,0)}
   }catch(e){} // o menu ainda não foi montado
 }
@@ -3988,11 +3990,13 @@ let cbT=null;$('cbBusca').oninput=e=>{clearTimeout(cbT);cbT=setTimeout(()=>{cb.b
 document.querySelectorAll('.cb-vistas button').forEach(b=>b.onclick=()=>{cb.vista=b.dataset.v;cbRender()});
 
 const MENU={
+  // tela inicial: não aparece no menu, abre ao entrar no portal e ao clicar no logo
+  ini:{nome:'Início',oculto:true,itens:[
+    {id:'hoje',ic:'📋',nome:'O que fazer hoje',desc:'Faturas para ler, cobranças para emitir, vencimentos e clientes novos',sec:'tab-hoje',largo:true,area:'ana',aoAbrir:()=>hjAbrir()}]},
   ger:{nome:'📄 Geradores',itens:[
     {id:'prop',ic:'📊',nome:'Propostas',desc:'Fatura → proposta preenchida em segundos',sec:'tab-prop'},
     {id:'termo',ic:'📄',nome:'Termo de Adesão',desc:'Termo preenchido a partir da proposta ou da fatura',sec:'tab-termo'}]},
   cli:{nome:'👥 Clientes',itens:[
-    {id:'hoje',ic:'📋',nome:'O que fazer hoje',desc:'Faturas para ler, cobranças para emitir, vencimentos e clientes novos',sec:'tab-hoje',largo:true,area:'ana',aoAbrir:()=>hjAbrir()},
     {id:'uc',ic:'🔎',nome:'Consultar UC',desc:'Tudo de uma UC ou usina numa tela só',sec:'tab-uc',largo:true,aoAbrir:()=>ucAbrir()},
     {id:'tabela',ic:'🗂️',nome:'Tabela de clientes',desc:'Consultar, buscar, alterar e excluir clientes',sec:'tab-clientes',largo:true,aoAbrir:()=>cliAbrir()},
     {id:'registrar',ic:'➕',nome:'Registrar cliente',desc:'Cadastrar um cliente novo (dá para preencher pela fatura)',sec:'tab-cli-reg',largo:true,aoAbrir:()=>cliAbrirRegistro()},
@@ -4008,17 +4012,20 @@ const MENU={
     {id:'rateio',ic:'⚖️',nome:'Rateio de créditos',desc:'Divide a geração da usina entre as beneficiárias',sec:'tab-rateio',largo:true,area:'rat',aoAbrir:()=>ratAbrir()}]}
 };
 const nav=document.querySelector('nav.nwrap');
-nav.innerHTML=Object.entries(MENU).map(([c,v])=>`<div class="mcat" data-cat="${c}">
+nav.innerHTML=Object.entries(MENU).filter(([c,v])=>!v.oculto).map(([c,v])=>`<div class="mcat" data-cat="${c}">
   <button class="tab" type="button" aria-haspopup="true" aria-expanded="false">${v.nome.replace(/^(\S+)\s/,'<span class="tab-ic" aria-hidden="true">$1</span> ')} <span class="chev">▾</span></button>
   <div class="drop-menu" role="menu">${v.itens.map(i=>`<button type="button" role="menuitem" data-item="${i.id}"${i.area?` data-area="${i.area}"`:''}><span class="ic">${i.ic}</span><span><b>${i.nome}</b><small>${i.desc}</small></span></button>`).join('')}</div>
 </div>`).join('');
-const ultimoItem={};let catAtual='ger';
+const ultimoItem={};let catAtual='ini';
+/* categoria liberada para o perfil; a tela inicial vale para quem pode ver algum item dela */
+function podeCategoria(c){const pode=areasPermitidas(),m=MENU[c];if(!m)return false;return m.oculto?m.itens.some(i=>!i.area||pode.includes(i.area)):pode.includes(c)}
 function fecharMenus(){document.querySelectorAll('.mcat.open').forEach(m=>{m.classList.remove('open');m.querySelector('.tab').setAttribute('aria-expanded','false')})}
 function abrir(cat,item,semHash){
   fichaFechar();
   if(cat==='ana'&&item==='prog'){cat='cli';item='contas'}   // endereço antigo da Programação
-  if(!MENU[cat])cat='ger';
-  const pode=areasPermitidas();if(!pode.includes(cat)){cat=pode[0];item=null}
+  if(cat==='cli'&&item==='hoje')cat='ini';   // endereço antigo do "O que fazer hoje"
+  if(!MENU[cat])cat='ini';
+  const pode=areasPermitidas();if(!podeCategoria(cat)){cat=pode[0];item=null}
   const itens=MENU[cat].itens.filter(i=>!i.area||pode.includes(i.area));item=itens.find(i=>i.id===item)||itens.find(i=>i.id===ultimoItem[cat])||itens[0];
   ultimoItem[cat]=item.id;catAtual=cat;
   document.querySelectorAll('.mcat').forEach(m=>m.querySelector('.tab').classList.toggle('active',m.dataset.cat===cat));
@@ -4046,7 +4053,9 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')fecharMenus()});
 // toque/clique dentro do pós-venda (página embutida) não chega aqui; o portal só perde o foco: fecha o menu
 window.addEventListener('blur',()=>setTimeout(fecharMenus,0));
 window.abrirTab=id=>{for(const [c,v] of Object.entries(MENU))if(v.itens.some(i=>i.id===id))return abrir(c,id)};
-(function(){let h=(location.hash||'').slice(1);if(!h){try{h=localStorage.getItem('ozz_aba')||''}catch(e){}}const [c,i]=h.split('/');abrir(c||'ger',i,!location.hash&&!h)})();
+(function(){const [c,i]=(location.hash||'').slice(1).split('/');abrir(c||'ini',i,!location.hash)})();   // sem endereço: tela inicial
+$('brandHome').onclick=()=>abrir('ini','hoje');
+$('brandHome').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();abrir('ini','hoje')}};
 window.addEventListener('hashchange',()=>{const [c,i]=location.hash.slice(1).split('/');abrir(c,i,true)});
 aplicarPerfil();
 
