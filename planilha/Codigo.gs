@@ -90,7 +90,18 @@ function testarClientes() {
 }
 
 /** Cria as abas, os cabeçalhos e o código de sincronização (pode rodar de novo sem perder nada). */
+/** Pede de novo TODAS as autorizações do script (Drive, acionadores, e-mail…). Use quando aparecer
+ * "You do not have permission to call …": o Google deixa desmarcar permissões na tela de autorização. */
+function autorizar() {
+  try { ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL); } catch (e) { Logger.log('requireAllScopes: ' + e.message); }
+  const ok = [];
+  try { DriveApp.getRootFolder().getName(); ok.push('Drive ✓'); } catch (e) { ok.push('Drive ✗ ' + e.message); }
+  try { ScriptApp.getProjectTriggers(); ok.push('Acionadores ✓'); } catch (e) { ok.push('Acionadores ✗ ' + e.message); }
+  Logger.log(ok.join('\n'));
+}
+
 function configurar() {
+  try { ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL); } catch (e) { Logger.log('Autorização: ' + e.message); }
   const ss = SpreadsheetApp.getActive();
   const cria = (nome, cols) => {
     const sh = ss.getSheetByName(nome) || ss.insertSheet(nome);
