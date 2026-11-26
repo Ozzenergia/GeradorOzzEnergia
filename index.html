@@ -121,6 +121,31 @@ main.wide{max-width:1180px}
 .ana-rodape{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:12px 14px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
 .ana-rodape b{color:var(--ink);font-variant-numeric:tabular-nums}
 .ana-vazio{padding:34px 16px;text-align:center;color:var(--muted)}
+/* Painel "O que fazer hoje" e Consultar UC */
+.hj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.hj-card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;border-top:4px solid var(--line);display:flex;flex-direction:column}
+.hj-card.urg{border-top-color:var(--err)}.hj-card.av{border-top-color:#e0a100}.hj-card.ok{border-top-color:#1f9d55}.hj-card.inf{border-top-color:var(--primary)}
+.hj-card h3{margin:0;padding:12px 16px 4px;font-size:15px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.hj-card h3 b{font-size:22px}
+.hj-card>p{margin:0;padding:0 16px 8px;font-size:13px;color:var(--muted)}
+.hj-l{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.hj-l li{padding:8px 16px;border-bottom:1px solid var(--line);font-size:13.5px;display:flex;justify-content:space-between;gap:10px;align-items:center;cursor:pointer}
+.hj-l li:hover{background:var(--bg)}
+.hj-l li span{min-width:0}.hj-l li small{display:block;color:var(--muted);font-size:12px}
+.hj-l li .v{white-space:nowrap;font-weight:700;text-align:right;flex:0 0 auto}
+.hj-mais{padding:8px 16px;font-size:13px;display:flex;justify-content:space-between;gap:8px;margin-top:auto}
+.hj-mais button{font:600 13px Outfit,sans-serif;background:none;border:none;color:var(--primary);cursor:pointer;padding:0}
+.hj-vazio{padding:10px 16px 14px;font-size:13.5px;color:var(--muted)}
+.hj-carr{color:var(--muted);font-size:14px;margin:0 0 12px}
+.uc-busca{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.uc-busca input{flex:1 1 280px;font:inherit;font-size:16px;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
+.uc-cands{display:grid;gap:6px;margin-bottom:14px}
+.uc-cands button{text-align:left;font:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px;cursor:pointer;color:var(--ink)}
+.uc-cands button small{color:var(--muted);margin-left:6px}
+.uc-res{display:grid;gap:14px}
+.uc-cab{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:flex-start}
+.uc-cab h2{margin:0;font-size:22px}.uc-cab p{margin:4px 0 0;color:var(--muted);font-size:14px}
+.uc-acoes{display:flex;gap:8px;flex-wrap:wrap}
 /* ===== Rateio de créditos ===== */
 .rat-beta{font-size:12px;font-weight:600;color:var(--warn);background:var(--warn-soft);border-radius:999px;padding:3px 9px;vertical-align:middle;margin-left:6px}
 .rat-kpis .ana-kpi{cursor:default}
@@ -1233,6 +1258,23 @@ body.locked{overflow:hidden}
 </section>
 
 <!-- =================== CLIENTES · COBRANÇAS (só leitura da planilha de controle) =================== -->
+<!-- =================== O QUE FAZER HOJE =================== -->
+<section id="tab-hoje" class="hidden">
+  <div class="ana-top">
+    <div><h2>O que fazer hoje</h2><p id="hjSub">Faturas para ler, cobranças para emitir e enviar, vencimentos e clientes novos</p></div>
+    <button class="btn sec sm" id="hjAtualizar" type="button">↻ Atualizar</button>
+  </div>
+  <p class="hj-carr" id="hjCarr"></p>
+  <div class="hj-grid" id="hjGrid"></div>
+</section>
+<!-- =================== CONSULTAR UC =================== -->
+<section id="tab-uc" class="hidden">
+  <div class="ana-top"><div><h2>Consultar UC</h2><p>Tudo de uma unidade consumidora ou usina numa tela: cadastro, cobranças, faturas, rateio, contas e pós-venda</p></div></div>
+  <form class="uc-busca" id="ucForm"><input id="ucQ" type="search" placeholder="Número da UC (nova ou antiga) ou nome do cliente" aria-label="UC ou nome" autocomplete="off"><button class="btn sm" type="submit">Consultar</button></form>
+  <p class="hj-carr" id="ucCarr"></p>
+  <div class="uc-cands" id="ucCands"></div>
+  <div class="uc-res" id="ucRes"></div>
+</section>
 <section id="tab-cob" class="hidden">
   <div class="ana-top">
     <div><h2>Cobranças</h2><p id="cbSub">Todas as abas dos meses da planilha de controle numa tela só</p></div>
@@ -3398,6 +3440,173 @@ function cbMotivo(x,hoje){
   if(c.nota)p.push('📝 '+E(c.nota));
   return p.join(' ');
 }
+/* ===== O que fazer hoje: um resumo do que está pendente, montado com o que as outras telas já leem ===== */
+const hj={aberto:{}};
+const hjPode=a=>areasPermitidas().includes(a);
+const hjEspera=f=>new Promise(ok=>{const t0=Date.now(),v=()=>{if(f()||Date.now()-t0>9*60000)ok();else setTimeout(v,400)};v()});
+async function hjDados(recarregar){
+  const t=[ucTiposCarregar()];
+  if(hjPode('ana')){
+    if(recarregar||!cb.dados)t.push((async()=>{await hjEspera(()=>!cb.carregando);await cbCarregar();await hjEspera(()=>!cb.carregando)})());
+    if(recarregar||!ana.dados)t.push((async()=>{await hjEspera(()=>!ana.carregando);await anaCarregar();await hjEspera(()=>!ana.carregando)})());
+  }
+  if(hjPode('rat')&&(recarregar||!rat.dados))t.push((async()=>{await hjEspera(()=>!rat.carregando);await ratCarregar();await hjEspera(()=>!rat.carregando)})());
+  if(hjPode('cli')&&(recarregar||!cli.lista))t.push(cliGarantirLista().catch(()=>null));
+  await Promise.all(t.map(p=>Promise.resolve(p).catch(()=>{})));
+}
+async function hjAbrir(recarregar){
+  if(hj.carregando)return;hj.carregando=true;const bt=$('hjAtualizar');bt.disabled=true;
+  if(!cb.dados||recarregar)$('hjCarr').textContent='Lendo as cobranças, as contas e o rateio… (a primeira vez pode levar até 1 minuto)';
+  try{await hjDados(recarregar)}finally{hj.carregando=false;bt.disabled=false}
+  $('hjCarr').textContent=cb.dados?'':'⚠️ Não consegui ler as cobranças. Clique em Atualizar.';
+  hjRender();
+}
+$('hjAtualizar').onclick=()=>hjAbrir(true);
+function hjCartoes(){
+  const C=[],hoje=cb.hoje||new Date().toISOString().slice(0,10),E=anaEsc;
+  const it=(nome,det,val,on)=>({nome,det,val,on});
+  const ficha=k=>()=>cbDetalhe(k,null);
+  // a coluna COBRANÇA da planilha às vezes traz uma data velha (de outro mês): só mostra vencimento que faz sentido para o mês
+  const vence=x=>{if(!x.cob)return '';const [y,m]=x.c.split('-').map(Number),ini=(m===1?(y-1)+'-12':y+'-'+String(m-1).padStart(2,'0'))+'-01';return x.cob>=ini?' · vence '+anaDataBR(x.cob):''};
+  const ate=(n)=>{const d=new Date(hoje+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)};
+  if(cb.dados){
+    const cls=Object.values(cb.cli).filter(c=>!/CANCEL/i.test(c.stCli||''));
+    const faturado=c=>c.lista.some(x=>x.v>0&&x.e!=='nao_emitiu'&&x.e!=='sem_fatura'&&!x.soPortal);
+    const recente=ate(-75).slice(0,7);
+    // contas da RGE que chegaram no e-mail (PROGRAMAÇÃO) e ainda não foram lidas no Leitor
+    const ler=cls.filter(c=>c.rge&&c.rge.ref&&c.rge.ref>=recente&&!(c.fats||[]).some(f=>f.ref>=c.rge.ref))
+      .sort((a,b)=>(a.rge.venc||'9')<(b.rge.venc||'9')?-1:1)
+      .map(c=>it(c.n,'ref. '+cbRef(c.rge.ref)+(c.rge.venc?' · venc. RGE '+cbDM(c.rge.venc):''),c.rge.valor!=null?brl(c.rge.valor):'',ficha(c.k)));
+    const abertas=cb.L.filter(x=>!/CANCEL/i.test(x.cli.stCli||''));
+    const emitir=abertas.filter(x=>cbProximo(x)==='emitida'&&x.e!=='aguarda_1a'&&((x.pc&&x.pc.valor!=null)||x.chegou))
+      .sort((a,b)=>(a.cob||'9')<(b.cob||'9')?-1:1)
+      .map(x=>it(x.cli.n,fxMesNome(x.c)+vence(x)+(x.pc?' · calculada pelo portal':''),x.v>0?brl(x.v):'',ficha(x.k)));
+    const enviar=abertas.filter(x=>x.e==='enviar').sort((a,b)=>(a.cob||'9')<(b.cob||'9')?-1:1)
+      .map(x=>it(x.cli.n,fxMesNome(x.c)+vence(x),x.v>0?brl(x.v):'',ficha(x.k)));
+    const vencem=abertas.filter(x=>x.e==='aguardando'&&x.cob&&x.cob>=hoje&&x.cob<=ate(3)).sort((a,b)=>a.cob<b.cob?-1:1)
+      .map(x=>it(x.cli.n,fxMesNome(x.c)+' · '+(x.cob===hoje?'vence hoje':'vence '+anaDataBR(x.cob)),x.v>0?brl(x.v):'',ficha(x.k)));
+    const venc=abertas.filter(x=>x.e==='vencida'||x.e==='atrasado').sort((a,b)=>(a.cob||'')<(b.cob||'')?-1:1);
+    const vencidas=venc.map(x=>it(x.cli.n,fxMesNome(x.c)+(x.cob?' · venceu '+anaDataBR(x.cob)+' (há '+cbDias(x.cob,hoje)+' d)':''),x.v>0?brl(x.v):'',ficha(x.k)));
+    const novos=cls.filter(c=>!faturado(c));
+    const primeira=novos.filter(c=>c.anexo&&cbDias(c.anexo,hoje)>cb.prazo)
+      .map(c=>it(c.n,'entrou no rateio em '+anaDataBR(c.anexo)+' (há '+cbDias(c.anexo,hoje)+' dias) e ainda não veio fatura com crédito','',ficha(c.k)));
+    const g=rat.dados?rat.dados.gerados:[];
+    const semG=novos.filter(c=>!c.anexo&&(c.soPortal||/CONTRATO|CONECT|ANDAMENTO|ASSINA/i.test(c.stCli||'')))
+      .map(c=>{const ucs=[c.k,c.uc,c.ucA].map(soDig).filter(u=>u.length>=7),l=g.filter(x=>ucs.includes(soDig(x.uc))).pop();
+        return it(c.n,(c.stCli?c.stCli.toLowerCase()+' · ':'')+(l?'está no rateio salvo de '+ratMesTxt(+l.mes)+(/^ENVIADO/i.test(l.situacao||'')?'':': falta enviar o Anexo G'):'ainda não está em nenhum rateio'),'',ficha(c.k))});
+    const conferir=Object.values(cb.pcs||{}).filter(p=>(p.sit==='Falta o plano'||p.sit==='Conferir')&&p.c>=recente)
+      .map(p=>it(p.n||p.uc,fxMesNome(p.c)+' · '+(p.sit==='Falta o plano'?'falta o % de desconto':E(p.aviso||'conferir o cálculo')),'',()=>{if(cb.cli[p.k])cbDetalhe(p.k,null)}));
+    const soma=l=>brl(l.reduce((t,x)=>t+(x.v>0?x.v:0),0));
+    C.push({k:'venc',cls:'urg',tit:'🔴 Cobranças vencidas',itens:vencidas,sub:vencidas.length?soma(venc)+' em aberto':'',ir:['Abrir Cobranças',()=>{cb.grupo='atr';cb.vista='lista';abrir('cli','cobrancas')}]});
+    C.push({k:'emitir',cls:'av',tit:'🧾 Cobranças para emitir no Asaas',itens:emitir,sub:'a fatura da RGE já chegou ou o portal já calculou',ir:['Abrir Cobranças',()=>{cb.grupo='nemit';cb.vista='lista';abrir('cli','cobrancas')}]});
+    C.push({k:'enviar',cls:'av',tit:'✉️ Cobranças para enviar ao cliente',itens:enviar,sub:'emitidas e ainda não enviadas',ir:['Abrir Cobranças',()=>{cb.grupo='env';cb.vista='lista';abrir('cli','cobrancas')}]});
+    C.push({k:'ler',cls:'inf',tit:'📄 Faturas da RGE para ler',itens:ler,sub:'chegaram no e-mail e ainda não passaram pelo Leitor',ir:hjPode('rat')?['Abrir o Leitor',()=>abrir('ana','leitor')]:null});
+    C.push({k:'vencem',cls:'inf',tit:'⏰ Vencem nos próximos 3 dias',itens:vencem,sub:'cobranças enviadas aguardando pagamento'});
+    C.push({k:'semg',cls:'av',tit:'🆕 Clientes novos sem Anexo G enviado',itens:semG,sub:'sem data de entrada no rateio: gerar o rateio e enviar o Anexo G',ir:hjPode('rat')?['Abrir o Rateio',()=>abrir('ana','rateio')]:null});
+    C.push({k:'primeira',cls:'urg',tit:'⌛ 1ª fatura atrasada',itens:primeira,sub:'passou de '+cb.prazo+' dias da entrada no rateio sem fatura com crédito'});
+    C.push({k:'conferir',cls:'av',tit:'⚠️ Cobranças do portal para conferir',itens:conferir,sub:'sem plano do cliente ou com aviso no cálculo'});
+  }
+  if(ana.dados){
+    const ct=ana.dados.contas.filter(c=>!/^PAGO/i.test(c.situacao||'')&&c.dias!=null&&c.dias<=3).sort((a,b)=>a.dias-b.dias);
+    C.push({k:'rge',cls:'urg',tit:'💡 Contas da RGE para pagar',itens:ct.map(c=>it(c.nome,(c.mes?c.mes+' · ':'')+(c.dias<0?'venceu há '+(-c.dias)+' d':c.dias===0?'vence hoje':'vence em '+c.dias+' d')+(c.usinaNome?' · '+c.usinaNome:''),c.valor!=null?brl(c.valor):'',()=>abrir('cli','contas'))),
+      sub:'vencidas ou vencendo em até 3 dias (Contas a pagar)',ir:['Abrir Contas a pagar',()=>abrir('cli','contas')]});
+  }
+  return C;
+}
+function hjRender(){
+  const C=hjCartoes(),E=anaEsc,MAX=6;
+  // o que tem pendência primeiro (na ordem acima); os vazios no fim
+  C.sort((a,b)=>(b.itens.length>0)-(a.itens.length>0));
+  const tot=C.reduce((t,c)=>t+c.itens.length,0);
+  $('hjSub').textContent=tot?tot+' ite'+(tot===1?'m':'ns')+' pendente'+(tot===1?'':'s')+' · '+new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'}):'Nada pendente agora 🎉';
+  $('hjGrid').innerHTML=C.map((c,ci)=>{const ab=hj.aberto[c.k],l=ab?c.itens:c.itens.slice(0,MAX);
+    return `<div class="hj-card ${c.itens.length?c.cls:'ok'}"><h3><span>${c.tit}</span><b>${c.itens.length}</b></h3>${c.sub?`<p>${E(c.sub)}</p>`:''}`+
+      (c.itens.length?`<ul class="hj-l">${l.map((x,i)=>`<li tabindex="0" data-c="${ci}" data-i="${i}"><span>${E(x.nome)}<small>${x.det}</small></span><span class="v">${x.val||''}</span></li>`).join('')}</ul>`:'<div class="hj-vazio">Nada pendente ✓</div>')+
+      `<div class="hj-mais">${c.itens.length>MAX?`<button type="button" data-mais="${c.k}">${ab?'Mostrar menos':'Ver todos ('+c.itens.length+')'}</button>`:'<span></span>'}${c.ir?`<button type="button" data-ir="${ci}">${c.ir[0]} →</button>`:''}</div></div>`}).join('');
+  $('hjGrid').querySelectorAll('li[data-c]').forEach(li=>{const f=()=>C[+li.dataset.c].itens[+li.dataset.i].on();li.onclick=f;li.onkeydown=e=>{if(e.key==='Enter')f()}});
+  $('hjGrid').querySelectorAll('[data-mais]').forEach(b=>b.onclick=()=>{hj.aberto[b.dataset.mais]=!hj.aberto[b.dataset.mais];hjRender()});
+  $('hjGrid').querySelectorAll('[data-ir]').forEach(b=>b.onclick=()=>C[+b.dataset.ir].ir[1]());
+}
+
+/* ===== Consultar UC: junta o que cada tela sabe de uma UC (cadastro, cobranças, faturas, rateio, contas, pós-venda) ===== */
+const ucq={base:null};
+async function ucAbrir(){setTimeout(()=>$('ucQ').focus(),0);if(!ucq.carregou){ucq.carregou=true;$('ucCarr').textContent='Carregando os dados…';await hjDados(false);$('ucCarr').textContent=''}}
+function ucEntradas(){
+  const m=new Map(),norm=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  const add=(ucs,nome,o)=>{const ds=ucs.map(soDig).filter(u=>u.length>=7);if(!ds.length)return;
+    let e=ds.map(d=>m.get(d)).find(Boolean);if(!e){e={ucs:new Set(),nomes:new Set(),uc:'',ucA:'',usina:false};}
+    ds.forEach(d=>{e.ucs.add(d);m.set(d,e)});if(nome)e.nomes.add(String(nome).trim());
+    if(o.uc&&!e.uc)e.uc=o.uc;if(o.ucA&&!e.ucA)e.ucA=o.ucA;if(o.usina)e.usina=true};
+  (rat.dados?rat.dados.usinas:[]).forEach(u=>add([u.ug],u.nome,{uc:u.ug,usina:true}));
+  (cli.lista||[]).forEach(c=>add([c.uc,c.ucAntiga],c.nome,{uc:c.uc,ucA:c.ucAntiga}));
+  Object.values(cb.cli||{}).forEach(c=>add([c.k,c.uc,c.ucA],c.n,{uc:c.uc,ucA:c.ucA}));
+  (rat.dados?rat.dados.benef:[]).forEach(b=>add([b.uc],b.titular||b.favorecido,{uc:b.uc}));
+  (ana.dados?ana.dados.contas:[]).forEach(c=>add([c.uc,c.ucAntiga],c.nome,{uc:c.uc,ucA:c.ucAntiga}));
+  const l=[...new Set(m.values())];l.forEach(e=>{e.nome=[...e.nomes][0]||'';e.busca=norm([...e.nomes].join(' '))});
+  return l;
+}
+$('ucForm').onsubmit=async e=>{
+  e.preventDefault();const q=$('ucQ').value.trim();if(!q)return;
+  if(!ucq.carregou)await ucAbrir();
+  const d=soDig(q),n=q.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(),E=anaEsc;
+  const l=ucEntradas().filter(x=>(d.length>=4&&[...x.ucs].some(u=>u.includes(d)))||(n.length>=3&&!/^\d/.test(n)&&x.busca.includes(n)));
+  $('ucRes').innerHTML='';$('ucCands').innerHTML='';
+  if(!l.length){$('ucCands').innerHTML='<p class="hj-carr">Nada encontrado com "'+E(q)+'". Confira o número da UC ou parte do nome.</p>';return}
+  if(l.length===1)return ucMostrar(l[0]);
+  ucq.cands=l.slice(0,30);
+  $('ucCands').innerHTML=`<p class="hj-carr">${l.length} resultados${l.length>30?' (mostrando 30)':''}: escolha um.</p>`+ucq.cands.map((x,i)=>`<button type="button" data-i="${i}"><b>${E(x.nome||'—')}</b><small>${E(x.uc||[...x.ucs][0])}${x.ucA?' · antiga '+E(x.ucA):''}${x.usina?' · USINA':''}</small></button>`).join('');
+  $('ucCands').querySelectorAll('button').forEach(b=>b.onclick=()=>{$('ucCands').innerHTML='';ucMostrar(ucq.cands[+b.dataset.i])});
+};
+function ucMostrar(e){
+  const E=anaEsc,S=e.ucs,tem=u=>S.has(soDig(u)),campo=(r,v)=>v?`<div><small>${r}</small>${v}</div>`:'';
+  const cad=(cli.lista||[]).find(c=>tem(c.uc)||tem(c.ucAntiga));
+  const c=Object.values(cb.cli||{}).find(x=>tem(x.k)||tem(x.uc)||tem(x.ucA));
+  const t=[...S].map(u=>ucTipo(u)).find(Boolean);
+  const us=rat.dados?rat.dados.usinas.find(u=>tem(u.ug)):null,ehUsina=!!us||e.usina||(t&&t.tipo==='usina');
+  let h=`<div class="uc-cab"><div><h2>${E(cad?cad.nome:e.nome||(us&&us.nome)||'—')} ${ucTag(e.uc||[...S][0])}</h2>
+    <p>UC ${E(e.uc||[...S][0])}${e.ucA?' · UC antiga '+E(e.ucA):''}${cad&&cad.cidade?' · '+E(cad.cidade+(cad.uf?'/'+cad.uf:'')):c&&c.cid?' · '+E(c.cid):''}</p></div><div class="uc-acoes">
+    ${c?`<button class="btn sec sm" type="button" id="ucAbCob">🧾 Ficha de cobranças</button>`:''}${cad?`<button class="btn sec sm" type="button" id="ucAbCad">🗂️ Cadastro</button>`:''}${us&&hjPode('rat')?`<button class="btn sec sm" type="button" id="ucAbRat">⚖️ Rateio da usina</button>`:''}</div></div>`;
+  // cadastro
+  if(cad||c){const o=cad||{};
+    h+=`<section class="ficha-bloco"><h3>Cadastro<span>${cad?'cadastro do portal':'planilha de controle'}</span></h3><div class="ficha-dados">
+      ${campo('Status',E(o.status||(c&&c.stCli)))}${campo('Usina / investidor',E(o.usina||(c&&c.inv)))}${campo('Entrada no rateio',o.entrada?anaDataBR(o.entrada):c&&c.anexo?anaDataBR(c.anexo):'')}
+      ${campo('Desconto',o.descPct?E(String(o.descPct).replace('.',','))+'% sobre '+(o.descSobre==='injetado'?'o injetado':'o total'):c&&c.plano&&c.plano.pct!=null?Math.round(c.plano.pct*1000)/10+'% sobre '+(c.plano.sobre==='injetado'?'o injetado':'o total'):'')}
+      ${campo('Vendedor',E(o.vendedor||(c&&c.vend)))}${campo('Telefone',E(o.telefone||(c&&c.tel)))}${campo('E-mail',E(o.email))}${campo('Consumo médio',o.consumo?E(o.consumo)+' kWh':'')}
+    </div></section>`}
+  // usina: geração e beneficiárias
+  if(ehUsina&&rat.dados&&us){const d=rat.dados,ug=soDig(us.ug);
+    const reais=(d.reais||[]).filter(f=>f.uc===ug||f.alt===ug).sort((a,b)=>b.mes-a.mes).slice(0,6);
+    const est=m=>{const gl=d.geracao.find(g=>soDig(g.ug)===ug&&+g.ano===Math.floor(m/100));return gl?+gl['m'+(m%100)]||0:0};
+    const g=d.gerados.filter(x=>soDig(x.ug)===ug&&!/CONFERIR/i.test(x.situacao||'')),ult=g.length?g[g.length-1].id:null,lu=g.filter(x=>x.id===ult);
+    h+=`<section class="ficha-bloco"><h3>Usina<span>${E(us.nome)}</span></h3><div class="ficha-dados">${campo('Beneficiárias no último rateio',lu.length?String(lu.length):'')}${campo('Último rateio',lu.length?ratMesTxt(+lu[0].mes)+' · '+E(lu[0].situacao||''):'nenhum')}${campo('Titular (Anexo G)',E(us.titular))}</div>`+
+      (reais.length?`<div class="ana-tabela cb-hist"><div class="ana-scroll"><table><thead><tr><th>Mês</th><th class="num">Estimada</th><th class="num">Real (fatura)</th><th class="num">Conta</th><th></th></tr></thead><tbody>${
+        reais.map(f=>{const e2=est(f.mes);return `<tr><td>${ratMesTxt(f.mes)}</td><td class="num">${e2?e2.toLocaleString('pt-BR'):'—'}</td><td class="num"><b>${(f.gerMed||0).toLocaleString('pt-BR')}</b>${e2?' <small>'+((f.gerMed-e2)/e2*100>0?'+':'')+Math.round((f.gerMed-e2)/e2*100)+'%</small>':''}</td><td class="num">${f.valor!=null?brl(f.valor):'—'}</td><td>${f.pdf?cbBtPdf({uc:f.uc,ref:String(f.mes).slice(0,4)+'-'+String(f.mes).slice(4),pdf:1}):''}</td></tr>`}).join('')}</tbody></table></div></div>`:'<div class="ficha-vazio">Nenhuma fatura desta usina lida no Leitor.</div>')+'</section>'}
+  // cobranças
+  if(c){const L=c.lista.slice().sort((a,b)=>a.c<b.c?1:-1).slice(0,8);
+    h+=`<section class="ficha-bloco"><h3>Cobranças<span>${c.abertos.length?c.abertos.length+' em aberto':'nada em aberto'}</span></h3><div class="ana-tabela cb-hist"><div class="ana-scroll"><table><thead><tr><th>Mês</th><th class="num">Valor</th><th>Vencimento</th><th>Situação</th></tr></thead><tbody>${
+      L.map(x=>`<tr><td data-l="Mês">${fxMesNome(x.c)}</td><td class="num" data-l="Valor">${x.v>0?brl(x.v):'—'}</td><td data-l="Vencimento">${x.cob?anaDataBR(x.cob):'—'}</td><td><span class="cb-st ${x.e}">${CB_ST[x.e]||x.e}</span></td></tr>`).join('')}</tbody></table></div></div></section>`;
+    const fs=(c.fats||[]).slice().reverse().slice(0,6);
+    h+=`<section class="ficha-bloco"><h3>Faturas da RGE lidas<span>${(c.fats||[]).length||'nenhuma'}</span></h3>${fs.length?`<div class="ana-tabela cb-hist"><div class="ana-scroll"><table><thead><tr><th>Ref.</th><th>Vencimento</th><th class="num">Conta RGE</th><th class="num">Consumo</th><th class="num">Injetada</th><th></th></tr></thead><tbody>${
+      fs.map(f=>`<tr><td><b>${cbRef(f.ref)}</b></td><td>${f.venc?anaDataBR(f.venc):'—'}</td><td class="num">${f.valor!=null?brl(f.valor):'—'}</td><td class="num">${f.cons!=null?Math.round(f.cons).toLocaleString('pt-BR'):'—'}</td><td class="num">${f.inj!=null?Math.round(f.inj).toLocaleString('pt-BR'):'—'}</td><td>${cbBtPdf(f)}</td></tr>`).join('')}</tbody></table></div></div>`:'<div class="ficha-vazio">Nenhuma fatura desta UC lida no Leitor.</div>'}</section>`}
+  // rateio (beneficiária): em que usina está e com quanto
+  if(rat.dados&&!ehUsina){const d=rat.dados,bs=d.benef.filter(b=>tem(b.uc));
+    const lin=[...new Set(bs.map(b=>soDig(b.ug)))].map(ug=>{const u=d.usinas.find(x=>soDig(x.ug)===ug)||{nome:'',ug};
+      const g=d.gerados.filter(x=>soDig(x.ug)===ug&&!/CONFERIR/i.test(x.situacao||'')),id=g.length?g[g.length-1].id:null,eu=g.filter(x=>x.id===id).find(x=>tem(x.uc));
+      return `<tr><td>${E(u.nome||u.ug)}<small>${E(u.ug)}</small></td><td class="num">${eu?ratP(+eu.pct):'—'}</td><td>${id?ratMesTxt(+g[g.length-1].mes)+' · '+E(g[g.length-1].situacao||''):'sem rateio salvo'}${id&&!eu?' <small>(esta UC não está nele)</small>':''}</td></tr>`});
+    h+=`<section class="ficha-bloco"><h3>Rateio<span>aba Rateio Beneficiárias</span></h3>${lin.length?`<div class="ana-tabela cb-hist"><div class="ana-scroll"><table><thead><tr><th>Usina</th><th class="num">% no último rateio</th><th>Último rateio</th></tr></thead><tbody>${lin.join('')}</tbody></table></div></div>`:'<div class="ficha-vazio">Esta UC não está em nenhuma usina na aba Rateio Beneficiárias.</div>'}</section>`}
+  // contas a pagar (PROGRAMAÇÃO)
+  if(ana.dados){const ct=ana.dados.contas.filter(x=>tem(x.uc)||tem(x.ucAntiga)).sort((a,b)=>(b.venc||'')<(a.venc||'')?-1:1).slice(0,6);
+    h+=`<section class="ficha-bloco"><h3>Contas da RGE (Contas a pagar)<span>${ct.length?'últimas '+ct.length:'nenhuma'}</span></h3>${ct.length?`<div class="ana-tabela cb-hist"><div class="ana-scroll"><table><thead><tr><th>Mês</th><th>Vencimento</th><th class="num">Valor</th><th>Situação</th></tr></thead><tbody>${
+      ct.map(x=>`<tr><td>${E(x.mes||'')}</td><td>${anaDataBR(x.venc)}</td><td class="num">${x.valor!=null?brl(x.valor):'—'}</td><td>${E(x.situacao||'')}</td></tr>`).join('')}</tbody></table></div></div>`:'<div class="ficha-vazio">Nenhuma conta desta UC na PROGRAMAÇÃO.</div>'}</section>`}
+  if(!ehUsina)h+=posBlocoHtml('ucPos');
+  $('ucRes').innerHTML=h;
+  cbLigaPdf($('ucRes'));
+  if(!ehUsina)posCarregar('ucPos',[...S],cad?cad.nome:e.nome);
+  if($('ucAbCob'))$('ucAbCob').onclick=()=>cbDetalhe(c.k,null);
+  if($('ucAbCad'))$('ucAbCad').onclick=()=>fichaAbrir(cad.id);
+  if($('ucAbRat'))$('ucAbRat').onclick=()=>{rat.ug=us.ug;abrir('ana','rateio')};
+}
+
 function cbAbrir(){if(!cb.dados)cbCarregar();else cbRender()}
 function cbFiltroBase(x){
   const c=x.cli,q=cb.busca;
@@ -3783,6 +3992,8 @@ const MENU={
     {id:'prop',ic:'📊',nome:'Propostas',desc:'Fatura → proposta preenchida em segundos',sec:'tab-prop'},
     {id:'termo',ic:'📄',nome:'Termo de Adesão',desc:'Termo preenchido a partir da proposta ou da fatura',sec:'tab-termo'}]},
   cli:{nome:'👥 Clientes',itens:[
+    {id:'hoje',ic:'📋',nome:'O que fazer hoje',desc:'Faturas para ler, cobranças para emitir, vencimentos e clientes novos',sec:'tab-hoje',largo:true,area:'ana',aoAbrir:()=>hjAbrir()},
+    {id:'uc',ic:'🔎',nome:'Consultar UC',desc:'Tudo de uma UC ou usina numa tela só',sec:'tab-uc',largo:true,aoAbrir:()=>ucAbrir()},
     {id:'tabela',ic:'🗂️',nome:'Tabela de clientes',desc:'Consultar, buscar, alterar e excluir clientes',sec:'tab-clientes',largo:true,aoAbrir:()=>cliAbrir()},
     {id:'registrar',ic:'➕',nome:'Registrar cliente',desc:'Cadastrar um cliente novo (dá para preencher pela fatura)',sec:'tab-cli-reg',largo:true,aoAbrir:()=>cliAbrirRegistro()},
     // area: só aparece para quem tem acesso à Análise (TI e Admin), porque mostra valores da empresa
@@ -4648,7 +4859,7 @@ $('btnGen').onclick=async()=>{
     const reg=await sheetApi('termo',{dados:{num_proposta:V.num_proposta,consultor:consultorAtual(),titular:V.titular,documento:V.documento,codigo_uc:V.codigo_uc,
       distribuidora:V.distribuidora,classe_uc:V.classe_uc,endereco:V.endereco,cidade:V.cidade,consumo:V.consumo,modalidade:V.modalidade,
       data_assinatura:dataBR(V.data_assinatura),rep_nome:V.rep_nome,celular:V.celular||'',email:V.email||'',cep:V.cep||'',bairro:V.bairro||''}});
-    sheetStatus('termoSheetSt',reg,'✅ Registrado na planilha.'+({criado:' Cliente adicionado ao cadastro.',completado:' Cadastro do cliente completado.',igual:' Cliente já estava no cadastro.'}[reg&&reg.cadastro]||''));
+    sheetStatus('termoSheetSt',reg,'✅ Registrado na planilha.'+({criado:' Cliente adicionado ao cadastro, com o desconto da proposta.',completado:' Cadastro do cliente completado (desconto da proposta e consumo onde estavam vazios).',igual:' Cliente já estava no cadastro.'}[reg&&reg.cadastro]||''));
     if(reg&&(reg.cadastro==='criado'||reg.cadastro==='completado'))cli.lista=null;   // a Tabela de clientes relê na próxima vez
     $('load3').style.display='none';$('done').classList.remove('hidden');
   }catch(e){$('load3').style.display='none';$('err3').textContent='⚠️ Erro ao gerar o documento: '+e.message;$('err3').style.display='block'}
