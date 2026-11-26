@@ -368,6 +368,13 @@ main.wide{max-width:1180px}
 .cb-ac input{font:inherit;font-size:15px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
 .cb-ac-msg{min-height:1em;font-size:13px!important;color:var(--err)!important}
 .cb-ac-bts{display:flex;justify-content:flex-end;gap:8px}
+.modal .card.rg-card{max-width:640px}
+.rg-grid label{min-width:0}.rg-grid input{width:100%;box-sizing:border-box;min-width:0}
+.rg-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}.rg-grid .c2{grid-column:1/-1}
+.rg-avisos{font-size:13px;margin:0 0 10px;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--line);line-height:1.5}
+.rg-avisos div+div{margin-top:4px}
+.rg-bts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+@media(max-width:560px){.rg-grid{grid-template-columns:1fr}}
 .cb-fat-top{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;justify-content:space-between;margin-bottom:10px}
 .cb-fat-top label{display:grid;gap:4px;font-size:12.5px;font-weight:600;color:var(--muted)}
 .cb-fat-top select{font:inherit;font-size:14px;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
@@ -988,6 +995,26 @@ body.locked{overflow:hidden}
     <div id="cbAcCampos"></div>
     <p class="cb-ac-msg" id="cbAcMsg"></p>
     <div class="cb-ac-bts"><button class="btn sec sm" type="button" id="cbAcCancelar">Cancelar</button><button class="btn sm" type="button" id="cbAcOk">Confirmar</button></div>
+  </div>
+</div>
+<!-- Rateio: gerar o Anexo G (formulário G.2 da RGE e a lista de rateio G.3) de um rateio salvo -->
+<div class="modal hidden" id="ratGModal">
+  <div class="card cb-ac rg-card" role="dialog" aria-modal="true" aria-labelledby="ratGTit">
+    <h3 id="ratGTit">Anexo G</h3><p id="ratGSub"></p>
+    <div class="rg-avisos" id="ratGAvisos"></div>
+    <div class="rg-grid">
+      <label class="c2">Titular da usina (nome completo / razão social)<input id="rg_titular" autocomplete="off"></label>
+      <label>CPF/CNPJ do titular<input id="rg_doc" autocomplete="off" inputmode="numeric"></label>
+      <label>E-mail para contato<input id="rg_email" type="email" autocomplete="off"></label>
+      <label>Responsável (quando PJ)<input id="rg_resp" autocomplete="off"></label>
+      <label>CPF do responsável<input id="rg_respCpf" autocomplete="off" inputmode="numeric"></label>
+      <label>UC âncora (lista G.3, se houver)<input id="rg_ancora" autocomplete="off"></label>
+      <label>Data da emissão<input id="rg_data" type="date"></label>
+    </div>
+    <p class="cb-ac-msg" id="ratGMsg" role="status" aria-live="polite"></p>
+    <div class="rg-bts"><button class="btn sec sm" type="button" id="ratGFechar">Fechar</button>
+      <button class="btn sec sm" type="button" id="ratGG3">⬇️ Lista de rateio G.3 (Excel)</button>
+      <button class="btn sm" type="button" id="ratGG2">⬇️ Anexo G.2 (Word)</button></div>
   </div>
 </div>
 <!-- Cobranças: todos os meses de um cliente (abre por cima da tela) -->
@@ -2614,9 +2641,84 @@ function ratRender(){
   // histórico
   const g=d.gerados.filter(x=>ratDig(x.ug)===ratDig(rat.ug)),ids=[...new Set(g.map(x=>x.id))].reverse();
   $('ratHist').innerHTML=ids.length?`<div class="ana-tabela"><div class="ana-scroll"><table><thead><tr><th>Salvo em</th><th>Mês ref.</th><th class="num">Geração</th><th class="num">UCs</th><th>Base</th><th>Por</th><th>Situação</th><th></th></tr></thead><tbody>${
-    ids.slice(0,24).map(id=>{const l=g.filter(x=>x.id===id),a=l[0];return `<tr><td>${anaEsc(a.geradoEm)}</td><td data-l="Mês ref.">${ratMesTxt(+a.mes)}</td><td class="num" data-l="Geração">${a.geracao===''||a.geracao==null?'—':ratN(+a.geracao)}</td><td class="num" data-l="UCs">${l.length}</td><td data-l="Base">${anaEsc(a.base)}</td><td data-l="Por">${anaEsc(a.geradoPor)}</td><td data-l="Situação">${anaEsc(a.situacao)}</td><td>${/^ENVIADO/i.test(a.situacao||'')?'':`<div class="ana-acoes"><button type="button" data-rat-env="${anaEsc(id)}" title="Marca o Anexo G como enviado à RGE e grava a data como entrada no rateio das UCs novas">Marcar enviado à RGE</button></div>`}</td></tr>`}).join('')}</tbody></table></div></div>`
+    ids.slice(0,24).map(id=>{const l=g.filter(x=>x.id===id),a=l[0];return `<tr><td>${anaEsc(a.geradoEm)}</td><td data-l="Mês ref.">${ratMesTxt(+a.mes)}</td><td class="num" data-l="Geração">${a.geracao===''||a.geracao==null?'—':ratN(+a.geracao)}</td><td class="num" data-l="UCs">${l.length}</td><td data-l="Base">${anaEsc(a.base)}</td><td data-l="Por">${anaEsc(a.geradoPor)}</td><td data-l="Situação">${anaEsc(a.situacao)}</td><td><div class="ana-acoes"><button type="button" data-rat-g="${anaEsc(id)}" title="Gera o formulário Anexo G.2 e a lista de rateio G.3 preenchidos com este rateio">📄 Anexo G</button>${/^ENVIADO/i.test(a.situacao||'')?'':`<button type="button" data-rat-env="${anaEsc(id)}" title="Marca o Anexo G como enviado à RGE e grava a data como entrada no rateio das UCs novas">Marcar enviado à RGE</button>`}</div></td></tr>`}).join('')}</tbody></table></div></div>`
     :'<p class="fx-nota">Nenhum rateio salvo para esta usina ainda.</p>';
 }
+/* ===== Anexo G (formulários da CPFL/RGE) preenchidos com um rateio salvo =====
+   G.2 (Word): alteração de percentuais e beneficiárias de usina já em operação, até 30 UCs na tabela.
+   G.3 (Excel): lista de rateio da geração compartilhada (UC, %, CPF/CNPJ sem pontos, nome), sem limite de linhas. */
+const ratG={id:null};
+const RG_CAMPOS=[['titular','titular'],['doc','docTitular'],['email','emailTitular'],['resp','resp'],['respCpf','respCpf'],['ancora','ancora']];
+function ratGDados(){
+  const d=rat.dados,l=d.gerados.filter(x=>x.id===ratG.id);if(!l.length)return null;
+  const ug=l[0].ug,usina=d.usinas.find(u=>ratDig(u.ug)===ratDig(ug))||{nome:l[0].nomeUg,ug};
+  const doc=uc=>{const u=ratDig(uc),b=d.benef.filter(x=>ratDig(x.uc)===u);const m=b.find(x=>ratDig(x.ug)===ratDig(ug))||b[0];return m?{doc:ratDig(m.doc),nome:m.titular||m.favorecido||''}:{doc:'',nome:''}};
+  const ucs=l.map(x=>{const b=doc(x.uc);return {uc:String(x.uc).trim(),pct:Math.round((+x.pct||0)*1e6)/1e4,doc:b.doc,nome:String(x.titular||b.nome||'').trim()}}).filter(x=>x.pct>0);
+  return {ug,usina,mes:+l[0].mes,geradoEm:l[0].geradoEm,ucs,soma:Math.round(ucs.reduce((t,x)=>t+x.pct,0)*1e4)/1e4};
+}
+const rgPct=v=>v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4});
+function ratGAbrir(id){
+  ratG.id=id;const g=ratGDados();if(!g)return;const u=g.usina,E=anaEsc;
+  $('ratGTit').textContent='Anexo G · '+(u.nome||'Usina');
+  $('ratGSub').textContent=`UC geradora ${g.ug} · rateio de ${ratMesTxt(g.mes)} salvo em ${g.geradoEm} · ${g.ucs.length} UC${g.ucs.length===1?'':'s'}`;
+  RG_CAMPOS.forEach(([c,k])=>{$('rg_'+c).value=u[k]||''});
+  const h=new Date();$('rg_data').value=h.getFullYear()+'-'+String(h.getMonth()+1).padStart(2,'0')+'-'+String(h.getDate()).padStart(2,'0');
+  const av=[],semDoc=g.ucs.filter(x=>!(x.doc.length===11||x.doc.length===14));
+  av.push(Math.abs(g.soma-100)<0.00005?'✅ Soma dos percentuais: <b>100,00%</b>.':`⚠️ A soma dá <b>${rgPct(g.soma)}%</b>: a RGE só aceita 100%. Recalcule e salve o rateio de novo.`);
+  if(g.ucs.length>30)av.push(`⚠️ São ${g.ucs.length} UCs e a tabela do G.2 tem 30 linhas: o G.2 sai com "conforme lista anexa" e as UCs vão na lista G.3.`);
+  if(semDoc.length)av.push(`⚠️ ${semDoc.length} UC${semDoc.length===1?'':'s'} sem CPF/CNPJ válido na aba Rateio Beneficiárias (a lista G.3 pede): ${semDoc.slice(0,4).map(x=>E(x.uc)).join(', ')}${semDoc.length>4?'…':''}.`);
+  av.push('Depois de assinar e enviar ao e-mail da RGE (microgeracaorge@cpfl.com.br), use <b>Marcar enviado à RGE</b> neste rateio.');
+  $('ratGAvisos').innerHTML=av.map(a=>`<div>${a}</div>`).join('');
+  $('ratGMsg').textContent='';$('ratGModal').classList.remove('hidden');setTimeout(()=>$('rg_titular').focus(),0);
+}
+function ratGFechar(){$('ratGModal').classList.add('hidden');ratG.id=null}
+async function ratGTitular(g){   // guarda o que foi digitado no cadastro da usina (próxima vez já vem preenchido)
+  const v={};RG_CAMPOS.forEach(([c,k])=>{v[k]=$('rg_'+c).value.trim()});
+  if(RG_CAMPOS.every(([c,k])=>(g.usina[k]||'')===v[k]))return;
+  Object.assign(g.usina,v);
+  const r=await sheetApi('rat_titular',{usina:{ug:g.ug,...v}},{espera:30000});
+  if(!r||!r.ok)$('ratGMsg').textContent='⚠️ Os dados do titular não foram guardados na planilha: '+((r&&r.erro&&/desconhecida/.test(r.erro))?'atualize o script para a versão 46':(r&&r.erro)||'erro')+'. O arquivo foi gerado mesmo assim.';
+}
+const rgNomeArq=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w]+/g,'_').replace(/^_|_$/g,'').slice(0,40);
+function rgBaixar(blob,nome){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nome;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},800)}
+async function rgModelo(arq){const r=await fetch('modelos/'+arq,{cache:'no-cache'});if(!r.ok)throw new Error('não achei o modelo '+arq);return r.arrayBuffer()}
+$('ratGG2').onclick=async()=>{
+  const g=ratGDados();if(!g)return;const msg=$('ratGMsg');msg.style.color='var(--muted)';msg.textContent='Gerando…';
+  try{
+    const dt=$('rg_data').value,dd=dt?dt.slice(8,10)+'/'+dt.slice(5,7)+'/'+dt.slice(0,4):'_____/_____/_____';
+    const v={ug:g.ug,titular:$('rg_titular').value.trim()||'________________________________________________',doc:$('rg_doc').value.trim(),email:$('rg_email').value.trim(),
+      resp:$('rg_resp').value.trim(),respCpf:$('rg_respCpf').value.trim(),data:dd,soma:rgPct(g.soma)+'%'};
+    if(g.ucs.length>30)v.u1='Conforme lista anexa (Anexo G.3)';
+    else g.ucs.forEach((x,i)=>{v['u'+(i+1)]=x.uc;v['p'+(i+1)]=rgPct(x.pct)});
+    const doc=new Docxtemplater(new PizZip(await rgModelo('ANEXO_G2_MODELO.docx')),{paragraphLoop:true,linebreaks:true,nullGetter:()=>''});
+    doc.render(v);
+    rgBaixar(doc.getZip().generate({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),
+      `Anexo_G2_${rgNomeArq(g.usina.nome)}_UC_${ratDig(g.ug)}_${ratMesTxt(g.mes).replace('/','-')}.docx`);
+    msg.textContent='✓ Anexo G.2 gerado. Confira, assine e envie.';msg.style.color='var(--ok,#11643a)';
+    await ratGTitular(g);
+  }catch(e){msg.style.color='';msg.textContent='⚠️ Não consegui gerar: '+e.message}
+};
+$('ratGG3').onclick=async()=>{
+  const g=ratGDados();if(!g)return;const msg=$('ratGMsg');msg.style.color='var(--muted)';msg.textContent='Gerando…';
+  try{
+    const X=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const txt=(ref,s,t)=>`<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${X(t)}</t></is></c>`;
+    const zip=new PizZip(await rgModelo('ANEXO_G3_MODELO.xlsx'));
+    let sh=zip.file('xl/worksheets/sheet1.xml').asText();
+    sh=sh.replace('<c r="B2" s="11"/>',txt('B2',11,g.ug));
+    const anc=$('rg_ancora').value.trim();if(anc)sh=sh.replace('<c r="C2" s="12"/>',txt('C2',12,anc));
+    const rows=g.ucs.map((x,i)=>{const n=10+i;return `<row r="${n}" spans="1:5">${txt('A'+n,2,x.uc)}<c r="B${n}" s="3"><v>${x.pct}</v></c>${txt('C'+n,4,x.doc)}${txt('D'+n,5,x.nome.toUpperCase())}</row>`}).join('');
+    sh=sh.replace('</sheetData>',rows+'</sheetData>').replace('<dimension ref="A1:E9"/>',`<dimension ref="A1:E${9+g.ucs.length}"/>`);
+    zip.file('xl/worksheets/sheet1.xml',sh);
+    rgBaixar(zip.generate({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),
+      `Anexo_G3_Lista_de_Rateio_${rgNomeArq(g.usina.nome)}_UC_${ratDig(g.ug)}.xlsx`);
+    msg.textContent='✓ Lista G.3 gerada.';msg.style.color='var(--ok,#11643a)';
+    await ratGTitular(g);
+  }catch(e){msg.style.color='';msg.textContent='⚠️ Não consegui gerar: '+e.message}
+};
+$('ratGFechar').onclick=ratGFechar;
+$('ratGModal').addEventListener('click',e=>{if(e.target===$('ratGModal'))ratGFechar()});
+$('ratHist').addEventListener('click',e=>{const b=e.target.closest('button[data-rat-g]');if(b)ratGAbrir(b.dataset.ratG)});
 /* Rateio enviado à RGE (Anexo G): a data vira a "entrada no rateio" das UCs novas no cadastro (Cobranças usam) */
 $('ratHist').addEventListener('click',async e=>{
   const b=e.target.closest('button[data-rat-env]');if(!b)return;const id=b.dataset.ratEnv;
@@ -2752,7 +2854,7 @@ $('ratUsForm').onsubmit=async e=>{
   if(!r||!r.ok){$('ru_msg').textContent='⚠️ '+((r&&r.erro)||'não foi possível salvar');return}
   // atualiza a lista da tela sem reler a planilha
   const d=rat.dados,U=d.usinas,i=U.findIndex(x=>ratDig(x.ug)===ratDig(r.usina.ug));
-  if(i>=0)U[i]=r.usina;else U.push(r.usina);
+  if(i>=0)U[i]={...U[i],...r.usina};else U.push(r.usina);
   if(r.geracao){const o={ug:r.geracao.ug,ano:r.geracao.ano};r.geracao.m.forEach((v,k)=>{o['m'+(k+1)]=v});
     const j=d.geracao.findIndex(x=>ratDig(x.ug)===ratDig(o.ug)&&+x.ano===o.ano);if(j>=0)d.geracao[j]=o;else d.geracao.push(o)}
   if(!r.usina.inativa)rat.ug=r.usina.ug;

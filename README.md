@@ -59,6 +59,13 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   data do envio do Anexo G, marca o rateio como "ENVIADO À RGE" e grava essa data como **entrada no rateio** no cadastro das
   UCs novas (as que nunca estiveram num rateio enviado e ainda não têm data). Quem já tinha data não muda; UC fora do cadastro
   é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
+- **Anexo G (formulários da RGE) gerado pelo portal:** no Rateio de créditos, cada rateio salvo tem o botão **📄 Anexo G**.
+  A janela confere a soma (100%), avisa UCs sem CPF/CNPJ e pede os dados do titular da usina (nome, CPF/CNPJ, e-mail,
+  responsável quando PJ, UC âncora), que ficam guardados na aba Rateio Usinas para a próxima vez. Gera:
+  **Anexo G.2 (Word)**, o formulário de alteração de percentuais e beneficiárias, com a tabela de até 30 UCs (acima disso
+  sai "conforme lista anexa"); e a **Lista de rateio G.3 (Excel)** da geração compartilhada (UC, %, CPF/CNPJ sem pontos,
+  nome), sem limite de linhas. Os modelos ficam em `modelos/ANEXO_G2_MODELO.docx` e `modelos/ANEXO_G3_MODELO.xlsx`.
+  Depois de assinar e enviar para microgeracaorge@cpfl.com.br, use **Marcar enviado à RGE**.
 - **Cobrança do mês criada pelo portal (período em paralelo):** cada fatura da RGE lida no Leitor (de cliente, não de usina)
   vira uma cobrança na aba **Cobranças Portal**: valor sem a OZZ, desconto do plano (cadastro do cliente; senão a ASSINATURA),
   cobrança, investidor e lucro, com vencimento **2 dias antes** do vencimento da conta da RGE (Config!B8 muda os dias).
