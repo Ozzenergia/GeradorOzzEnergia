@@ -59,6 +59,9 @@ Portal de uso interno da OZZ Energia / Energia Certa Consórcio.
   data do envio do Anexo G, marca o rateio como "ENVIADO À RGE" e grava essa data como **entrada no rateio** no cadastro das
   UCs novas (as que nunca estiveram num rateio enviado e ainda não têm data). Quem já tinha data não muda; UC fora do cadastro
   é cadastrada com a usina. As Cobranças passam a mostrar esses clientes como "Aguardando 1ª fatura".
+- **Cadastro → proposta:** ao salvar um cliente novo em Registrar cliente, o portal pergunta "Gerar a proposta agora?".
+  Sim abre Geradores → Propostas já preenchida com o cadastro (nome, documento, endereço, UC, distribuidora e o plano escolhido)
+  e com a mesma fatura usada no cadastro, se houver (consumo e histórico). Sem fatura, é só anexar na proposta.
 - **Controle do mês** (Clientes → Controle do mês): a aba do mês da planilha dentro do site. Escolhe o mês e aparece uma
   linha por cliente: fatura, conta da RGE, investidor (R$), lucro, cobrança, vencimento da RGE, situação (com os botões
   emitida → enviada → paga), **RGE paga**, **PGTO**, **Conferido** e **observação**. Os quatro últimos são marcados ali

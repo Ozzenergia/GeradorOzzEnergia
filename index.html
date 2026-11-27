@@ -149,6 +149,8 @@ main.wide.xl{max-width:1560px}
 .uc-cab{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:flex-start}
 .uc-cab h2{margin:0;font-size:22px}.uc-cab p{margin:4px 0 0;color:var(--muted);font-size:14px}
 .uc-acoes{display:flex;gap:8px;flex-wrap:wrap}
+.cli-oferta{margin-top:10px;padding:12px 14px;border:1px solid var(--primary);border-radius:12px;background:var(--card);display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;font-size:14px}
+.cli-oferta-bts{display:flex;gap:8px;flex-wrap:wrap}
 /* Controle do mês */
 .ctl-t td{vertical-align:middle}
 .ctl-t table{font-size:13px}.ctl-t th,.ctl-t td{padding-left:8px;padding-right:8px}
@@ -1077,7 +1079,9 @@ body.locked{overflow:hidden}
 <!-- =================== CLIENTES · REGISTRAR =================== -->
 <section id="tab-cli-reg" class="hidden">
   <div class="ana-top">
-    <div><h2 id="cliFormTit">Registrar cliente</h2><p id="cliRegSub">Os dados ficam na aba Clientes da planilha do portal</p></div>
+    <div><h2 id="cliFormTit">Registrar cliente</h2><p id="cliRegSub">Os dados ficam na aba Clientes da planilha do portal</p>
+      <div class="cli-oferta hidden" id="cliOferta" role="status" aria-live="polite"><span id="cliOfertaTxt"></span>
+        <div class="cli-oferta-bts"><button class="btn pri sm" type="button" id="cliOfertaSim">📊 Gerar a proposta agora</button><button class="btn sec sm" type="button" id="cliOfertaNao">Agora não</button></div></div></div>
     <button class="btn sec sm" id="cliVerTabela" type="button">☰ Tabela de clientes</button>
   </div>
   <form class="cli-form" id="cliForm" novalidate autocomplete="off">
@@ -2094,7 +2098,7 @@ function cliRender(){
   $('cliRodape').innerHTML=`<span>${lista.length} de ${cli.lista.length} cliente${cli.lista.length===1?'':'s'}</span><span></span>`;
 }
 function cliErroCampo(k,msg){const el=$('cl_'+k);el.classList.toggle('err',!!msg);el.setAttribute('aria-invalid',msg?'true':'false');el.parentElement.querySelector('small').textContent=msg||''}
-function cliEditar(c){
+function cliEditar(c){cli.fatArq=null;try{$('cliOferta').classList.add('hidden')}catch(e){}
   cli.editando=c?c.id:null;
   cli.formAberto=true;
   $('cliFormTit').textContent=c?'Alterar cliente':'Registrar cliente';
@@ -2137,7 +2141,8 @@ $('cliForm').addEventListener('submit',async e=>{
   e.preventDefault();if(cli.salvando)return;
   const d=cliValidar(),st=$('cliSt');
   if(!d){st.textContent='Confira os campos em vermelho.';st.className='st err';return}
-  cli.salvando=true;$('cliSalvar').disabled=true;st.textContent='Salvando…';st.className='st';
+  cli.salvando=true;$('cliSalvar').disabled=true;st.textContent='Salvando…';st.className='st';$('cliOferta').classList.add('hidden');
+  const arqFatura=cli.fatArq||null;
   const r=await sheetApi('cli_salvar',{dados:Object.assign({id:cli.editando||''},d)},{espera:60000});
   cli.salvando=false;$('cliSalvar').disabled=false;
   if(!r||!r.ok){
@@ -2148,8 +2153,9 @@ $('cliForm').addEventListener('submit',async e=>{
     return}
   if(cli.lista){const i=cli.lista.findIndex(c=>c.id===r.cliente.id);if(i>=0)cli.lista[i]=r.cliente;else cli.lista.push(r.cliente)}
   if(r.criado){   // cliente novo: limpa o formulário para registrar o próximo
-    cliEditar(null);
+    cliEditar(null);cli.fatArq=null;
     $('cliRegSub').textContent='✓ Cliente cadastrado: '+r.cliente.nome+'. Pode registrar o próximo.';
+    cliOferecerProposta(r.cliente,arqFatura);
   }else{          // alteração: volta para a tabela
     cliFechar(true);$('cliSub').textContent='✓ Cliente alterado: '+r.cliente.nome;
   }
@@ -2158,6 +2164,7 @@ $('cliForm').addEventListener('submit',async e=>{
 $('cliFatBtn').onclick=()=>$('cliFatFile').click();
 $('cliFatFile').addEventListener('change',async e=>{
   const file=e.target.files[0];e.target.value='';if(!file)return;
+  cli.fatArq=file;   // a mesma fatura serve para a proposta, se o vendedor quiser gerar logo depois de salvar
   const st=$('cliFatSt'),bt=$('cliFatBtn');bt.disabled=true;st.className='';st.textContent='Lendo a fatura…';
   let r;
   try{r=await lerFatura(file,m=>{st.textContent=m})}
@@ -3231,6 +3238,33 @@ function preencherCampos(mapa){
   return {pos,dif};
 }
 const sem2=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+/* Depois de cadastrar um cliente novo: oferece gerar a proposta já preenchida (com a fatura usada no cadastro, se houver) */
+function cliOferecerProposta(c,arq){
+  const box=$('cliOferta');if(!areasPermitidas().includes('ger')){box.classList.add('hidden');return}
+  $('cliOfertaTxt').innerHTML=`Quer gerar a proposta de <b>${anaEsc(c.nome)}</b> agora?`+(arq?' A fatura que você usou no cadastro já vai junto.':' Depois é só anexar a fatura para o consumo.');
+  box.classList.remove('hidden');
+  $('cliOfertaNao').onclick=()=>box.classList.add('hidden');
+  $('cliOfertaSim').onclick=async()=>{box.classList.add('hidden');await propDoCadastro(c,arq)};
+}
+async function propDoCadastro(c,arq){
+  abrir('ger','prop');
+  let lida=false;
+  if(arq)lida=await propLerFatura(arq);
+  if(!lida)openReview({},'');
+  // o que veio do cadastro entra nos campos que a fatura não preencheu
+  const doc=soDig(c.doc);
+  const r=preencherCampos([
+    [$('fx_titular'),c.nome,'nome'],
+    [doc.length===11?$('fx_cpf'):null,c.doc,'CPF'],[doc.length===14?$('fx_cnpj'):null,c.doc,'CNPJ'],
+    [$('fx_endereco'),c.endereco,'endereço'],[$('fx_cep'),c.cep,'CEP'],[$('fx_cidade'),c.cidade,'cidade'],[$('fx_uf'),c.uf,'UF'],
+    [$('fx_codigo_uc'),c.uc,'UC'],[$('fx_distribuidora'),c.distribuidora,'distribuidora']]);
+  // plano escolhido no cadastro
+  const ip=(cfg.planos||[]).findIndex(p=>p.nome===c.plano);
+  if(ip>=0){planSel=ip;try{renderPlans();renderVals()}catch(e){}}
+  const st=$('ppPickSt');
+  if(st){st.className='cli-pick-st ok';st.textContent='✓ Proposta de '+c.nome+(lida?' com a fatura do cadastro':'')+(r.pos.length?' · do cadastro: '+r.pos.join(', '):'')+(ip>=0?' · plano '+c.plano:'')+'.'+(lida?'':' Anexe a fatura (ou digite o consumo) para calcular.')}
+  window.scrollTo({top:0});
+}
 // Proposta
 const pickProp=seletorCliente('pp',c=>{
   const doc=soDig(c.doc);
@@ -4485,15 +4519,16 @@ const COVERED=new Set([...FX,'documento','consumo','consumo_anual','plano','desc
 $('histGrid').innerHTML=Array.from({length:12},(_,i)=>`<div class="f"><label>Mês ${i+1}</label><input id="h${i}" inputmode="numeric"></div>`).join('');
 
 let propData={},planSel=-1;
-setupDrop($('fatDrop'),$('fatFile'),async file=>{
+async function propLerFatura(file){   // devolve true se a fatura foi lida
   const e=$('fatErr');e.style.display='none';
   $('fatName').textContent=file.name;$('fatOk').style.display='flex';$('fatLoad').style.display='block';
   try{
     const r=await lerFatura(file,t=>$('fatProg').textContent=t);
-    openReview(r.d,r.aviso,r);
-  }catch(err){e.textContent='⚠️ Não foi possível ler a fatura: '+err.message;e.style.display='block'}
+    openReview(r.d,r.aviso,r);return true;
+  }catch(err){e.textContent='⚠️ Não foi possível ler a fatura: '+err.message;e.style.display='block';return false}
   finally{$('fatLoad').style.display='none';$('fatProg').textContent='Extraindo dados do cliente, da UC e do consumo';$('fatFile').value=''}
-});
+}
+setupDrop($('fatDrop'),$('fatFile'),propLerFatura);
 $('skipFat').onclick=()=>openReview({},'');
 
 /* Leitor específico: fatura DANF3E do grupo CPFL (RGE Sul, CPFL Paulista, Piratininga, Santa Cruz) */
